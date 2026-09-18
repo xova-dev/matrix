@@ -1,0 +1,60 @@
+{
+  "name": "@xova/matrix",
+  "type": "module",
+  "version": "0.1.0",
+  "description": "A configuration-driven multi-app workspace orchestration engine and CLI.",
+  "license": "MIT",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./config": {
+      "types": "./dist/config.d.ts",
+      "import": "./dist/config.js"
+    },
+    "./plan": {
+      "types": "./dist/plan.d.ts",
+      "import": "./dist/plan.js"
+    }
+  },
+  "bin": {
+    "matrix": "./bin/matrix.mjs"
+  },
+  "files": [
+    "bin",
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "prepack": "pnpm build",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build"
+  },
+  "dependencies": {
+    "@clack/prompts": "catalog:",
+    "archiver": "catalog:",
+    "c12": "catalog:",
+    "consola": "catalog:",
+    "execa": "catalog:",
+    "valibot": "catalog:"
+  },
+  "devDependencies": {
+    "@antfu/eslint-config": "catalog:",
+    "@types/archiver": "catalog:",
+    "@types/node": "catalog:",
+    "eslint": "catalog:",
+    "eslint-plugin-format": "catalog:",
+    "prettier": "catalog:",
+    "publint": "catalog:",
+    "tsdown": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

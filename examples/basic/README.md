@@ -1,0 +1,47 @@
+# Basic example
+
+This is a self-contained Matrix example with two projects and no framework dependency. It is
+small enough to run locally, while covering the main configuration points used by a multi-target
+application.
+
+It demonstrates:
+
+- reusable Web and Desktop projects
+- the short target form (`test: 'node test.mjs'`)
+- `dev`, `build`, `preview`, and `test` targets
+- readiness checks for long-running targets
+- product and variant `appId`, `name`, and `slug` values
+- product-scoped `qa`, `staging`, and `production` environment variables
+- environment-specific identity suffixes
+- a variant dependency shared by `dev` and `build`
+- both ZIP and `tar.gz` build archives
+
+The example uses the short `dependsOn: ['web']` form. Matrix selects `ready` for continuous
+targets such as `dev` and `completed` for one-shot targets such as `build`.
+
+The `qa` environment is product-scoped, so it appears after `app` is selected in the interactive
+flow. The built-in environments are `development`, `staging`, and `production`; custom names can
+be added under the product's `$env` object.
+
+Build Matrix from the repository root first:
+
+```bash
+pnpm build
+```
+
+Then run the example:
+
+```bash
+cd examples/basic
+pnpm run doctor
+pnpm run test
+pnpm run plan
+pnpm run build
+pnpm run preview
+```
+
+`pnpm run dev` starts the Web project first and starts the Desktop project after the Web port is
+ready. Stop continuous commands with `Ctrl+C`.
+
+The build command writes files to both project `dist` directories and creates a Web ZIP plus a
+Desktop `tar.gz` under `examples/basic/artifacts/app/staging/`.

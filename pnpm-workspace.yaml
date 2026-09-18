@@ -1,0 +1,24 @@
+minimumReleaseAgeExcludePrune: true
+trustPolicy: no-downgrade
+shellEmulator: true
+
+allowBuilds:
+  esbuild: true
+
+catalog:
+  '@antfu/eslint-config': ^9.5.1
+  '@clack/prompts': ^0.11.0
+  '@types/archiver': ^6.0.3
+  '@types/node': ^24.9.2
+  archiver: ^7.0.1
+  c12: ^3.3.0
+  consola: ^3.4.2
+  eslint: ^10.10.0
+  eslint-plugin-format: ^2.0.1
+  execa: ^9.6.0
+  prettier: ^3.9.8
+  publint: ^0.3.24
+  tsdown: ^0.23.0
+  typescript: ^5.9.2
+  valibot: ^1.1.0
+  vitest: ^3.2.4

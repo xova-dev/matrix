@@ -1,0 +1,13 @@
+{
+  "name": "matrix-basic-example",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "node ../../dist/cli.js build app --env staging",
+    "dev": "node ../../dist/cli.js dev app",
+    "doctor": "node ../../dist/cli.js doctor",
+    "plan": "node ../../dist/cli.js plan app --target build --env staging",
+    "preview": "node ../../dist/cli.js preview app --env production",
+    "test": "node ../../dist/cli.js test app --env development"
+  }
+}

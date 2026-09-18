@@ -1,0 +1,5 @@
+export { defaultEnvironmentForTarget, defineMatrixConfig, defineMatrixEnv, listMatrixEnvironments, loadMatrixConfig, MATRIX_DEFAULTS, normalizeMatrixConfig } from './config.js'
+export { createExecutionPlan } from './plan.js'
+export { assertMatrixConfig, matrixConfigSchema } from './schema.js'
+export { MATRIX_ENVIRONMENTS } from './types.js'
+export type * from './types.js'

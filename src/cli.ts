@@ -1,0 +1,228 @@
+#!/usr/bin/env node
+import process from 'node:process'
+import { isCancel, multiselect, outro, select } from '@clack/prompts'
+import consola from 'consola'
+import { defaultEnvironmentForTarget, listMatrixEnvironments, loadMatrixConfig } from './config.js'
+import { MATRIX_DEFAULTS } from './defaults.js'
+import { runExecutionPlan } from './exec.js'
+import { createExecutionPlan } from './plan.js'
+
+interface Args { command?: string, product?: string, variants: string[], env?: string, target?: string, archive?: boolean }
+const sensitiveEnvKey = /token|secret|password|passwd|authorization|cookie|api[_-]?key|private[_-]?key/i
+
+function redactPlan(plan: Awaited<ReturnType<typeof createExecutionPlan>>, visibleEnvKeys: Set<string>): Awaited<ReturnType<typeof createExecutionPlan>> {
+  return {
+    ...plan,
+    tasks: plan.tasks.map(task => ({
+      ...task,
+      env: Object.fromEntries(Object.entries(task.env)
+        .filter(([key]) => visibleEnvKeys.has(key) || key.startsWith('MATRIX_'))
+        .map(([key, value]) => [key, sensitiveEnvKey.test(key) ? '***' : value])),
+    })),
+  }
+}
+
+function parseArgs(argv: string[]): Args {
+  const result: Args = { variants: [] }
+  for (let index = 0; index < argv.length; index++) {
+    const value = argv[index]
+    if (!value)
+      continue
+    if (!value.startsWith('-') && !result.command) {
+      result.command = value
+    }
+    else if (!value.startsWith('-') && !result.product) {
+      result.product = value
+    }
+    else if (value === '--variant' || value === '-v') {
+      const next = argv[++index]
+      if (next)
+        result.variants.push(...next.split(','))
+    }
+    else if (value === '--env' || value === '--mode') {
+      const next = argv[++index]
+      if (next)
+        result.env = next
+    }
+    else if (value === '--target') {
+      const next = argv[++index]
+      if (next)
+        result.target = next
+    }
+    else if (value === '--archive') {
+      result.archive = true
+    }
+    else if (value === '--no-archive') {
+      result.archive = false
+    }
+  }
+  return result
+}
+
+type Products = Awaited<ReturnType<typeof loadMatrixConfig>>['products']
+type Product = Products[string]
+
+function availableTargets(product: Product, variantNames: string[] = []): string[] {
+  const variants = variantNames.length
+    ? variantNames.map(name => product.variants[name]).filter((variant): variant is Product['variants'][string] => variant !== undefined)
+    : Object.values(product.variants)
+  const targetSets = variants.map(variant => new Set(Object.keys(variant.targets)))
+  return [...(targetSets[0] ?? new Set<string>())].filter(target => targetSets.every(targetSet => targetSet.has(target))).sort()
+}
+
+function validateVariants(product: Product, variantNames: string[]): void {
+  for (const variantName of variantNames) {
+    if (!product.variants[variantName])
+      throw new Error(`Unknown variant for product ${product.key}: ${variantName}`)
+  }
+}
+
+function validateTarget(target: string, product: Product, variantNames: string[] = []): void {
+  const targets = availableTargets(product, variantNames)
+  const available = targets.length ? targets.join(', ') : 'none'
+  if (!targets.includes(target))
+    throw new Error(`Unknown command or target for product ${product.key}: ${target}. Available targets: ${available}`)
+}
+
+async function chooseProduct(args: Args, products: Products): Promise<Args | null> {
+  if (!args.product) {
+    if (!process.stdin.isTTY || !process.stdout.isTTY)
+      throw new Error('Product is required in non-interactive mode. Try: matrix <target> <product>')
+    const selected = await select({ message: 'Select product', options: Object.keys(products).map(value => ({ value, label: value })) })
+    if (isCancel(selected))
+      return null
+    args.product = selected as string
+  }
+  if (args.product.includes(','))
+    throw new Error('Only one product can be selected per run')
+  if (!products[args.product])
+    throw new Error(`Unknown product: ${args.product}`)
+  return args
+}
+
+async function chooseTarget(args: Args, product: Product): Promise<Args | null> {
+  const target = args.target ?? (args.command && args.command !== 'plan' ? args.command : undefined)
+  if (target) {
+    args.target = target
+    return args
+  }
+  const targets = availableTargets(product, args.variants)
+  if (!targets.length)
+    throw new Error(`Product ${product.key} has no common targets`)
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    args.target = targets.includes(MATRIX_DEFAULTS.target) ? MATRIX_DEFAULTS.target : targets[0]!
+    return args
+  }
+  const selected = await select({
+    message: 'Select target',
+    initialValue: targets.includes(MATRIX_DEFAULTS.target) ? MATRIX_DEFAULTS.target : targets[0],
+    options: targets.map(value => ({ value, label: value, ...(value === MATRIX_DEFAULTS.target ? { hint: 'default' } : {}) })),
+  })
+  if (isCancel(selected))
+    return null
+  args.target = selected as string
+  return args
+}
+
+async function chooseVariants(args: Args, product: Product): Promise<Args | null> {
+  const isInteractiveDev = (args.command === 'dev' || !args.command) && args.target === 'dev'
+  if (!args.variants.length && isInteractiveDev && process.stdin.isTTY && process.stdout.isTTY) {
+    const variants = Object.entries(product.variants).filter(([, variant]) => args.target! in variant.targets)
+    const selected = await multiselect({ message: 'Select variants (leave empty to select all)', options: variants.map(([value]) => ({ value, label: value })) })
+    if (isCancel(selected))
+      return null
+    args.variants = selected as string[]
+  }
+  return args
+}
+
+async function chooseEnvironment(args: Args, target: string, environments: string[]): Promise<(Args & { env: string }) | null> {
+  if (args.env)
+    return args as Args & { env: string }
+  const defaultEnvironment = defaultEnvironmentForTarget(target)
+  if (process.stdin.isTTY && process.stdout.isTTY) {
+    const selected = await select({
+      message: 'Select environment',
+      initialValue: defaultEnvironment,
+      options: environments.map(value => ({ value, label: value, ...(value === defaultEnvironment ? { hint: 'default' } : {}) })),
+    })
+    if (isCancel(selected))
+      return null
+    args.env = selected as string
+  }
+  else {
+    args.env = defaultEnvironment
+  }
+  return args as Args & { env: string }
+}
+
+async function main(): Promise<void> {
+  const args = parseArgs(process.argv.slice(2))
+  if (args.command === 'help' || process.argv.includes('--help') || process.argv.includes('-h')) {
+    console.log('matrix [target] [product] [--variant name] [--env name] [--target name] [--archive]')
+    return
+  }
+  if (args.command === 'doctor') {
+    const loaded = await loadMatrixConfig({ ...(args.env ? { envName: args.env } : {}) })
+    consola.success(`Configuration is valid: ${loaded.configFile ?? 'matrix.config.ts'}`)
+    return
+  }
+  const initialTarget = args.target ?? (args.command && args.command !== 'plan' ? args.command : MATRIX_DEFAULTS.target)
+  const initialEnvironment = args.env ?? defaultEnvironmentForTarget(initialTarget)
+  const initialLoaded = await loadMatrixConfig({ envName: initialEnvironment })
+  const selectedProduct = await chooseProduct(args, initialLoaded.products)
+  if (!selectedProduct)
+    return outro('Cancelled')
+  const product = initialLoaded.products[selectedProduct.product!]
+  if (!product)
+    throw new Error(`Unknown product: ${selectedProduct.product}`)
+  validateVariants(product, selectedProduct.variants)
+  const selectedTarget = await chooseTarget(selectedProduct, product)
+  if (!selectedTarget)
+    return outro('Cancelled')
+  const target = selectedTarget.target!
+  validateTarget(target, product, selectedTarget.variants)
+  const availableEnvironments = await listMatrixEnvironments({ productName: selectedTarget.product! })
+  const selectedEnvironment = await chooseEnvironment(selectedTarget, target, availableEnvironments)
+  if (!selectedEnvironment)
+    return outro('Cancelled')
+  const loaded = selectedEnvironment.env === initialEnvironment
+    ? initialLoaded
+    : await loadMatrixConfig({ envName: selectedEnvironment.env })
+  const finalProduct = loaded.products[selectedEnvironment.product!]
+  if (!finalProduct)
+    throw new Error(`Unknown product: ${selectedEnvironment.product}`)
+  const selected = await chooseVariants(selectedEnvironment, finalProduct)
+  if (!selected)
+    return outro('Cancelled')
+  const selectedFinalProduct = loaded.products[selected.product!]
+  if (!selectedFinalProduct)
+    throw new Error(`Unknown product: ${selected.product}`)
+  validateVariants(selectedFinalProduct, selected.variants)
+  validateTarget(target, selectedFinalProduct, selected.variants)
+  const command = selected.command ?? target
+  const products = [selected.product!]
+  const planInput = { config: loaded.config, projects: loaded.projects, products: loaded.products, externalEnv: loaded.externalEnv, cwd: loaded.cwd, productNames: products, target, envName: loaded.envName }
+  const plan = selected.variants.length ? createExecutionPlan({ ...planInput, variantNames: selected.variants }) : createExecutionPlan(planInput)
+  if (selected.archive !== undefined) {
+    for (const task of plan.tasks) {
+      if (task.target === 'build')
+        task.archive.enabled = selected.archive
+    }
+  }
+  if (command === 'plan') {
+    const visibleEnvKeys = new Set(Object.keys(loaded.config.env ?? {}))
+    for (const productName of products) {
+      for (const key of Object.keys(loaded.config.products[productName]?.env ?? {}))
+        visibleEnvKeys.add(key)
+    }
+    console.log(JSON.stringify(redactPlan(plan, visibleEnvKeys), null, 2))
+    return
+  }
+  await runExecutionPlan(plan)
+}
+
+main().catch((error: unknown) => {
+  consola.error(error instanceof Error ? error.message : error)
+  process.exitCode = 1
+})
