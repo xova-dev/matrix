@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   publish:
-    uses: xova-dev/.github/.github/workflows/npm-publish.yml@v1
+    uses: xova-dev/.github/.github/workflows/npm-publish.yml@main
     with:
       verify-command: pnpm check && pnpm test:pack
       publish-command: pnpm publish --access public
