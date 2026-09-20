@@ -1,0 +1,17 @@
+name: Publish
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    uses: xova-dev/.github/.github/workflows/npm-publish.yml@v1
+    with:
+      verify-command: pnpm check
+      publish-command: npm publish --access public
