@@ -47,7 +47,7 @@
   "scripts": {
     "build": "tsdown",
     "prepack": "pnpm build",
-    "release:prepare": "changelogen --release --push",
+    "release:prepare": "changelogen --clean --release --push",
     "release:github": "changelogen gh release",
     "test:pack": "node scripts/pack-smoke.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
