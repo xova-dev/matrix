@@ -5,6 +5,21 @@
   "packageManager": "pnpm@12.4.2",
   "description": "A configuration-driven multi-app workspace orchestration engine and CLI.",
   "license": "MIT",
+  "homepage": "https://github.com/xova-dev/matrix#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xova-dev/matrix.git"
+  },
+  "bugs": {
+    "url": "https://github.com/xova-dev/matrix/issues"
+  },
+  "keywords": [
+    "workspace",
+    "monorepo",
+    "cli",
+    "build",
+    "orchestration"
+  ],
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -32,6 +47,7 @@
   "scripts": {
     "build": "tsdown",
     "prepack": "pnpm build",
+    "test:pack": "node scripts/pack-smoke.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "lint": "eslint .",
