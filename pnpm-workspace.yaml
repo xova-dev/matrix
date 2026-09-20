@@ -12,6 +12,7 @@ catalog:
   '@types/node': ^24.9.2
   archiver: ^7.0.1
   c12: ^3.3.0
+  changelogen: ^0.6.2
   consola: ^3.4.2
   eslint: ^10.10.0
   eslint-plugin-format: ^2.0.1
