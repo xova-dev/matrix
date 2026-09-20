@@ -128,3 +128,19 @@ export function createExecutionPlan(input: CreateExecutionPlanInput): ExecutionP
     artifactsRoot: path.resolve(input.cwd, input.config.artifacts?.root ?? MATRIX_DEFAULTS.artifactsRoot),
   }
 }
+
+/** Validates every configured product, variant, and target without starting any process. */
+export function validateExecutionGraph(input: Omit<CreateExecutionPlanInput, 'productNames' | 'variantNames' | 'target'>): void {
+  for (const [productName, product] of Object.entries(input.products)) {
+    for (const [variantName, variant] of Object.entries(product.variants)) {
+      for (const targetName of Object.keys(variant.targets)) {
+        createExecutionPlan({
+          ...input,
+          productNames: [productName],
+          variantNames: [variantName],
+          target: targetName,
+        })
+      }
+    }
+  }
+}

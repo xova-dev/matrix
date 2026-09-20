@@ -5,7 +5,7 @@ import consola from 'consola'
 import { defaultEnvironmentForTarget, listMatrixEnvironments, loadMatrixConfig } from './config.js'
 import { MATRIX_DEFAULTS } from './defaults.js'
 import { runExecutionPlan } from './exec.js'
-import { createExecutionPlan } from './plan.js'
+import { createExecutionPlan, validateExecutionGraph } from './plan.js'
 
 interface Args { command?: string, product?: string, variants: string[], env?: string, target?: string, archive?: boolean }
 const sensitiveEnvKey = /token|secret|password|passwd|authorization|cookie|api[_-]?key|private[_-]?key/i
@@ -164,6 +164,14 @@ async function main(): Promise<void> {
   }
   if (args.command === 'doctor') {
     const loaded = await loadMatrixConfig({ ...(args.env ? { envName: args.env } : {}) })
+    validateExecutionGraph({
+      config: loaded.config,
+      projects: loaded.projects,
+      products: loaded.products,
+      externalEnv: loaded.externalEnv,
+      cwd: loaded.cwd,
+      envName: loaded.envName,
+    })
     consola.success(`Configuration is valid: ${loaded.configFile ?? 'matrix.config.ts'}`)
     return
   }

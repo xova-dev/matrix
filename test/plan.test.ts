@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { normalizeMatrixConfig } from '../src/config.js'
-import { createExecutionPlan } from '../src/plan.js'
+import { createExecutionPlan, validateExecutionGraph } from '../src/plan.js'
 
 describe('matrix plan', () => {
   it('normalizes shorthand targets and variants and applies suffixes', () => {
@@ -75,5 +75,57 @@ describe('matrix plan', () => {
       envName: 'test',
     })
     expect(plan.tasks[0]?.env).toMatchObject({ SOURCE: 'matrix', SHARED: 'shell', MODE_ONLY: 'yes', PRODUCT_ONLY: 'yes', EXTERNAL_ONLY: 'yes', MATRIX_ENV_NAME: 'test' })
+  })
+
+  it('validates dependencies for every configured target', () => {
+    const { config, projects, products } = normalizeMatrixConfig({
+      projects: {
+        web: { targets: { build: 'web-build' } },
+        desktop: { targets: { build: 'desktop-build' } },
+      },
+      products: {
+        app: {
+          variants: {
+            web: 'web',
+            desktop: { project: 'desktop', targets: { build: { dependsOn: ['web'] } } },
+          },
+        },
+      },
+    })
+
+    expect(() => validateExecutionGraph({ config, projects, products, cwd: process.cwd(), envName: 'production' })).not.toThrow()
+  })
+
+  it('rejects unknown dependency variants during graph validation', () => {
+    const { config, projects, products } = normalizeMatrixConfig({
+      projects: { web: { targets: { build: 'web-build' } } },
+      products: {
+        app: {
+          variants: {
+            web: { project: 'web', targets: { build: { dependsOn: ['missing'] } } },
+          },
+        },
+      },
+    })
+
+    expect(() => validateExecutionGraph({ config, projects, products, cwd: process.cwd(), envName: 'production' }))
+      .toThrow('Unknown dependency variant app/missing')
+  })
+
+  it('rejects dependency cycles during graph validation', () => {
+    const { config, projects, products } = normalizeMatrixConfig({
+      projects: {
+        first: { targets: { build: { command: 'first-build', dependsOn: ['second'] } } },
+        second: { targets: { build: { command: 'second-build', dependsOn: ['first'] } } },
+      },
+      products: {
+        app: {
+          variants: { first: 'first', second: 'second' },
+        },
+      },
+    })
+
+    expect(() => validateExecutionGraph({ config, projects, products, cwd: process.cwd(), envName: 'production' }))
+      .toThrow('Dependency cycle detected at app:first:build')
   })
 })
