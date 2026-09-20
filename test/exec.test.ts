@@ -61,6 +61,42 @@ async function freePort(): Promise<number> {
 }
 
 describe('runExecutionPlan', () => {
+  it('inherits the host environment and lets task variables override it', async () => {
+    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'matrix-exec-'))
+    const marker = path.join(cwd, 'env.json')
+    const inheritedKey = 'MATRIX_TEST_HOST_INHERITED'
+    const overriddenKey = 'MATRIX_TEST_HOST_OVERRIDDEN'
+    const previousInherited = process.env[inheritedKey]
+    const previousOverridden = process.env[overriddenKey]
+    process.env[inheritedKey] = 'host-value'
+    process.env[overriddenKey] = 'host-value'
+    try {
+      const task = scriptedTask('app:environment:test', [
+        'const fs = require("node:fs")',
+        `fs.writeFileSync(process.env.MATRIX_TEST_MARKER, JSON.stringify({ inherited: process.env.${inheritedKey}, overridden: process.env.${overriddenKey} }))`,
+      ].join(String.fromCharCode(10)), {
+        env: {
+          MATRIX_TEST_MARKER: marker,
+          [overriddenKey]: 'task-value',
+        },
+      })
+
+      await runExecutionPlan(plan([task]))
+
+      await expect(fs.readFile(marker, 'utf8')).resolves.toBe(JSON.stringify({ inherited: 'host-value', overridden: 'task-value' }))
+    }
+    finally {
+      if (previousInherited === undefined)
+        delete process.env[inheritedKey]
+      else
+        process.env[inheritedKey] = previousInherited
+      if (previousOverridden === undefined)
+        delete process.env[overriddenKey]
+      else
+        process.env[overriddenKey] = previousOverridden
+    }
+  })
+
   it('waits for completed dependencies before starting the dependent task', async () => {
     const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'matrix-exec-'))
     const marker = path.join(cwd, 'marker')

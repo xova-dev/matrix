@@ -121,11 +121,19 @@ export default defineMatrixConfig({
 
 `defineMatrixEnv()` 是 c12 兼容的 `$env.<environment>.env` 写法的语法糖，底层结构仍然保持不变，也继续支持直接使用原始写法。
 
-变量覆盖优先级从低到高为：
+普通应用变量的覆盖优先级从低到高为：
 
 ```text
-global env/$env < product env/$env < .env layers < process.env < MATRIX_*
+global env/$env < product env/$env < .env layers < process.env
 ```
+
+产品 identity override 会先从合并后的环境变量中解析，然后再应用 suffix：
+
+```text
+product identity < variant identity < 合并后的 identity override < environment suffix
+```
+
+`MATRIX_PRODUCT_NAME`、`MATRIX_PRODUCT_SLUG` 和 `MATRIX_PRODUCT_APP_ID` 可以通过环境变量提供 identity override。包含 suffix 的最终值会同时写入任务元数据和对应的 `MATRIX_PRODUCT_*` 变量。`MATRIX_PRODUCT_ID`、`MATRIX_PRODUCT_KEY`、执行上下文变量和 `NODE_ENV` 由 Matrix 生成，不能被环境变量覆盖。
 
 Matrix 会向每个子进程注入以下执行上下文变量：
 

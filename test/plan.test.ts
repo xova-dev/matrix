@@ -88,6 +88,46 @@ describe('matrix plan', () => {
     expect(plan.tasks[0]?.env).toMatchObject({ SOURCE: 'matrix', SHARED: 'shell', MODE_ONLY: 'yes', PRODUCT_ONLY: 'yes', EXTERNAL_ONLY: 'yes', MATRIX_ENV_NAME: 'test' })
   })
 
+  it('resolves identity overrides before applying suffixes and protects Matrix identity fields', () => {
+    const { config, products } = normalizeMatrixConfig({
+      suffixes: { test: { name: '（测试）', slug: '-test', appId: '-test' } },
+      projects: { desktop: { targets: { build: 'desktop-build' } } },
+      products: {
+        classroom: {
+          appId: 'com.example.classroom',
+          env: { MATRIX_PRODUCT_APP_ID: 'com.example.classroom-product' },
+          variants: { desktop: 'desktop' },
+        },
+      },
+    })
+    const plan = createExecutionPlan({
+      config,
+      projects: { desktop: {} },
+      products,
+      externalEnv: {
+        MATRIX_PRODUCT_APP_ID: 'com.example.classroom-local',
+        MATRIX_PRODUCT_NAME: 'Classroom Local',
+        MATRIX_PRODUCT_SLUG: 'classroom-local',
+        MATRIX_PRODUCT_ID: 'overridden-id',
+        NODE_ENV: 'development',
+      },
+      cwd: process.cwd(),
+      productNames: ['classroom'],
+      target: 'build',
+      envName: 'test',
+    })
+    expect(plan.tasks[0]).toMatchObject({
+      appId: 'com.example.classroom-local-test',
+      name: 'Classroom Local（测试）',
+      slug: 'classroom-local-test',
+    })
+    expect(plan.tasks[0]?.env).toMatchObject({
+      MATRIX_PRODUCT_ID: 'classroom',
+      MATRIX_PRODUCT_APP_ID: 'com.example.classroom-local-test',
+      NODE_ENV: 'production',
+    })
+  })
+
   it('validates dependencies for every configured target', () => {
     const { config, projects, products } = normalizeMatrixConfig({
       projects: {

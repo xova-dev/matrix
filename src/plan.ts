@@ -15,6 +15,11 @@ function applySuffix(value: string | undefined, suffix: string | undefined): str
   return value === undefined || suffix === undefined ? value : `${value}${suffix}`
 }
 
+function envString(env: EnvMap, key: string): string | undefined {
+  const value = env[key]
+  return value === undefined ? undefined : String(value)
+}
+
 function mergeSuffixes(...sources: Array<Record<string, { name?: string, slug?: string, appId?: string }> | undefined>): Record<string, { name?: string, slug?: string, appId?: string }> {
   const result: Record<string, { name?: string, slug?: string, appId?: string }> = {}
   for (const source of sources) {
@@ -23,13 +28,16 @@ function mergeSuffixes(...sources: Array<Record<string, { name?: string, slug?: 
   return result
 }
 
-function resolvedVariant(product: NormalizedProduct, variant: NormalizedVariant, envName: string): { id: string, name: string, slug: string, appId: string | undefined } {
+function resolvedVariant(product: NormalizedProduct, variant: NormalizedVariant, envName: string, env: EnvMap): { id: string, name: string, slug: string, appId: string | undefined } {
   const suffix = { ...(product.suffixes?.[envName] ?? {}), ...(variant.suffixes?.[envName] ?? {}) }
+  const name = envString(env, 'MATRIX_PRODUCT_NAME') ?? variant.name ?? product.name
+  const slug = envString(env, 'MATRIX_PRODUCT_SLUG') ?? variant.slug ?? product.slug
+  const appId = envString(env, 'MATRIX_PRODUCT_APP_ID') ?? variant.appId ?? product.appId
   return {
     id: product.id,
-    name: applySuffix(variant.name ?? product.name, suffix.name)!,
-    slug: applySuffix(variant.slug ?? product.slug, suffix.slug)!,
-    appId: applySuffix(variant.appId ?? product.appId, suffix.appId),
+    name: applySuffix(name, suffix.name)!,
+    slug: applySuffix(slug, suffix.slug)!,
+    appId: applySuffix(appId, suffix.appId),
   }
 }
 
@@ -83,7 +91,8 @@ export function createExecutionPlan(input: CreateExecutionPlanInput): ExecutionP
     })
     visiting.delete(id)
 
-    const identity = resolvedVariant({ ...product, suffixes: mergeSuffixes(input.config.suffixes, product.suffixes) }, variant, input.envName)
+    const effectiveEnv = mergeEnv(input.config.env, product.env, input.externalEnv ?? currentProcessEnv())
+    const identity = resolvedVariant({ ...product, suffixes: mergeSuffixes(input.config.suffixes, product.suffixes) }, variant, input.envName, effectiveEnv)
     const projectRoot = path.resolve(input.cwd, project.root ?? MATRIX_DEFAULTS.projectRoot)
     const task: ExecutionTask = {
       id,
@@ -97,7 +106,7 @@ export function createExecutionPlan(input: CreateExecutionPlanInput): ExecutionP
       ...(identity.appId ? { appId: identity.appId } : {}),
       command: target.command,
       cwd: projectRoot,
-      env: mergeEnv(input.config.env, product.env, input.externalEnv ?? currentProcessEnv(), {
+      env: mergeEnv(effectiveEnv, {
         MATRIX_ENV_NAME: input.envName,
         MATRIX_TARGET: targetName,
         MATRIX_PRODUCT_KEY: productName,

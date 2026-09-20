@@ -115,10 +115,8 @@ export async function runExecutionPlan(plan: ExecutionPlan): Promise<{ children:
       consola.info(`${task.id} → ${task.command}`)
       const child = execaCommand(task.command, {
         cwd: task.cwd,
-        env: {
-          ...(process.env as Record<string, string>),
-          ...Object.fromEntries(Object.entries(task.env).map(([key, value]) => [key, String(value)])),
-        },
+        env: Object.fromEntries(Object.entries(task.env).map(([key, value]) => [key, String(value)])),
+        extendEnv: true,
         stdio: 'inherit',
         reject: false,
         killDescendants: true,
