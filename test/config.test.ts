@@ -3,6 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { defaultEnvironmentForTarget, defineMatrixEnv, listMatrixEnvironments, loadMatrixConfig, MATRIX_DEFAULTS, normalizeMatrixConfig } from '../src/config.js'
+import { assertMatrixConfig } from '../src/schema.js'
 
 describe('matrix config', () => {
   it('provides a c12-compatible shorthand for environment overrides', () => {
@@ -79,5 +80,20 @@ describe('matrix config', () => {
       },
       products: { app: { variants: { web: 'web' } } },
     })).toThrow('Archive is only supported for build targets: test')
+  })
+
+  it('rejects invalid readiness port and timeout values', () => {
+    const config = {
+      projects: {
+        web: {
+          targets: {
+            dev: { command: 'dev', readyWhen: { type: 'port' as const, port: 0, timeout: 0 } },
+          },
+        },
+      },
+      products: { app: { variants: { web: 'web' } } },
+    }
+
+    expect(() => assertMatrixConfig(config)).toThrow()
   })
 })

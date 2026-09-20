@@ -133,4 +133,21 @@ describe('runExecutionPlan', () => {
       .rejects
       .toThrow('app:service:test exited before becoming ready')
   })
+
+  it('honors a short readiness timeout', async () => {
+    const port = await freePort()
+    const service = scriptedTask('app:service:test', 'setTimeout(() => process.exit(0), 500)', {
+      continuous: true,
+      readyWhen: { type: 'port', host: '127.0.0.1', port, timeout: 25 },
+    })
+    const dependent = scriptedTask('app:dependent:test', 'process.exit(0)', {
+      dependsOn: [{ id: service.id, condition: 'ready' }],
+    })
+    const started = Date.now()
+
+    await expect(runExecutionPlan(plan([service, dependent])))
+      .rejects
+      .toThrow('Timed out waiting for')
+    expect(Date.now() - started).toBeLessThan(150)
+  })
 })

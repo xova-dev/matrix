@@ -5,10 +5,12 @@ const env = v.optional(v.record(v.string(), scalar))
 const suffix = v.object({ name: v.optional(v.string()), slug: v.optional(v.string()), appId: v.optional(v.string()) })
 const targetDependency = v.object({ variant: v.string(), target: v.optional(v.string()), condition: v.optional(v.picklist(['completed', 'ready'])) })
 const dependency = v.union([v.string(), targetDependency])
+const readyPort = v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(65_535))
+const readyTimeout = v.pipe(v.number(), v.integer(), v.minValue(1))
 const target = v.union([v.string(), v.object({
   command: v.string(),
   continuous: v.optional(v.boolean()),
-  readyWhen: v.optional(v.object({ type: v.literal('port'), host: v.optional(v.string()), port: v.number(), timeout: v.optional(v.number()) })),
+  readyWhen: v.optional(v.object({ type: v.literal('port'), host: v.optional(v.string()), port: readyPort, timeout: v.optional(readyTimeout) })),
   outputDir: v.optional(v.string()),
   archive: v.optional(v.union([v.boolean(), v.object({ enabled: v.boolean(), format: v.optional(v.picklist(['zip', 'tar.gz'])) })])),
   dependsOn: v.optional(v.array(dependency)),
@@ -16,7 +18,7 @@ const target = v.union([v.string(), v.object({
 const targetOverride = v.union([v.string(), v.object({
   command: v.optional(v.string()),
   continuous: v.optional(v.boolean()),
-  readyWhen: v.optional(v.object({ type: v.literal('port'), host: v.optional(v.string()), port: v.number(), timeout: v.optional(v.number()) })),
+  readyWhen: v.optional(v.object({ type: v.literal('port'), host: v.optional(v.string()), port: readyPort, timeout: v.optional(readyTimeout) })),
   outputDir: v.optional(v.string()),
   archive: v.optional(v.union([v.boolean(), v.object({ enabled: v.boolean(), format: v.optional(v.picklist(['zip', 'tar.gz'])) })])),
   dependsOn: v.optional(v.array(dependency)),

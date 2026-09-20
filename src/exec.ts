@@ -8,16 +8,20 @@ import { archiveDirectory } from './archive.js'
 
 type Child = ReturnType<typeof execaCommand>
 
-function canConnect(host: string, port: number): Promise<boolean> {
+function canConnect(host: string, port: number, timeout: number): Promise<boolean> {
   return new Promise<boolean>((resolve) => {
     const socket = net.createConnection({ host, port })
+    let settled = false
     const finish = (connected: boolean): void => {
+      if (settled)
+        return
+      settled = true
       socket.destroy()
       resolve(connected)
     }
     socket.once('connect', () => finish(true))
     socket.once('error', () => finish(false))
-    socket.setTimeout(1_000, () => finish(false))
+    socket.setTimeout(timeout, () => finish(false))
   })
 }
 
@@ -27,13 +31,16 @@ async function waitReady(child: Child, task: ExecutionTask): Promise<void> {
     return
 
   const timeout = readyWhen.timeout ?? 30_000
-  const started = Date.now()
-  while (Date.now() - started < timeout) {
-    if (await canConnect(readyWhen.host ?? '127.0.0.1', readyWhen.port))
+  const deadline = Date.now() + timeout
+  while (true) {
+    const remaining = deadline - Date.now()
+    if (remaining <= 0)
+      break
+    if (await canConnect(readyWhen.host ?? '127.0.0.1', readyWhen.port, Math.min(1_000, remaining)))
       return
     const result = await Promise.race([
       child.then(value => value),
-      new Promise<undefined>(resolve => setTimeout(resolve, 200)),
+      new Promise<undefined>(resolve => setTimeout(resolve, Math.min(200, Math.max(1, deadline - Date.now())))),
     ])
     if (result !== undefined)
       throw new Error(`${task.id} exited before becoming ready`)
