@@ -1,13 +1,14 @@
 #!/usr/bin/env node
+import type { Args } from './cli-args.js'
 import process from 'node:process'
 import { isCancel, multiselect, outro, select } from '@clack/prompts'
 import consola from 'consola'
+import { CLI_HELP, parseArgs } from './cli-args.js'
 import { defaultEnvironmentForTarget, listMatrixEnvironments, loadMatrixConfig } from './config.js'
 import { MATRIX_DEFAULTS } from './defaults.js'
 import { runExecutionPlan } from './exec.js'
 import { createExecutionPlan, validateExecutionGraph } from './plan.js'
 
-interface Args { command?: string, product?: string, variants: string[], env?: string, target?: string, archive?: boolean }
 const sensitiveEnvKey = /token|secret|password|passwd|authorization|cookie|api[_-]?key|private[_-]?key/i
 
 function redactPlan(plan: Awaited<ReturnType<typeof createExecutionPlan>>, visibleEnvKeys: Set<string>): Awaited<ReturnType<typeof createExecutionPlan>> {
@@ -20,43 +21,6 @@ function redactPlan(plan: Awaited<ReturnType<typeof createExecutionPlan>>, visib
         .map(([key, value]) => [key, sensitiveEnvKey.test(key) ? '***' : value])),
     })),
   }
-}
-
-function parseArgs(argv: string[]): Args {
-  const result: Args = { variants: [] }
-  for (let index = 0; index < argv.length; index++) {
-    const value = argv[index]
-    if (!value)
-      continue
-    if (!value.startsWith('-') && !result.command) {
-      result.command = value
-    }
-    else if (!value.startsWith('-') && !result.product) {
-      result.product = value
-    }
-    else if (value === '--variant' || value === '-v') {
-      const next = argv[++index]
-      if (next)
-        result.variants.push(...next.split(','))
-    }
-    else if (value === '--env' || value === '--mode') {
-      const next = argv[++index]
-      if (next)
-        result.env = next
-    }
-    else if (value === '--target') {
-      const next = argv[++index]
-      if (next)
-        result.target = next
-    }
-    else if (value === '--archive') {
-      result.archive = true
-    }
-    else if (value === '--no-archive') {
-      result.archive = false
-    }
-  }
-  return result
 }
 
 type Products = Awaited<ReturnType<typeof loadMatrixConfig>>['products']
@@ -158,8 +122,8 @@ async function chooseEnvironment(args: Args, target: string, environments: strin
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2))
-  if (args.command === 'help' || process.argv.includes('--help') || process.argv.includes('-h')) {
-    console.log('matrix [target] [product] [--variant name] [--env name] [--target name] [--archive]')
+  if (args.command === 'help' || args.help) {
+    console.log(CLI_HELP)
     return
   }
   if (args.command === 'doctor') {
