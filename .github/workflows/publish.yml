@@ -14,4 +14,4 @@ jobs:
     uses: xova-dev/.github/.github/workflows/npm-publish.yml@main
     with:
       verify-command: pnpm check && pnpm test:pack
-      publish-command: pnpm publish --access public
+      publish-command: pnpm publish --access public --no-git-checks
