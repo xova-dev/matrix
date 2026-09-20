@@ -33,12 +33,16 @@ Then run the example:
 
 ```bash
 cd examples/basic
+pnpm run matrix
 pnpm run doctor
 pnpm run test
 pnpm run plan
 pnpm run build
 pnpm run preview
 ```
+
+`pnpm run matrix` starts the interactive Product → Variant → Target → Environment flow. The
+other scripts pass explicit selections and are intended for repeatable non-interactive runs.
 
 `pnpm run dev` starts the Web project first and starts the Desktop project after the Web port is
 ready. Stop continuous commands with `Ctrl+C`.
