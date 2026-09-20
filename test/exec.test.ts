@@ -150,4 +150,17 @@ describe('runExecutionPlan', () => {
       .toThrow('Timed out waiting for')
     expect(Date.now() - started).toBeLessThan(150)
   })
+
+  it('fails fast when an independent continuous task exits unexpectedly', async () => {
+    const service = scriptedTask('app:service:test', 'setTimeout(() => process.exit(9), 50)', {
+      continuous: true,
+    })
+    const longRunningTask = scriptedTask('app:long-running:test', 'setTimeout(() => process.exit(0), 5_000)')
+    const started = Date.now()
+
+    await expect(runExecutionPlan(plan([service, longRunningTask])))
+      .rejects
+      .toThrow('app:service:test exited with code 9')
+    expect(Date.now() - started).toBeLessThan(1_000)
+  })
 })

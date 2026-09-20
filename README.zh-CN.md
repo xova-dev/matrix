@@ -60,7 +60,7 @@ matrix plan app --target preview --env production
 matrix doctor
 ```
 
-在交互式终端中，如果省略产品、目标或 `--env`，Matrix 会提示选择。一次交互运行只选择一个 Product。
+在交互式终端中，如果省略产品、目标或 `--env`，Matrix 会提示选择。交互式选择顺序为 Product → Variant → Target → Environment，一次运行只选择一个 Product。可以使用 `--product` 和 `--target` 显式指定选择，避免依赖位置参数顺序。
 
 完整的可运行示例见 [`examples/basic`](examples/basic/README.md)，它不依赖具体前端框架。
 
@@ -164,7 +164,7 @@ dotenv 文件按 `.env`、`.env.local`、`.env.<environment>` 和 `.env.<environ
 
 自定义目标默认不会持续运行，未指定 `--env` 时使用 `development`。项目默认使用当前目录，目标输出目录默认为 `dist`，归档输出目录默认为 `artifacts`。归档默认关闭，只允许配置在 build 目标上，启用后默认使用 zip 格式。配置了归档但输出目录不存在时，构建会失败。
 
-交互式 Target 选项来自当前 Product 的 Variant 共同支持的目标。可以先使用 `--variant` 缩小执行范围，再计算可用 Target。
+交互式运行会先选择 Variant，再选择 Target。Target 选项来自已选 Variant 共同支持的目标；非交互式运行可以使用 `--variant` 提前指定执行范围。
 
 配置中的任意目标都可以通过 CLI 调用。常见的自定义目标包括 `test`、`lint` 和 `e2e`。
 
@@ -172,6 +172,7 @@ dotenv 文件按 `.env`、`.env.local`、`.env.<environment>` 和 `.env.<environ
 
 ```text
 matrix [target] [product] [--variant name] [--env <environment>]
+matrix --product <product> [--target <target>] [--variant name] [--env <environment>]
 matrix dev [product]
 matrix build [product] [--env <environment>] [--archive]
 matrix preview [product] [--env <environment>]

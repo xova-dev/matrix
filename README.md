@@ -60,7 +60,7 @@ matrix plan app --target preview --env production
 matrix doctor
 ```
 
-When `product`, target, or `--env` is omitted in an interactive terminal, Matrix prompts for a selection. One interactive run selects a single Product.
+When `product`, target, or `--env` is omitted in an interactive terminal, Matrix prompts for a selection. Interactive selection follows Product → Variant → Target → Environment, and one run selects a single Product. Use `--product` and `--target` to provide explicit selections without relying on positional argument order.
 
 See [`examples/basic`](examples/basic/README.md) for a self-contained example that runs without a framework dependency.
 
@@ -164,7 +164,7 @@ The built-in targets use these defaults:
 
 Custom targets are non-continuous by default and use `development` unless `--env` is provided. Project roots default to `.`, target output directories default to `dist`, and archive output defaults to `artifacts`. Archives are disabled by default, are only valid for the build target, and use zip when enabled. A configured archive fails the build when its output directory does not exist.
 
-Interactive Target options are derived from the common targets available to the selected Product's Variants. Use `--variant` to narrow the execution scope before resolving Target availability.
+Interactive Variant selection comes before Target selection. Target options are derived from the common targets available to the selected Variants; use `--variant` to provide the scope in non-interactive runs.
 
 Any configured target can be invoked from the CLI. `test`, `lint`, and `e2e` are common custom targets.
 
@@ -172,6 +172,7 @@ Any configured target can be invoked from the CLI. `test`, `lint`, and `e2e` are
 
 ```text
 matrix [target] [product] [--variant name] [--env <environment>]
+matrix --product <product> [--target <target>] [--variant name] [--env <environment>]
 matrix dev [product]
 matrix build [product] [--env <environment>] [--archive]
 matrix preview [product] [--env <environment>]

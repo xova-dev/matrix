@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseArgs } from '../src/cli-args.js'
+import { parseArgs, validateCliArgs } from '../src/cli-args.js'
 
 describe('cli argument parsing', () => {
   it('parses supported positional arguments and options', () => {
@@ -10,6 +10,11 @@ describe('cli argument parsing', () => {
   it('supports the existing aliases', () => {
     expect(parseArgs(['dev', 'app', '-v', 'web', '--mode', 'development', '--no-archive']))
       .toEqual({ command: 'dev', product: 'app', variants: ['web'], env: 'development', archive: false })
+  })
+
+  it('supports explicit product selection without positional ambiguity', () => {
+    expect(parseArgs(['--product', 'app', '--target', 'preview', '--env', 'staging']))
+      .toEqual({ product: 'app', target: 'preview', env: 'staging', variants: [] })
   })
 
   it('rejects unknown options, missing values, and extra positionals', () => {
@@ -23,5 +28,14 @@ describe('cli argument parsing', () => {
     expect(() => parseArgs(['dev', 'app', '--variant', 'web,,desktop'])).toThrow('contains an empty variant name')
     expect(() => parseArgs(['build', 'app', '--archive', '--no-archive'])).toThrow('cannot be used together')
     expect(() => parseArgs(['build', 'app', '--env', 'staging', '--mode', 'production'])).toThrow('Duplicate option: --env')
+  })
+
+  it('rejects options that do not apply to a command', () => {
+    expect(() => validateCliArgs(parseArgs(['doctor', '--archive'])))
+      .toThrow('doctor only accepts --env')
+    expect(() => validateCliArgs(parseArgs(['dev', 'app', '--target', 'build'])))
+      .toThrow('Target is already selected by command dev')
+    expect(() => validateCliArgs(parseArgs(['help', '--env', 'staging'])))
+      .toThrow('Help does not accept execution options')
   })
 })

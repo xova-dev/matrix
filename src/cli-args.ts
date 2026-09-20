@@ -8,7 +8,7 @@ export interface Args {
   help?: boolean
 }
 
-export const CLI_HELP = 'matrix [target] [product] [--variant name] [--env name] [--target name] [--archive|--no-archive] [-h|--help]'
+export const CLI_HELP = 'matrix [target] [product] [--product name] [--variant name] [--env name] [--target name] [--archive|--no-archive] [-h|--help]'
 
 function optionValue(argv: string[], index: number, option: string): string {
   const value = argv[index + 1]
@@ -26,6 +26,7 @@ function parseVariants(value: string, option: string): string[] {
 
 export function parseArgs(argv: string[]): Args {
   const result: Args = { variants: [] }
+  const positionals: string[] = []
   for (let index = 0; index < argv.length; index++) {
     const value = argv[index]
     if (!value)
@@ -53,9 +54,14 @@ export function parseArgs(argv: string[]): Args {
       continue
     }
 
-    if (value === '--env' || value === '--mode' || value === '--target') {
+    if (value === '--product' || value === '--env' || value === '--mode' || value === '--target') {
       const next = optionValue(argv, index, value)
-      if (value === '--target') {
+      if (value === '--product') {
+        if (result.product !== undefined)
+          throw new Error('Duplicate option: --product')
+        result.product = next
+      }
+      else if (value === '--target') {
         if (result.target !== undefined)
           throw new Error('Duplicate option: --target')
         result.target = next
@@ -72,15 +78,35 @@ export function parseArgs(argv: string[]): Args {
     if (value.startsWith('-'))
       throw new Error(`Unknown option: ${value}`)
 
-    if (!result.command) {
-      result.command = value
-    }
-    else if (!result.product) {
-      result.product = value
-    }
-    else {
+    positionals.push(value)
+    if (positionals.length > 2)
       throw new Error(`Unexpected argument: ${value}`)
-    }
+  }
+  if (positionals[0])
+    result.command = positionals[0]
+  if (positionals[1]) {
+    if (result.product !== undefined)
+      throw new Error('Product was provided more than once')
+    result.product = positionals[1]
   }
   return result
+}
+
+/** Validates argument combinations before loading the workspace configuration. */
+export function validateCliArgs(args: Args): void {
+  const hasSelection = args.product !== undefined || args.target !== undefined || args.env !== undefined || args.variants.length > 0 || args.archive !== undefined
+  if (args.help || args.command === 'help') {
+    if (hasSelection || (args.command !== undefined && args.command !== 'help'))
+      throw new Error('Help does not accept execution options')
+    return
+  }
+
+  if (args.command === 'doctor') {
+    if (args.product !== undefined || args.target !== undefined || args.variants.length > 0 || args.archive !== undefined)
+      throw new Error('doctor only accepts --env')
+    return
+  }
+
+  if (args.command && args.command !== 'plan' && args.target !== undefined)
+    throw new Error(`Target is already selected by command ${args.command}; use --target only with plan or --product`)
 }

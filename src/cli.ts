@@ -3,7 +3,7 @@ import type { Args } from './cli-args.js'
 import process from 'node:process'
 import { isCancel, multiselect, outro, select } from '@clack/prompts'
 import consola from 'consola'
-import { CLI_HELP, parseArgs } from './cli-args.js'
+import { CLI_HELP, parseArgs, validateCliArgs } from './cli-args.js'
 import { defaultEnvironmentForTarget, listMatrixEnvironments, loadMatrixConfig } from './config.js'
 import { MATRIX_DEFAULTS } from './defaults.js'
 import { runExecutionPlan } from './exec.js'
@@ -51,7 +51,7 @@ function validateTarget(target: string, product: Product, variantNames: string[]
 async function chooseProduct(args: Args, products: Products): Promise<Args | null> {
   if (!args.product) {
     if (!process.stdin.isTTY || !process.stdout.isTTY)
-      throw new Error('Product is required in non-interactive mode. Try: matrix <target> <product>')
+      throw new Error('Product is required in non-interactive mode. Try: matrix <target> <product> or matrix --product <product>')
     const selected = await select({ message: 'Select product', options: Object.keys(products).map(value => ({ value, label: value })) })
     if (isCancel(selected))
       return null
@@ -89,9 +89,9 @@ async function chooseTarget(args: Args, product: Product): Promise<Args | null> 
 }
 
 async function chooseVariants(args: Args, product: Product): Promise<Args | null> {
-  const isInteractiveDev = (args.command === 'dev' || !args.command) && args.target === 'dev'
-  if (!args.variants.length && isInteractiveDev && process.stdin.isTTY && process.stdout.isTTY) {
-    const variants = Object.entries(product.variants).filter(([, variant]) => args.target! in variant.targets)
+  const isInteractiveSelection = !args.command && process.stdin.isTTY && process.stdout.isTTY
+  if (!args.variants.length && isInteractiveSelection && Object.keys(product.variants).length > 1) {
+    const variants = Object.entries(product.variants)
     const selected = await multiselect({ message: 'Select variants (leave empty to select all)', options: variants.map(([value]) => ({ value, label: value })) })
     if (isCancel(selected))
       return null
@@ -120,8 +120,9 @@ async function chooseEnvironment(args: Args, target: string, environments: strin
   return args as Args & { env: string }
 }
 
-async function main(): Promise<void> {
-  const args = parseArgs(process.argv.slice(2))
+export async function runCli(argv: string[] = process.argv.slice(2)): Promise<void> {
+  const args = parseArgs(argv)
+  validateCliArgs(args)
   if (args.command === 'help' || args.help) {
     console.log(CLI_HELP)
     return
@@ -149,37 +150,39 @@ async function main(): Promise<void> {
   if (!product)
     throw new Error(`Unknown product: ${selectedProduct.product}`)
   validateVariants(product, selectedProduct.variants)
-  const selectedTarget = await chooseTarget(selectedProduct, product)
+  const selected = await chooseVariants(selectedProduct, product)
+  if (!selected)
+    return outro('Cancelled')
+  validateVariants(product, selected.variants)
+  const selectedTarget = await chooseTarget(selected, product)
   if (!selectedTarget)
     return outro('Cancelled')
   const target = selectedTarget.target!
+  if (selectedTarget.archive !== undefined && target !== 'build')
+    throw new Error(`Archive options are only valid for the build target: ${target}`)
   validateTarget(target, product, selectedTarget.variants)
-  const availableEnvironments = await listMatrixEnvironments({ productName: selectedTarget.product! })
+  const availableEnvironments = !selectedTarget.env && process.stdin.isTTY && process.stdout.isTTY
+    ? await listMatrixEnvironments({ productName: selectedTarget.product! })
+    : []
   const selectedEnvironment = await chooseEnvironment(selectedTarget, target, availableEnvironments)
   if (!selectedEnvironment)
     return outro('Cancelled')
   const loaded = selectedEnvironment.env === initialEnvironment
     ? initialLoaded
     : await loadMatrixConfig({ envName: selectedEnvironment.env })
-  const finalProduct = loaded.products[selectedEnvironment.product!]
-  if (!finalProduct)
-    throw new Error(`Unknown product: ${selectedEnvironment.product}`)
-  const selected = await chooseVariants(selectedEnvironment, finalProduct)
-  if (!selected)
-    return outro('Cancelled')
-  const selectedFinalProduct = loaded.products[selected.product!]
+  const selectedFinalProduct = loaded.products[selectedEnvironment.product!]
   if (!selectedFinalProduct)
-    throw new Error(`Unknown product: ${selected.product}`)
-  validateVariants(selectedFinalProduct, selected.variants)
-  validateTarget(target, selectedFinalProduct, selected.variants)
-  const command = selected.command ?? target
-  const products = [selected.product!]
+    throw new Error(`Unknown product: ${selectedEnvironment.product}`)
+  validateVariants(selectedFinalProduct, selectedEnvironment.variants)
+  validateTarget(target, selectedFinalProduct, selectedEnvironment.variants)
+  const command = selectedEnvironment.command ?? target
+  const products = [selectedEnvironment.product!]
   const planInput = { config: loaded.config, projects: loaded.projects, products: loaded.products, externalEnv: loaded.externalEnv, cwd: loaded.cwd, productNames: products, target, envName: loaded.envName }
-  const plan = selected.variants.length ? createExecutionPlan({ ...planInput, variantNames: selected.variants }) : createExecutionPlan(planInput)
-  if (selected.archive !== undefined) {
+  const plan = selectedEnvironment.variants.length ? createExecutionPlan({ ...planInput, variantNames: selectedEnvironment.variants }) : createExecutionPlan(planInput)
+  if (selectedEnvironment.archive !== undefined) {
     for (const task of plan.tasks) {
       if (task.target === 'build')
-        task.archive.enabled = selected.archive
+        task.archive.enabled = selectedEnvironment.archive
     }
   }
   if (command === 'plan') {
@@ -191,10 +194,11 @@ async function main(): Promise<void> {
     console.log(JSON.stringify(redactPlan(plan, visibleEnvKeys), null, 2))
     return
   }
+  consola.info(`Plan: ${products[0]} / ${selectedEnvironment.variants.length ? selectedEnvironment.variants.join(', ') : 'all variants'} / ${target} / ${loaded.envName}`)
+  const requestedVariants = selectedEnvironment.variants.length ? selectedEnvironment.variants : Object.keys(selectedFinalProduct.variants)
+  const requestedTaskIds = new Set(requestedVariants.map(variant => `${products[0]}:${variant}:${target}`))
+  const dependencies = plan.tasks.filter(task => !requestedTaskIds.has(task.id))
+  if (dependencies.length)
+    consola.info(`Including dependencies: ${dependencies.map(task => task.id).join(', ')}`)
   await runExecutionPlan(plan)
 }
-
-main().catch((error: unknown) => {
-  consola.error(error instanceof Error ? error.message : error)
-  process.exitCode = 1
-})
