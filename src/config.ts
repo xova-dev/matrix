@@ -93,6 +93,11 @@ function normalizeTarget(name: string, value: string | CommandTarget): Normalize
   }
 }
 
+function assertArchiveTarget(name: string, value: TargetConfig | TargetOverride): void {
+  if (name !== 'build' && typeof value !== 'string' && value.archive !== undefined)
+    throw new Error(`Archive is only supported for build targets: ${name}`)
+}
+
 function mergeTarget(base: NormalizedTarget, override: TargetOverride): TargetConfig {
   if (typeof override === 'string')
     return override
@@ -129,7 +134,10 @@ export function normalizeMatrixConfig(raw: MatrixConfig): { config: MatrixConfig
   const projects = Object.fromEntries(Object.entries(raw.projects).map(([id, project]) => [id, {
     ...project,
     id,
-    targets: Object.fromEntries(Object.entries(project.targets).map(([name, target]) => [name, normalizeTarget(name, target)])),
+    targets: Object.fromEntries(Object.entries(project.targets).map(([name, target]) => {
+      assertArchiveTarget(name, target)
+      return [name, normalizeTarget(name, target)]
+    })),
   }])) as Record<string, NormalizedProject>
 
   const products = Object.fromEntries(Object.entries(raw.products).map(([key, product]) => {
@@ -140,10 +148,13 @@ export function normalizeMatrixConfig(raw: MatrixConfig): { config: MatrixConfig
         throw new Error(`Product ${key} variant ${id} references unknown project ${variant.project}`)
       const targets = Object.fromEntries(Object.entries(project.targets).map(([name, target]) => {
         const override = variant.targets?.[name]
+        if (override !== undefined)
+          assertArchiveTarget(name, override)
         return [name, normalizeTarget(name, override === undefined ? target : mergeTarget(target, override))]
       }))
       for (const [name, target] of Object.entries(variant.targets ?? {})) {
         if (!(name in targets)) {
+          assertArchiveTarget(name, target)
           if (typeof target === 'string')
             targets[name] = normalizeTarget(name, target)
           else if (target.command)

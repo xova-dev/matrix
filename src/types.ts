@@ -23,7 +23,7 @@ export interface CommandTarget {
   }
   /** Directory to archive, relative to the project root. Defaults to `dist`. */
   outputDir?: string
-  /** Whether to archive the output and, optionally, which archive format to use. */
+  /** Whether to archive build output and, optionally, which archive format to use. Only valid on the build target. */
   archive?: boolean | { enabled: boolean, format?: 'zip' | 'tar.gz' }
   /** Other variants that must run before this target. */
   dependsOn?: Array<string | TargetDependency>

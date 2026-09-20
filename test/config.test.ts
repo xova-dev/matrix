@@ -2,7 +2,7 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { defaultEnvironmentForTarget, defineMatrixEnv, listMatrixEnvironments, loadMatrixConfig, MATRIX_DEFAULTS } from '../src/config.js'
+import { defaultEnvironmentForTarget, defineMatrixEnv, listMatrixEnvironments, loadMatrixConfig, MATRIX_DEFAULTS, normalizeMatrixConfig } from '../src/config.js'
 
 describe('matrix config', () => {
   it('provides a c12-compatible shorthand for environment overrides', () => {
@@ -70,5 +70,14 @@ describe('matrix config', () => {
     const loaded = await loadMatrixConfig({ cwd, envName: 'staging' })
     expect(loaded.config.products.app?.env).toMatchObject({ API_BASE: 'https://staging.example.com', PRODUCT_ONLY: 'yes' })
     expect('$env' in (loaded.config.products.app ?? {})).toBe(false)
+  })
+
+  it('rejects archives on non-build targets', () => {
+    expect(() => normalizeMatrixConfig({
+      projects: {
+        web: { targets: { test: { command: 'test', archive: true } } },
+      },
+      products: { app: { variants: { web: 'web' } } },
+    })).toThrow('Archive is only supported for build targets: test')
   })
 })

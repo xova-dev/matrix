@@ -162,7 +162,7 @@ The built-in targets use these defaults:
 | `build`   | `production`  | No         |
 | `preview` | `production`  | Yes        |
 
-Custom targets are non-continuous by default and use `development` unless `--env` is provided. Project roots default to `.`, target output directories default to `dist`, and archive output defaults to `artifacts`. Archives are disabled by default and use `zip` when enabled.
+Custom targets are non-continuous by default and use `development` unless `--env` is provided. Project roots default to `.`, target output directories default to `dist`, and archive output defaults to `artifacts`. Archives are disabled by default, are only valid for the build target, and use zip when enabled. A configured archive fails the build when its output directory does not exist.
 
 Interactive Target options are derived from the common targets available to the selected Product's Variants. Use `--variant` to narrow the execution scope before resolving Target availability.
 

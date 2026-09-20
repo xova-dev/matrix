@@ -162,7 +162,7 @@ dotenv 文件按 `.env`、`.env.local`、`.env.<environment>` 和 `.env.<environ
 | `build`   | `production`  | 否           |
 | `preview` | `production`  | 是           |
 
-自定义目标默认不会持续运行，未指定 `--env` 时使用 `development`。项目默认使用当前目录，目标输出目录默认为 `dist`，归档输出目录默认为 `artifacts`。归档默认关闭，启用后默认使用 `zip` 格式。
+自定义目标默认不会持续运行，未指定 `--env` 时使用 `development`。项目默认使用当前目录，目标输出目录默认为 `dist`，归档输出目录默认为 `artifacts`。归档默认关闭，只允许配置在 build 目标上，启用后默认使用 zip 格式。配置了归档但输出目录不存在时，构建会失败。
 
 交互式 Target 选项来自当前 Product 的 Variant 共同支持的目标。可以先使用 `--variant` 缩小执行范围，再计算可用 Target。
 
