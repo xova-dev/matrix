@@ -1,6 +1,27 @@
 # Changelog
 
 
+## v0.1.1
+
+[compare changes](https://github.com/xova-dev/matrix/compare/v0.1.0...v0.1.1)
+
+### 🚀 Enhancements
+
+- **matrix:** Export execution context env ([bc3fa29](https://github.com/xova-dev/matrix/commit/bc3fa29))
+
+### 🩹 Fixes
+
+- **ci:** Use available npm publish workflow ([a19e55e](https://github.com/xova-dev/matrix/commit/a19e55e))
+- **matrix:** Preserve inherited process environment ([abbed38](https://github.com/xova-dev/matrix/commit/abbed38))
+
+### 🏡 Chore
+
+- **release:** Require clean workspace ([f8642ce](https://github.com/xova-dev/matrix/commit/f8642ce))
+
+### ❤️ Contributors
+
+- Oevery ([@oevery](https://github.com/oevery))
+
 ## v0.1.0
 
 [compare changes](https://github.com/xova-dev/matrix/compare/61be30f...v0.1.0)
