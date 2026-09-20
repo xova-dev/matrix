@@ -30,7 +30,18 @@ describe('matrix plan', () => {
     expect(products.classroom?.variants.web?.targets.dev?.continuous).toBe(true)
     expect(products.classroom?.variants.web?.targets.preview?.continuous).toBe(true)
     expect(plan.tasks.map(task => task.id)).toEqual(['classroom:web:dev', 'classroom:desktop:dev'])
-    expect(plan.tasks[1]?.env.MATRIX_APP_ID).toBeUndefined()
+    expect(plan.tasks[1]?.env).toMatchObject({
+      MATRIX_ENV_NAME: 'test',
+      MATRIX_TARGET: 'dev',
+      MATRIX_PRODUCT_KEY: 'classroom',
+      MATRIX_PRODUCT_ID: 'classroom',
+      MATRIX_PRODUCT_NAME: 'classroom（测试）',
+      MATRIX_PRODUCT_SLUG: 'classroom',
+      MATRIX_PRODUCT_APP_ID: 'com.example.classroom-test',
+      MATRIX_VARIANT: 'desktop',
+      MATRIX_PROJECT: 'desktop',
+      NODE_ENV: 'development',
+    })
     expect(plan.tasks[1]?.appId).toBe('com.example.classroom-test')
     expect(plan.tasks[1]?.dependsOn[0]).toEqual({ id: 'classroom:web:dev', condition: 'ready' })
     expect(products.classroom?.id).toBe('classroom')

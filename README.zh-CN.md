@@ -127,6 +127,23 @@ export default defineMatrixConfig({
 global env/$env < product env/$env < .env layers < process.env < MATRIX_*
 ```
 
+Matrix 会向每个子进程注入以下执行上下文变量：
+
+```text
+MATRIX_ENV_NAME
+MATRIX_TARGET
+MATRIX_PRODUCT_KEY
+MATRIX_PRODUCT_ID
+MATRIX_PRODUCT_NAME
+MATRIX_PRODUCT_SLUG
+MATRIX_PRODUCT_APP_ID
+MATRIX_VARIANT
+MATRIX_PROJECT
+NODE_ENV
+```
+
+`MATRIX_ENV_NAME` 是当前选择的 Matrix 配置环境，可以是 `staging`、`qa` 等自定义名称。`NODE_ENV` 表示目标进程的运行模式：`dev` 使用 `development`，`build` 和 `preview` 使用 `production`。因此 staging 构建通常会同时得到 `MATRIX_ENV_NAME=staging` 和 `NODE_ENV=production`。只有最终解析出的产品 identity 配置了 `appId` 时，才会注入 `MATRIX_PRODUCT_APP_ID`；环境 suffix 会在导出前生效。
+
 产品级环境变量会为每个产品独立解析。这样多个产品可以复用同一个 Desktop 项目，同时连接不同的 Web 变体或服务。
 
 支持自定义环境名称。使用相同的 helper 定义，并在 CLI 中显式传入环境名：
@@ -162,7 +179,7 @@ dotenv 文件按 `.env`、`.env.local`、`.env.<environment>` 和 `.env.<environ
 | `build`   | `production`  | 否           |
 | `preview` | `production`  | 是           |
 
-自定义目标默认不会持续运行，未指定 `--env` 时使用 `development`。项目默认使用当前目录，目标输出目录默认为 `dist`，归档输出目录默认为 `artifacts`。归档默认关闭，只允许配置在 build 目标上，启用后默认使用 zip 格式。配置了归档但输出目录不存在时，构建会失败。
+自定义目标默认不会持续运行，未指定 `--env` 时使用 `development`。内置目标的运行模式为：`dev` 使用 `development`，`build` 和 `preview` 使用 `production`。自定义目标也可以将 `nodeEnv` 配置为 `development`、`production` 或 `test`。项目默认使用当前目录，目标输出目录默认为 `dist`，归档输出目录默认为 `artifacts`。归档默认关闭，只允许配置在 build 目标上，启用后默认使用 zip 格式。配置了归档但输出目录不存在时，构建会失败。
 
 交互式运行会先选择 Variant，再选择 Target。Target 选项来自已选 Variant 共同支持的目标；非交互式运行可以使用 `--variant` 提前指定执行范围。
 

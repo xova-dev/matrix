@@ -15,9 +15,9 @@ describe('matrix config', () => {
   it('uses target defaults for the standard environments', () => {
     expect(MATRIX_DEFAULTS).toMatchObject({ target: 'dev', projectRoot: '.', outputDir: 'dist', artifactsRoot: 'artifacts' })
     expect(MATRIX_DEFAULTS.targets).toMatchObject({
-      dev: { environment: 'development', continuous: true },
-      build: { environment: 'production', continuous: false },
-      preview: { environment: 'production', continuous: true },
+      dev: { environment: 'development', nodeEnv: 'development', continuous: true },
+      build: { environment: 'production', nodeEnv: 'production', continuous: false },
+      preview: { environment: 'production', nodeEnv: 'production', continuous: true },
     })
     expect(defaultEnvironmentForTarget('dev')).toBe('development')
     expect(defaultEnvironmentForTarget('build')).toBe('production')

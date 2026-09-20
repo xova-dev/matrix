@@ -7,9 +7,9 @@ export const MATRIX_DEFAULTS = {
   artifactsRoot: 'artifacts',
   archive: { enabled: false, format: 'zip' },
   targets: {
-    dev: { environment: 'development', continuous: true },
-    build: { environment: 'production', continuous: false },
-    preview: { environment: 'production', continuous: true },
+    dev: { environment: 'development', nodeEnv: 'development', continuous: true },
+    build: { environment: 'production', nodeEnv: 'production', continuous: false },
+    preview: { environment: 'production', nodeEnv: 'production', continuous: true },
   },
 } as const
 

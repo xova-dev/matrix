@@ -1,6 +1,9 @@
 /** Values that can be passed to a process as environment variables. */
 export type Scalar = string | number | boolean
 
+/** Node.js runtime mode exported as `NODE_ENV` for child processes. */
+export type NodeEnvironment = 'development' | 'production' | 'test'
+
 /** A flat environment variable map. */
 export type EnvMap = Record<string, Scalar>
 
@@ -10,6 +13,8 @@ export interface CommandTarget {
   command: string
   /** Whether the command keeps running after it starts. Defaults from the target name. */
   continuous?: boolean
+  /** Node.js runtime mode passed to the target process. */
+  nodeEnv?: NodeEnvironment
   /** Readiness probe used by dependent continuous targets. */
   readyWhen?: {
     /** Probe type. Port probing is currently supported. */
@@ -128,7 +133,7 @@ export const MATRIX_ENVIRONMENTS = ['development', 'staging', 'production'] as c
 export type MatrixEnvironment = typeof MATRIX_ENVIRONMENTS[number]
 
 /** Target after defaults and variant overrides have been resolved. */
-export type NormalizedTarget = Omit<CommandTarget, 'outputDir' | 'dependsOn'> & { name: string, continuous: boolean, outputDir: string, archive: { enabled: boolean, format: 'zip' | 'tar.gz' }, dependsOn: TargetDependency[] }
+export type NormalizedTarget = Omit<CommandTarget, 'outputDir' | 'dependsOn'> & { name: string, continuous: boolean, nodeEnv: NodeEnvironment, outputDir: string, archive: { enabled: boolean, format: 'zip' | 'tar.gz' }, dependsOn: TargetDependency[] }
 
 /** Project after its target definitions have been normalized. */
 export type NormalizedProject = Omit<ProjectConfig, 'targets'> & { id: string, targets: Record<string, NormalizedTarget> }

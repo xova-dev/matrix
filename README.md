@@ -127,6 +127,23 @@ Values are merged from low to high precedence:
 global env/$env < product env/$env < .env layers < process.env < MATRIX_*
 ```
 
+Matrix injects the following execution-context variables into every child process:
+
+```text
+MATRIX_ENV_NAME
+MATRIX_TARGET
+MATRIX_PRODUCT_KEY
+MATRIX_PRODUCT_ID
+MATRIX_PRODUCT_NAME
+MATRIX_PRODUCT_SLUG
+MATRIX_PRODUCT_APP_ID
+MATRIX_VARIANT
+MATRIX_PROJECT
+NODE_ENV
+```
+
+`MATRIX_ENV_NAME` is the selected Matrix configuration environment and may be a custom name such as `staging` or `qa`. `NODE_ENV` describes the target process mode: `dev` uses `development`, while `build` and `preview` use `production`. Therefore a staging build normally receives `MATRIX_ENV_NAME=staging` and `NODE_ENV=production`. `MATRIX_PRODUCT_APP_ID` is emitted only when the resolved product identity has an `appId`; environment suffixes are applied before it is exported.
+
 Product-level environment values are resolved independently for each product. This lets two products reuse the same Desktop project while connecting it to different Web variants or services.
 
 Custom environment names are supported. Define them with the same helper and pass the name explicitly to the CLI:
@@ -162,7 +179,7 @@ The built-in targets use these defaults:
 | `build`   | `production`  | No         |
 | `preview` | `production`  | Yes        |
 
-Custom targets are non-continuous by default and use `development` unless `--env` is provided. Project roots default to `.`, target output directories default to `dist`, and archive output defaults to `artifacts`. Archives are disabled by default, are only valid for the build target, and use zip when enabled. A configured archive fails the build when its output directory does not exist.
+Custom targets are non-continuous by default and use `development` unless `--env` is provided. The built-in target runtime modes are `development` for `dev` and `production` for `build` and `preview`. Custom targets may set `nodeEnv` to `development`, `production`, or `test`. Project roots default to `.`, target output directories default to `dist`, and archive output defaults to `artifacts`. Archives are disabled by default, are only valid for the build target, and use zip when enabled. A configured archive fails the build when its output directory does not exist.
 
 Interactive Variant selection comes before Target selection. Target options are derived from the common targets available to the selected Variants; use `--variant` to provide the scope in non-interactive runs.
 

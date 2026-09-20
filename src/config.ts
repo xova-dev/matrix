@@ -87,6 +87,7 @@ function normalizeTarget(name: string, value: string | CommandTarget): Normalize
     ...target,
     name,
     continuous: target.continuous ?? targetDefaults?.continuous ?? false,
+    nodeEnv: target.nodeEnv ?? targetDefaults?.nodeEnv ?? 'development',
     outputDir: target.outputDir ?? MATRIX_DEFAULTS.outputDir,
     archive,
     dependsOn: (target.dependsOn ?? []).map(dependency => typeof dependency === 'string' ? { variant: dependency } : dependency),

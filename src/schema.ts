@@ -10,6 +10,7 @@ const readyTimeout = v.pipe(v.number(), v.integer(), v.minValue(1))
 const target = v.union([v.string(), v.object({
   command: v.string(),
   continuous: v.optional(v.boolean()),
+  nodeEnv: v.optional(v.picklist(['development', 'production', 'test'])),
   readyWhen: v.optional(v.object({ type: v.literal('port'), host: v.optional(v.string()), port: readyPort, timeout: v.optional(readyTimeout) })),
   outputDir: v.optional(v.string()),
   archive: v.optional(v.union([v.boolean(), v.object({ enabled: v.boolean(), format: v.optional(v.picklist(['zip', 'tar.gz'])) })])),
@@ -18,6 +19,7 @@ const target = v.union([v.string(), v.object({
 const targetOverride = v.union([v.string(), v.object({
   command: v.optional(v.string()),
   continuous: v.optional(v.boolean()),
+  nodeEnv: v.optional(v.picklist(['development', 'production', 'test'])),
   readyWhen: v.optional(v.object({ type: v.literal('port'), host: v.optional(v.string()), port: readyPort, timeout: v.optional(readyTimeout) })),
   outputDir: v.optional(v.string()),
   archive: v.optional(v.union([v.boolean(), v.object({ enabled: v.boolean(), format: v.optional(v.picklist(['zip', 'tar.gz'])) })])),

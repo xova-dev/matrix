@@ -99,9 +99,17 @@ export function createExecutionPlan(input: CreateExecutionPlanInput): ExecutionP
       cwd: projectRoot,
       env: mergeEnv(input.config.env, product.env, input.externalEnv ?? currentProcessEnv(), {
         MATRIX_ENV_NAME: input.envName,
+        MATRIX_TARGET: targetName,
+        MATRIX_PRODUCT_KEY: productName,
         MATRIX_PRODUCT_ID: identity.id,
         MATRIX_PRODUCT_NAME: identity.name,
         MATRIX_PRODUCT_SLUG: identity.slug,
+        MATRIX_VARIANT: variantName,
+        MATRIX_PROJECT: variant.project,
+        NODE_ENV: target.nodeEnv,
+        ...(identity.appId
+          ? { MATRIX_PRODUCT_APP_ID: identity.appId }
+          : {}),
       }),
       continuous: target.continuous,
       archive: target.archive,
