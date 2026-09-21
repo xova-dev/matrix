@@ -1,6 +1,22 @@
 # Changelog
 
 
+## v0.1.4
+
+[compare changes](https://github.com/xova-dev/matrix/compare/v0.1.3...v0.1.4)
+
+### 🚀 Enhancements
+
+- **runtime:** Expose environment mode flags ([5693003](https://github.com/xova-dev/matrix/commit/5693003))
+
+### 🩹 Fixes
+
+- **types:** Protect generated declarations ([657d048](https://github.com/xova-dev/matrix/commit/657d048))
+
+### ❤️ Contributors
+
+- Oevery ([@oevery](https://github.com/oevery))
+
 ## v0.1.3
 
 [compare changes](https://github.com/xova-dev/matrix/compare/v0.1.2...v0.1.3)
