@@ -24,6 +24,10 @@ describe('matrix type generation', () => {
       },
     })
     const declaration = await readFile(output, 'utf8')
+    expect(declaration).toMatch(/^\/\* eslint-disable \*\//)
+    expect(declaration).toContain('/* prettier-ignore */')
+    expect(declaration).toContain('// oxfmt-ignore')
+    expect(declaration).not.toContain('// @ts-nocheck')
     expect(declaration).toContain('readonly VITE_API_BASE: string')
     expect(declaration).toContain('readonly apiBase: string')
     expect(declaration).toContain('MatrixRuntime<MatrixConfig>')
