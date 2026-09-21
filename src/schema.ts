@@ -13,7 +13,7 @@ const artifactConfig = v.object({
   format: v.optional(v.picklist(['zip', 'tar.gz'])),
   removeSource: v.optional(v.boolean()),
 })
-const target = v.union([v.string(), v.object({
+const target = v.union([command, v.object({
   command,
   continuous: v.optional(v.boolean()),
   nodeEnv: v.optional(v.picklist(['development', 'production', 'test'])),

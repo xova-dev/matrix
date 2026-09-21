@@ -90,6 +90,15 @@ describe('matrix config', () => {
     })
   })
 
+  it('accepts ordered command arrays as project target shorthand', () => {
+    expect(() => assertMatrixConfig({
+      projects: {
+        web: { targets: { build: ['pnpm typecheck', 'pnpm exec vite build'] } },
+      },
+      products: { app: { variants: { web: 'web' } } },
+    })).not.toThrow()
+  })
+
   it('revalidates variant target overrides after merging defaults', () => {
     expect(() => normalizeMatrixConfig({
       projects: {
