@@ -177,6 +177,50 @@ matrix plan app --target preview --env qa
 
 dotenv 文件按 `.env`、`.env.local`、`.env.<environment>` 和 `.env.<environment>.local` 加载。Matrix 会将 `VITE_*`、`NUXT_*` 等变量传递给子进程，应用框架继续负责自己的运行时配置。
 
+### 构建工具接入
+
+Matrix 提供统一的 Unplugin 工厂，以及各构建工具的入口。
+
+    import matrix from '@xova/matrix/vite'
+
+    export default defineConfig({
+      plugins: [matrix()],
+    })
+
+Vite 适配器会保留最终解析出的 envPrefix，并自动加入 Matrix 保留的 MATRIX_ 前缀。它读取 Vite 最终的 config.env，通过 virtual:matrix/runtime 提供结构化构建上下文：
+
+    import { matrix } from 'virtual:matrix/runtime'
+
+    matrix.environment
+    matrix.product.name
+    matrix.product.appId
+    matrix.config.apiBase
+
+同一套工厂也可以通过 @xova/matrix/rollup、@xova/matrix/webpack 和 @xova/matrix/esbuild 使用。虚拟模块是构建时快照，不是部署后可变的 runtime config；只有宿主构建工具已通过前缀暴露的变量，才会进入 matrix.config。
+
+Electron 多配置时为每个构建指定 scope，避免 main、preload、renderer 互相覆盖：
+
+```ts
+export default defineConfig({
+  main: {
+    plugins: [matrix({ scope: 'main' })],
+  },
+  preload: {
+    plugins: [matrix({ scope: 'preload' })],
+  },
+})
+```
+
+分别使用 `virtual:matrix/runtime/main` 和 `virtual:matrix/runtime/preload`。对应类型文件会生成到 `.matrix/types/matrix-runtime-main.d.ts` 和 `.matrix/types/matrix-runtime-preload.d.ts`。
+
+运行一次 `matrix prepare` 可生成项目级声明文件 `.matrix/types/matrix-runtime.d.ts`。它会根据 `VITE_*`（以及配置的其他公开前缀）生成 `ImportMetaEnv` 和 `matrix.config` 的键类型，不会写入环境变量的实际值。构建插件默认也会在解析最终 `envPrefix` 后生成对应类型；可通过 `types: false` 关闭。将 `.matrix/types` 加入 `tsconfig.json` 的 `include` 即可获得类型提示：
+
+```json
+{
+  "include": ["src", ".matrix/types"]
+}
+```
+
 ## 目标和默认值
 
 内置目标的默认值如下：
@@ -203,6 +247,7 @@ matrix build [product] [--env <environment>]
 matrix preview [product] [--env <environment>]
 matrix plan [product] [--target <target>] [--env <environment>]
 matrix doctor
+matrix prepare [product] [--env <environment>]
 matrix <custom-target> [product] [--env <environment>]
 ```
 

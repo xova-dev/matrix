@@ -7,7 +7,7 @@ export interface Args {
   help?: boolean
 }
 
-export const CLI_HELP = 'matrix [target] [product] [--product name] [--variant name] [--env name] [--target name] [-h|--help]'
+export const CLI_HELP = 'matrix [target|prepare] [product] [--product name] [--variant name] [--env name] [--target name] [-h|--help]'
 
 function optionValue(argv: string[], index: number, option: string): string {
   const value = argv[index + 1]
@@ -95,6 +95,9 @@ export function validateCliArgs(args: Args): void {
       throw new Error('doctor only accepts --env')
     return
   }
+
+  if (args.command === 'prepare' && args.target !== undefined)
+    throw new Error(`${args.command} does not accept --target`)
 
   if (args.command && args.command !== 'plan' && args.target !== undefined)
     throw new Error(`Target is already selected by command ${args.command}; use --target only with plan or --product`)

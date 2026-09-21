@@ -17,6 +17,11 @@ describe('cli argument parsing', () => {
       .toEqual({ product: 'app', target: 'preview', env: 'staging', variants: [] })
   })
 
+  it('parses prepare as the type generation command', () => {
+    expect(parseArgs(['prepare', '--env', 'staging']))
+      .toEqual({ command: 'prepare', variants: [], env: 'staging' })
+  })
+
   it('rejects unknown options, missing values, and extra positionals', () => {
     expect(() => parseArgs(['dev', 'app', '--unknown'])).toThrow('Unknown option: --unknown')
     expect(() => parseArgs(['build', 'app', '--env'])).toThrow('Option --env requires a value')

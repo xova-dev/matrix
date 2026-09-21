@@ -8,6 +8,7 @@ import { defaultEnvironmentForTarget, listMatrixEnvironments, loadMatrixConfig }
 import { MATRIX_DEFAULTS } from './defaults.js'
 import { runExecutionPlan } from './exec.js'
 import { createExecutionPlan, validateExecutionGraph } from './plan.js'
+import { generateMatrixTypes, matrixTypeEnvKeys } from './typegen.js'
 
 const sensitiveEnvKey = /token|secret|password|passwd|authorization|cookie|api[_-]?key|private[_-]?key/i
 
@@ -138,6 +139,18 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
       envName: loaded.envName,
     })
     consola.success(`Configuration is valid: ${loaded.configFile ?? 'matrix.config.ts'}`)
+    return
+  }
+  if (args.command === 'prepare') {
+    const loaded = await loadMatrixConfig({ ...(args.env ? { envName: args.env } : {}) })
+    const selectedProduct = args.product ? loaded.products[args.product] : undefined
+    if (args.product && !selectedProduct)
+      throw new Error(`Unknown product: ${args.product}`)
+    const envs = [loaded.config.env, loaded.externalEnv]
+    for (const product of selectedProduct ? [selectedProduct] : Object.values(loaded.products))
+      envs.push(product.env)
+    const output = await generateMatrixTypes({ cwd: loaded.cwd, env: matrixTypeEnvKeys(...envs) })
+    consola.success(`Types generated: ${output}`)
     return
   }
   const initialTarget = args.target ?? (args.command && args.command !== 'plan' ? args.command : MATRIX_DEFAULTS.target)

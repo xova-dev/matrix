@@ -32,6 +32,26 @@
     "./plan": {
       "types": "./dist/plan.d.ts",
       "import": "./dist/plan.js"
+    },
+    "./vite": {
+      "types": "./dist/vite.d.ts",
+      "import": "./dist/vite.js"
+    },
+    "./rollup": {
+      "types": "./dist/rollup.d.ts",
+      "import": "./dist/rollup.js"
+    },
+    "./webpack": {
+      "types": "./dist/webpack.d.ts",
+      "import": "./dist/webpack.js"
+    },
+    "./esbuild": {
+      "types": "./dist/esbuild.d.ts",
+      "import": "./dist/esbuild.js"
+    },
+    "./runtime": {
+      "types": "./dist/runtime.d.ts",
+      "import": "./dist/runtime.js"
     }
   },
   "bin": {
@@ -62,6 +82,8 @@
     "c12": "catalog:",
     "consola": "catalog:",
     "execa": "catalog:",
+    "scule": "catalog:",
+    "unplugin": "catalog:",
     "valibot": "catalog:"
   },
   "devDependencies": {

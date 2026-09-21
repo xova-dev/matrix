@@ -177,6 +177,50 @@ Custom environments are available through `--env`. When running interactively, M
 
 Dotenv files are loaded as `.env`, `.env.local`, `.env.<environment>`, and `.env.<environment>.local`. Matrix passes variables such as `VITE_*` and `NUXT_*` to child processes; application frameworks keep ownership of their own runtime configuration.
 
+### Build tool integration
+
+Matrix provides one Unplugin factory and host-specific entrypoints.
+
+    import matrix from '@xova/matrix/vite'
+
+    export default defineConfig({
+      plugins: [matrix()],
+    })
+
+The Vite adapter preserves the resolved envPrefix and adds the reserved MATRIX_ prefix. It reads the final Vite config.env and exposes the structured build context through virtual:matrix/runtime:
+
+    import { matrix } from 'virtual:matrix/runtime'
+
+    matrix.environment
+    matrix.product.name
+    matrix.product.appId
+    matrix.config.apiBase
+
+The same factory is available from @xova/matrix/rollup, @xova/matrix/webpack, and @xova/matrix/esbuild. The virtual module is a build-time snapshot, not a deployment-time runtime configuration system. Only variables already exposed by the host prefixes are mapped into matrix.config.
+
+For multiple Electron configs, assign a scope to each build so main, preload, and renderer do not overwrite one another:
+
+```ts
+export default defineConfig({
+  main: {
+    plugins: [matrix({ scope: 'main' })],
+  },
+  preload: {
+    plugins: [matrix({ scope: 'preload' })],
+  },
+})
+```
+
+Import `virtual:matrix/runtime/main` and `virtual:matrix/runtime/preload` respectively. Their declarations are generated as `.matrix/types/matrix-runtime-main.d.ts` and `.matrix/types/matrix-runtime-preload.d.ts`.
+
+Run `matrix prepare` to generate `.matrix/types/matrix-runtime.d.ts` in the project. It derives `ImportMetaEnv` and `matrix.config` key types from `VITE_*` (and other configured public prefixes) without writing environment values. Build plugins also generate the matching declaration after resolving the final `envPrefix` by default; set `types: false` to disable it. Add `.matrix/types` to the `include` list in `tsconfig.json` to enable the declarations:
+
+```json
+{
+  "include": ["src", ".matrix/types"]
+}
+```
+
 ## Targets and defaults
 
 The built-in targets use these defaults:
@@ -203,6 +247,7 @@ matrix build [product] [--env <environment>]
 matrix preview [product] [--env <environment>]
 matrix plan [product] [--target <target>] [--env <environment>]
 matrix doctor
+matrix prepare [product] [--env <environment>]
 matrix <custom-target> [product] [--env <environment>]
 ```
 
