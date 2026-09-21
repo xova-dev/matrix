@@ -9,7 +9,7 @@
 ## 特性
 
 - 使用类型安全的配置描述项目、产品、变体和目标
-- 内置 `dev`、`build`、`preview` 和 `test` 目标
+- 内置 `dev`、`build`、`dist`、`preview` 和 `test` 目标
 - 支持带有 `ready` 和 `completed` 条件的目标依赖
 - 内置 `development`、`staging` 和 `production` 环境
 - 支持 `qa`、`uat` 等自定义环境名称
@@ -229,10 +229,11 @@ export default defineConfig({
 | --------- | ------------- | ------------ |
 | `dev`     | `development` | 是           |
 | `build`   | `production`  | 否           |
+| `dist`    | `production`  | 否           |
 | `preview` | `production`  | 是           |
 | `test`    | `development` | 否           |
 
-自定义目标默认不会持续运行，未指定 `--env` 时使用 `development`。内置目标的运行模式为：`dev` 使用 `development`，`test` 使用 `test`，`build` 和 `preview` 使用 `production`。自定义目标也可以将 `nodeEnv` 配置为 `development`、`production` 或 `test`。项目默认使用当前目录，目标输出目录默认为 `dist`，产物根目录默认为 `artifacts`。Target 可以使用字符串数组顺序执行多个命令，例如 `release: ['pnpm build', 'pnpm package']`。产物默认使用 `move` 模式，归档格式默认为 ZIP；需要归档时只需将 `artifacts.mode` 设置为 `archive` 或 `both`。启用产物交付时，`artifacts.clean` 默认为 `true`，会在每个非持续 Target 执行前清理输出目录，确保产物只包含本次执行的输出。`archive` 模式会保留本次输出目录，`move` 和 `both` 会将其移动到产物目录。产物命名为 `<variant>-<version>-<YYYYMMDD-HHmmss>`，默认按 Product、Environment、Variant 保留最近 5 个 ArtifactSet。
+自定义目标默认不会持续运行，未指定 `--env` 时使用 `development`。内置目标的运行模式为：`dev` 使用 `development`，`test` 使用 `test`，`build`、`dist` 和 `preview` 使用 `production`。自定义目标也可以将 `nodeEnv` 配置为 `development`、`production` 或 `test`。项目默认使用当前目录，目标输出目录默认为 `dist`，产物根目录默认为 `artifacts`。Target 可以使用字符串数组顺序执行多个命令，例如 `release: ['pnpm build', 'pnpm package']`。产物默认使用 `move` 模式，归档格式默认为 ZIP；需要归档时只需将 `artifacts.mode` 设置为 `archive` 或 `both`。启用产物交付时，`artifacts.clean` 默认为 `true`，会在每个非持续 Target 执行前清理输出目录，确保产物只包含本次执行的输出。`archive` 模式会保留本次输出目录，`move` 和 `both` 会将其移动到产物目录。产物命名为 `<variant>-<version>-<YYYYMMDD-HHmmss>`，默认按 Product、Environment、Variant 保留最近 5 个 ArtifactSet。
 
 交互式运行会先选择 Variant，再选择 Target。Target 选项来自已选 Variant 共同支持的目标；非交互式运行可以使用 `--variant` 提前指定执行范围。
 
@@ -245,6 +246,7 @@ matrix [target] [product] [--variant name] [--env <environment>]
 matrix --product <product> [--target <target>] [--variant name] [--env <environment>]
 matrix dev [product]
 matrix build [product] [--env <environment>]
+matrix dist [product] [--env <environment>]
 matrix preview [product] [--env <environment>]
 matrix test [product] [--env <environment>]
 matrix plan [product] [--target <target>] [--env <environment>]

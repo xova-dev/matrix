@@ -9,7 +9,7 @@ Define projects once, then run development, builds, previews, and custom command
 ## Features
 
 - Typed configuration for projects, products, variants, and targets
-- Built-in `dev`, `build`, `preview`, and `test` targets
+- Built-in `dev`, `build`, `dist`, `preview`, and `test` targets
 - Target dependencies with `ready` and `completed` conditions
 - `development`, `staging`, and `production` environments
 - Custom environment names such as `qa` and `uat`
@@ -229,10 +229,11 @@ The built-in targets use these defaults:
 | --------- | ------------- | ---------- |
 | `dev`     | `development` | Yes        |
 | `build`   | `production`  | No         |
+| `dist`    | `production`  | No         |
 | `preview` | `production`  | Yes        |
 | `test`    | `development` | No         |
 
-Custom targets are non-continuous by default and use `development` unless `--env` is provided. The built-in target runtime modes are `development` for `dev`, `test` for `test`, and `production` for `build` and `preview`. Custom targets may set `nodeEnv` to `development`, `production`, or `test`. Project roots default to `.`, target output directories default to `dist`, and artifact output defaults to `artifacts`. Targets may use a string array for ordered commands, such as `release: ['pnpm build', 'pnpm package']`. Artifact delivery defaults to `move` with ZIP as the archive format; set `artifacts.mode` to `archive` or `both` when needed. When artifact delivery is enabled, `artifacts.clean` defaults to `true` and clears the output directory before each non-continuous target runs, so materialized artifacts contain only the current execution's output. Archive mode keeps the current output directory, while move and both relocate it into the artifact directory. Artifact names use `<variant>-<version>-<YYYYMMDD-HHmmss>`, with five ArtifactSets retained by default per product, environment, and variant.
+Custom targets are non-continuous by default and use `development` unless `--env` is provided. The built-in target runtime modes are `development` for `dev`, `test` for `test`, and `production` for `build`, `dist`, and `preview`. Custom targets may set `nodeEnv` to `development`, `production`, or `test`. Project roots default to `.`, target output directories default to `dist`, and artifact output defaults to `artifacts`. Targets may use a string array for ordered commands, such as `release: ['pnpm build', 'pnpm package']`. Artifact delivery defaults to `move` with ZIP as the archive format; set `artifacts.mode` to `archive` or `both` when needed. When artifact delivery is enabled, `artifacts.clean` defaults to `true` and clears the output directory before each non-continuous target runs, so materialized artifacts contain only the current execution's output. Archive mode keeps the current output directory, while move and both relocate it into the artifact directory. Artifact names use `<variant>-<version>-<YYYYMMDD-HHmmss>`, with five ArtifactSets retained by default per product, environment, and variant.
 
 Interactive Variant selection comes before Target selection. Target options are derived from the common targets available to the selected Variants; use `--variant` to provide the scope in non-interactive runs.
 
@@ -245,6 +246,7 @@ matrix [target] [product] [--variant name] [--env <environment>]
 matrix --product <product> [--target <target>] [--variant name] [--env <environment>]
 matrix dev [product]
 matrix build [product] [--env <environment>]
+matrix dist [product] [--env <environment>]
 matrix preview [product] [--env <environment>]
 matrix test [product] [--env <environment>]
 matrix plan [product] [--target <target>] [--env <environment>]
