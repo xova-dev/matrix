@@ -38,7 +38,7 @@ export default defineMatrixConfig({
       root: './apps/web',
       targets: {
         dev: 'vite',
-        build: { command: 'vite build', artifacts: { mode: 'archive', format: 'zip' } },
+        build: { command: 'vite build', artifacts: { mode: 'archive' } },
         preview: 'vite preview',
       },
     },
@@ -231,7 +231,7 @@ The built-in targets use these defaults:
 | `build`   | `production`  | No         |
 | `preview` | `production`  | Yes        |
 
-Custom targets are non-continuous by default and use `development` unless `--env` is provided. The built-in target runtime modes are `development` for `dev` and `production` for `build` and `preview`. Custom targets may set `nodeEnv` to `development`, `production`, or `test`. Project roots default to `.`, target output directories default to `dist`, and artifact output defaults to `artifacts`. Targets may use a string array for ordered commands, such as `release: ['pnpm build', 'pnpm package']`. Artifact delivery is configured per target with `artifacts.mode`: `move`, `archive`, or `both`; the source output is removed after successful delivery by default. Artifact names use `<variant>-<version>-<YYYYMMDD-HHmmss>`, with five ArtifactSets retained by default per product, environment, and variant.
+Custom targets are non-continuous by default and use `development` unless `--env` is provided. The built-in target runtime modes are `development` for `dev` and `production` for `build` and `preview`. Custom targets may set `nodeEnv` to `development`, `production`, or `test`. Project roots default to `.`, target output directories default to `dist`, and artifact output defaults to `artifacts`. Targets may use a string array for ordered commands, such as `release: ['pnpm build', 'pnpm package']`. Artifact delivery defaults to `move` with ZIP as the archive format; set `artifacts.mode` to `archive` or `both` when needed. When artifact delivery is enabled, `artifacts.clean` defaults to `true` and clears the output directory before each non-continuous target runs, so materialized artifacts contain only the current execution's output. Archive mode keeps the current output directory, while move and both relocate it into the artifact directory. Artifact names use `<variant>-<version>-<YYYYMMDD-HHmmss>`, with five ArtifactSets retained by default per product, environment, and variant.
 
 Interactive Variant selection comes before Target selection. Target options are derived from the common targets available to the selected Variants; use `--variant` to provide the scope in non-interactive runs.
 

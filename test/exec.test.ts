@@ -21,7 +21,7 @@ function task(id: string, command: string, overrides: Partial<ExecutionTask> = {
     cwd: process.cwd(),
     env: {},
     continuous: false,
-    artifacts: { mode: 'none', format: 'zip', removeSource: true },
+    artifacts: { mode: 'none', format: 'zip', clean: false },
     outputDir: process.cwd(),
     dependsOn: [],
     ...overrides,
@@ -61,6 +61,30 @@ async function freePort(): Promise<number> {
 }
 
 describe('runExecutionPlan', () => {
+  it('cleans stale output before execution and keeps the current archived output', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'matrix-exec-artifact-'))
+    const output = path.join(root, 'dist')
+    const artifactsRoot = path.join(root, 'artifacts')
+    const freshOutput = path.join(output, 'index.html')
+    const staleOutput = path.join(output, 'stale.txt')
+    await fs.mkdir(output)
+    await fs.writeFile(path.join(root, 'package.json'), JSON.stringify({ name: 'app', version: '1.0.0' }))
+    await fs.writeFile(staleOutput, 'stale')
+    const build = scriptedTask('app:web:build', 'require("node:fs").writeFileSync(process.env.MATRIX_TEST_MARKER, "fresh")', {
+      cwd: root,
+      projectRoot: root,
+      outputDir: output,
+      env: { MATRIX_TEST_MARKER: freshOutput },
+      artifacts: { mode: 'archive', format: 'zip', clean: true },
+    })
+
+    await runExecutionPlan({ ...plan([build]), artifactsRoot })
+
+    await expect(fs.stat(staleOutput)).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(fs.readFile(freshOutput, 'utf8')).resolves.toBe('fresh')
+    await expect(fs.readdir(path.join(artifactsRoot, 'app', 'development'))).resolves.toHaveLength(1)
+  })
+
   it('inherits the host environment and lets task variables override it', async () => {
     const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'matrix-exec-'))
     const marker = path.join(cwd, 'env.json')

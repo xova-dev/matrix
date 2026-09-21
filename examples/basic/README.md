@@ -47,6 +47,5 @@ other scripts pass explicit selections and are intended for repeatable non-inter
 `pnpm run dev` starts the Web project first and starts the Desktop project after the Web port is
 ready. Stop continuous commands with `Ctrl+C`.
 
-The build command writes files to both project `dist` directories, creates a Web ZIP, and moves
-the Desktop output under `examples/basic/artifacts/app/staging/`. Source output directories are
-removed after successful artifact delivery.
+The build command cleans both project `dist` directories first, creates a Web ZIP while retaining
+the current Web output, and moves the Desktop output under `examples/basic/artifacts/app/staging/`.

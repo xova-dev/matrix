@@ -15,7 +15,7 @@ async function createProject(): Promise<{ root: string, output: string, artifact
 }
 
 describe('materializeArtifact', () => {
-  it('archives with a flat variant-version-datetime name and removes the source', async () => {
+  it('archives with a flat variant-version-datetime name and keeps the source', async () => {
     const project = await createProject()
     const result = await materializeArtifact({
       sourceDir: project.output,
@@ -26,14 +26,13 @@ describe('materializeArtifact', () => {
       projectRoot: project.root,
       mode: 'archive',
       format: 'zip',
-      removeSource: true,
       retention: 5,
       now: new Date(2026, 8, 21, 15, 30, 12),
     })
 
     expect(result).toBe(path.join(project.artifacts, 'english-speaking', 'staging', 'web-0.1.8-20260921-153012.zip'))
     await expect(fs.stat(result)).resolves.toMatchObject({ isFile: expect.any(Function) })
-    await expect(fs.stat(project.output)).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(fs.readFile(path.join(project.output, 'index.html'), 'utf8')).resolves.toBe('matrix')
   })
 
   it('moves the complete output directory and retains its structure', async () => {
@@ -50,7 +49,6 @@ describe('materializeArtifact', () => {
       projectRoot: project.root,
       mode: 'move',
       format: 'zip',
-      removeSource: true,
       retention: 5,
       now: new Date(2026, 8, 21, 15, 30, 12),
     })
@@ -73,7 +71,6 @@ describe('materializeArtifact', () => {
         projectRoot: project.root,
         mode: 'archive',
         format: 'zip',
-        removeSource: true,
         retention: 5,
         now: new Date(2026, 8, 21, 15, 30, 12 + index),
       })
@@ -96,7 +93,6 @@ describe('materializeArtifact', () => {
         projectRoot: project.root,
         mode: 'archive',
         format: 'zip',
-        removeSource: true,
         retention,
         now: new Date(2026, 8, 21, 15, 30, second),
       })

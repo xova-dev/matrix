@@ -1,5 +1,7 @@
 import type { ExecutionPlan, ExecutionTask } from './types.js'
+import { mkdir, rm } from 'node:fs/promises'
 import net from 'node:net'
+import path from 'node:path'
 import process from 'node:process'
 import consola from 'consola'
 import { execaCommand } from 'execa'
@@ -75,6 +77,15 @@ async function stopChildren(children: Map<string, Child>, stopping: Set<string>,
   await Promise.allSettled([...children.values()])
 }
 
+async function cleanOutputDirectory(projectRoot: string, outputDir: string): Promise<void> {
+  const projectPath = path.resolve(projectRoot)
+  const outputPath = path.resolve(outputDir)
+  if (outputPath === projectPath || projectPath.startsWith(`${outputPath}${path.sep}`))
+    throw new Error(`Refusing to clean an unsafe output directory: ${outputDir}`)
+  await rm(outputPath, { recursive: true, force: true })
+  await mkdir(outputPath, { recursive: true })
+}
+
 /** Executes tasks in plan order while respecting dependency readiness conditions. */
 export async function runExecutionPlan(plan: ExecutionPlan): Promise<{ children: Map<string, Child> }> {
   const children = new Map<string, Child>()
@@ -110,6 +121,9 @@ export async function runExecutionPlan(plan: ExecutionPlan): Promise<{ children:
           await waitReady(child, dependencyTask, serviceFailures)
         }
       }
+
+      if (!task.continuous && task.artifacts.clean)
+        await cleanOutputDirectory(task.projectRoot, task.outputDir)
 
       const commands = Array.isArray(task.command) ? task.command : [task.command]
       for (const [index, command] of commands.entries()) {
@@ -151,7 +165,6 @@ export async function runExecutionPlan(plan: ExecutionPlan): Promise<{ children:
           projectRoot: task.projectRoot,
           mode: task.artifacts.mode,
           format: task.artifacts.format,
-          removeSource: task.artifacts.removeSource,
           retention: plan.artifactRetention,
         })
         consola.success(`Artifact: ${artifactPath}`)

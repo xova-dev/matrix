@@ -5,7 +5,7 @@ export const MATRIX_DEFAULTS = {
   projectRoot: '.',
   outputDir: 'dist',
   artifactsRoot: 'artifacts',
-  artifacts: { mode: 'none', format: 'zip', removeSource: true, retention: 5 },
+  artifacts: { mode: 'move', format: 'zip', clean: true, retention: 5 },
   targets: {
     dev: { environment: 'development', nodeEnv: 'development', continuous: true },
     build: { environment: 'production', nodeEnv: 'production', continuous: false },

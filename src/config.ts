@@ -81,11 +81,13 @@ function normalizeTarget(name: string, value: TargetConfig): NormalizedTarget {
     throw new Error(`Target ${name} must define a command`)
   if (Array.isArray(target.command) && (!target.command.length || target.command.some(command => !command.trim())))
     throw new Error('Target commands must contain non-empty commands')
-  const artifacts = {
-    mode: target.artifacts?.mode ?? MATRIX_DEFAULTS.artifacts.mode,
-    format: target.artifacts?.format ?? MATRIX_DEFAULTS.artifacts.format,
-    removeSource: target.artifacts?.removeSource ?? MATRIX_DEFAULTS.artifacts.removeSource,
-  }
+  const artifacts = target.artifacts
+    ? {
+        mode: target.artifacts.mode ?? MATRIX_DEFAULTS.artifacts.mode,
+        format: target.artifacts.format ?? MATRIX_DEFAULTS.artifacts.format,
+        clean: target.artifacts.clean ?? MATRIX_DEFAULTS.artifacts.clean,
+      }
+    : { mode: 'none' as const, format: MATRIX_DEFAULTS.artifacts.format, clean: false }
   const targetDefaults = MATRIX_DEFAULTS.targets[name as keyof typeof MATRIX_DEFAULTS.targets]
   const continuous = target.continuous ?? targetDefaults?.continuous ?? false
   if (continuous && Array.isArray(target.command))
@@ -109,7 +111,7 @@ function mergeTarget(base: NormalizedTarget, override: TargetOverride): Normaliz
     : { ...base.readyWhen, ...override.readyWhen }
   const artifacts = override.artifacts === undefined
     ? base.artifacts
-    : { ...base.artifacts, ...override.artifacts }
+    : { ...(base.artifacts.mode === 'none' ? MATRIX_DEFAULTS.artifacts : base.artifacts), ...override.artifacts }
   return normalizeTarget(base.name, {
     ...base,
     ...override,

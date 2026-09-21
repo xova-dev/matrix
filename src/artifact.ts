@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { cp, mkdir, readdir, readFile, rename, rm, stat } from 'node:fs/promises'
+import { mkdir, readdir, readFile, rename, rm, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { archiveDirectory } from './archive.js'
 
@@ -12,7 +12,6 @@ export interface MaterializeArtifactOptions {
   projectRoot: string
   mode: 'move' | 'archive' | 'both'
   format: 'zip' | 'tar.gz'
-  removeSource: boolean
   retention: number
   now?: Date
 }
@@ -38,17 +37,6 @@ async function readPackageVersion(projectRoot: string): Promise<string> {
   if (!packageJson || typeof packageJson !== 'object' || typeof (packageJson as { version?: unknown }).version !== 'string' || !(packageJson as { version: string }).version.trim())
     throw new Error(`Package version is required for artifact output: ${packagePath}`)
   return (packageJson as { version: string }).version.trim()
-}
-
-async function copyDirectory(source: string, destination: string): Promise<void> {
-  const temporary = `${destination}.${randomUUID()}.tmp`
-  try {
-    await cp(source, temporary, { recursive: true, errorOnExist: true })
-    await rename(temporary, destination)
-  }
-  finally {
-    await rm(temporary, { recursive: true, force: true })
-  }
 }
 
 async function ensureDirectory(sourceDir: string): Promise<void> {
@@ -116,25 +104,17 @@ export async function materializeArtifact(options: MaterializeArtifactOptions): 
   if (options.mode === 'archive') {
     await ensureAvailable(archivePath)
     await archiveDirectory(options.sourceDir, archivePath, options.format)
-    if (options.removeSource)
-      await rm(options.sourceDir, { recursive: true, force: false })
   }
   else if (options.mode === 'move') {
     await ensureAvailable(movedPath)
-    if (options.removeSource)
-      await rename(options.sourceDir, movedPath)
-    else
-      await copyDirectory(options.sourceDir, movedPath)
+    await rename(options.sourceDir, movedPath)
   }
   else {
     await ensureAvailable(movedPath)
     const temporaryArchive = path.join(artifactDirectory, `.${stem}.${randomUUID()}.${archiveExtension(options.format)}`)
     try {
       await archiveDirectory(options.sourceDir, temporaryArchive, options.format)
-      if (options.removeSource)
-        await rename(options.sourceDir, movedPath)
-      else
-        await copyDirectory(options.sourceDir, movedPath)
+      await rename(options.sourceDir, movedPath)
       await rename(temporaryArchive, path.join(movedPath, `${stem}.${archiveExtension(options.format)}`))
     }
     finally {

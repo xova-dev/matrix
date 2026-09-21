@@ -14,6 +14,7 @@ describe('matrix config', () => {
 
   it('uses target defaults for the standard environments', () => {
     expect(MATRIX_DEFAULTS).toMatchObject({ target: 'dev', projectRoot: '.', outputDir: 'dist', artifactsRoot: 'artifacts' })
+    expect(MATRIX_DEFAULTS.artifacts).toMatchObject({ mode: 'move', format: 'zip', clean: true })
     expect(MATRIX_DEFAULTS.targets).toMatchObject({
       dev: { environment: 'development', nodeEnv: 'development', continuous: true },
       build: { environment: 'production', nodeEnv: 'production', continuous: false },
@@ -86,8 +87,30 @@ describe('matrix config', () => {
     })
     expect(products.app?.variants.web?.targets.release).toMatchObject({
       command: ['build', 'package'],
-      artifacts: { mode: 'move', removeSource: true },
+      artifacts: { mode: 'move', clean: true },
     })
+  })
+
+  it('does not enable artifact cleanup when artifacts are not configured', () => {
+    const { products } = normalizeMatrixConfig({
+      projects: { web: { targets: { test: 'test' } } },
+      products: { app: { variants: { web: 'web' } } },
+    })
+    expect(products.app?.variants.web?.targets.test?.artifacts).toEqual({ mode: 'none', format: 'zip', clean: false })
+  })
+
+  it('applies artifact defaults when a variant adds artifact delivery', () => {
+    const { products } = normalizeMatrixConfig({
+      projects: { web: { targets: { build: 'vite build' } } },
+      products: {
+        app: {
+          variants: {
+            web: { project: 'web', targets: { build: { artifacts: { mode: 'archive' } } } },
+          },
+        },
+      },
+    })
+    expect(products.app?.variants.web?.targets.build?.artifacts).toEqual({ mode: 'archive', format: 'zip', clean: true })
   })
 
   it('accepts ordered command arrays as project target shorthand', () => {

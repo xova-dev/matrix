@@ -38,7 +38,7 @@ export default defineMatrixConfig({
       root: './apps/web',
       targets: {
         dev: 'vite',
-        build: { command: 'vite build', artifacts: { mode: 'archive', format: 'zip' } },
+        build: { command: 'vite build', artifacts: { mode: 'archive' } },
         preview: 'vite preview',
       },
     },
@@ -231,7 +231,7 @@ export default defineConfig({
 | `build`   | `production`  | 否           |
 | `preview` | `production`  | 是           |
 
-自定义目标默认不会持续运行，未指定 `--env` 时使用 `development`。内置目标的运行模式为：`dev` 使用 `development`，`build` 和 `preview` 使用 `production`。自定义目标也可以将 `nodeEnv` 配置为 `development`、`production` 或 `test`。项目默认使用当前目录，目标输出目录默认为 `dist`，产物根目录默认为 `artifacts`。Target 可以使用字符串数组顺序执行多个命令，例如 `release: ['pnpm build', 'pnpm package']`。产物支持 `move`、`archive` 和 `both` 三种模式，成功处理后默认删除原始输出目录。产物命名为 `<variant>-<version>-<YYYYMMDD-HHmmss>`，默认按 Product、Environment、Variant 保留最近 5 个 ArtifactSet。
+自定义目标默认不会持续运行，未指定 `--env` 时使用 `development`。内置目标的运行模式为：`dev` 使用 `development`，`build` 和 `preview` 使用 `production`。自定义目标也可以将 `nodeEnv` 配置为 `development`、`production` 或 `test`。项目默认使用当前目录，目标输出目录默认为 `dist`，产物根目录默认为 `artifacts`。Target 可以使用字符串数组顺序执行多个命令，例如 `release: ['pnpm build', 'pnpm package']`。产物默认使用 `move` 模式，归档格式默认为 ZIP；需要归档时只需将 `artifacts.mode` 设置为 `archive` 或 `both`。启用产物交付时，`artifacts.clean` 默认为 `true`，会在每个非持续 Target 执行前清理输出目录，确保产物只包含本次执行的输出。`archive` 模式会保留本次输出目录，`move` 和 `both` 会将其移动到产物目录。产物命名为 `<variant>-<version>-<YYYYMMDD-HHmmss>`，默认按 Product、Environment、Variant 保留最近 5 个 ArtifactSet。
 
 交互式运行会先选择 Variant，再选择 Target。Target 选项来自已选 Variant 共同支持的目标；非交互式运行可以使用 `--variant` 提前指定执行范围。
 

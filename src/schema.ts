@@ -11,7 +11,7 @@ const command = v.union([v.string(), v.pipe(v.array(v.string()), v.minLength(1))
 const artifactConfig = v.object({
   mode: v.optional(v.picklist(['move', 'archive', 'both'])),
   format: v.optional(v.picklist(['zip', 'tar.gz'])),
-  removeSource: v.optional(v.boolean()),
+  clean: v.optional(v.boolean()),
 })
 const target = v.union([command, v.object({
   command,
