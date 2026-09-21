@@ -48,9 +48,9 @@ describe('matrix unplugin', () => {
   it.each([
     ['development', true, false, false],
     ['dev', true, false, false],
-    ['test', false, false, true],
+    ['test', true, false, true],
     ['production', false, true, false],
-    ['custom', false, false, false],
+    ['custom', true, false, false],
   ])('derives runtime mode flags from NODE_ENV=%s', (nodeEnv, isDevelopment, isProduction, isTest) => {
     expect(createMatrixRuntime({ NODE_ENV: nodeEnv })).toMatchObject({ isDevelopment, isProduction, isTest })
   })
