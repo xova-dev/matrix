@@ -9,7 +9,7 @@ Define projects once, then run development, builds, previews, and custom command
 ## Features
 
 - Typed configuration for projects, products, variants, and targets
-- Built-in `dev`, `build`, and `preview` targets
+- Built-in `dev`, `build`, `preview`, and `test` targets
 - Target dependencies with `ready` and `completed` conditions
 - `development`, `staging`, and `production` environments
 - Custom environment names such as `qa` and `uat`
@@ -66,12 +66,12 @@ See [`examples/basic`](examples/basic/README.md) for a self-contained example th
 
 ## Configuration
 
-| Concept | Purpose                                                         |
-| ------- | --------------------------------------------------------------- |
-| Project | An application directory and its commands                       |
-| Product | A runnable deliverable composed of variants                     |
-| Variant | A product entry bound to a project                              |
-| Target  | A command such as `dev`, `build`, `preview`, or a custom target |
+| Concept | Purpose                                                                 |
+| ------- | ----------------------------------------------------------------------- |
+| Project | An application directory and its commands                               |
+| Product | A runnable deliverable composed of variants                             |
+| Variant | A product entry bound to a project                                      |
+| Target  | A command such as `dev`, `build`, `preview`, `test`, or a custom target |
 
 ### Multiple variants
 
@@ -150,7 +150,7 @@ MATRIX_PROJECT
 NODE_ENV
 ```
 
-`MATRIX_ENV_NAME` is the selected Matrix configuration environment and may be a custom name such as `staging` or `qa`. `NODE_ENV` describes the target process mode: `dev` uses `development`, while `build` and `preview` use `production`. Therefore a staging build normally receives `MATRIX_ENV_NAME=staging` and `NODE_ENV=production`. `MATRIX_PRODUCT_APP_ID` is emitted only when the resolved product identity has an `appId`; environment suffixes are applied before it is exported.
+`MATRIX_ENV_NAME` is the selected Matrix configuration environment and may be a custom name such as `staging` or `qa`. `NODE_ENV` describes the target process mode: `dev` uses `development`, `test` uses `test`, while `build` and `preview` use `production`. Therefore a staging build normally receives `MATRIX_ENV_NAME=staging` and `NODE_ENV=production`. `MATRIX_PRODUCT_APP_ID` is emitted only when the resolved product identity has an `appId`; environment suffixes are applied before it is exported.
 
 Product-level environment values are resolved independently for each product. This lets two products reuse the same Desktop project while connecting it to different Web variants or services.
 
@@ -230,8 +230,9 @@ The built-in targets use these defaults:
 | `dev`     | `development` | Yes        |
 | `build`   | `production`  | No         |
 | `preview` | `production`  | Yes        |
+| `test`    | `development` | No         |
 
-Custom targets are non-continuous by default and use `development` unless `--env` is provided. The built-in target runtime modes are `development` for `dev` and `production` for `build` and `preview`. Custom targets may set `nodeEnv` to `development`, `production`, or `test`. Project roots default to `.`, target output directories default to `dist`, and artifact output defaults to `artifacts`. Targets may use a string array for ordered commands, such as `release: ['pnpm build', 'pnpm package']`. Artifact delivery defaults to `move` with ZIP as the archive format; set `artifacts.mode` to `archive` or `both` when needed. When artifact delivery is enabled, `artifacts.clean` defaults to `true` and clears the output directory before each non-continuous target runs, so materialized artifacts contain only the current execution's output. Archive mode keeps the current output directory, while move and both relocate it into the artifact directory. Artifact names use `<variant>-<version>-<YYYYMMDD-HHmmss>`, with five ArtifactSets retained by default per product, environment, and variant.
+Custom targets are non-continuous by default and use `development` unless `--env` is provided. The built-in target runtime modes are `development` for `dev`, `test` for `test`, and `production` for `build` and `preview`. Custom targets may set `nodeEnv` to `development`, `production`, or `test`. Project roots default to `.`, target output directories default to `dist`, and artifact output defaults to `artifacts`. Targets may use a string array for ordered commands, such as `release: ['pnpm build', 'pnpm package']`. Artifact delivery defaults to `move` with ZIP as the archive format; set `artifacts.mode` to `archive` or `both` when needed. When artifact delivery is enabled, `artifacts.clean` defaults to `true` and clears the output directory before each non-continuous target runs, so materialized artifacts contain only the current execution's output. Archive mode keeps the current output directory, while move and both relocate it into the artifact directory. Artifact names use `<variant>-<version>-<YYYYMMDD-HHmmss>`, with five ArtifactSets retained by default per product, environment, and variant.
 
 Interactive Variant selection comes before Target selection. Target options are derived from the common targets available to the selected Variants; use `--variant` to provide the scope in non-interactive runs.
 
@@ -245,6 +246,7 @@ matrix --product <product> [--target <target>] [--variant name] [--env <environm
 matrix dev [product]
 matrix build [product] [--env <environment>]
 matrix preview [product] [--env <environment>]
+matrix test [product] [--env <environment>]
 matrix plan [product] [--target <target>] [--env <environment>]
 matrix doctor
 matrix prepare [product] [--env <environment>]

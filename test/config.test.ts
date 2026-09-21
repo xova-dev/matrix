@@ -19,11 +19,17 @@ describe('matrix config', () => {
       dev: { environment: 'development', nodeEnv: 'development', continuous: true },
       build: { environment: 'production', nodeEnv: 'production', continuous: false },
       preview: { environment: 'production', nodeEnv: 'production', continuous: true },
+      test: { environment: 'development', nodeEnv: 'test', continuous: false },
     })
     expect(defaultEnvironmentForTarget('dev')).toBe('development')
     expect(defaultEnvironmentForTarget('build')).toBe('production')
     expect(defaultEnvironmentForTarget('preview')).toBe('production')
     expect(defaultEnvironmentForTarget('test')).toBe('development')
+    const { products } = normalizeMatrixConfig({
+      projects: { web: { targets: { test: 'pnpm test' } } },
+      products: { app: { variants: { web: 'web' } } },
+    })
+    expect(products.app?.variants.web?.targets.test).toMatchObject({ nodeEnv: 'test', continuous: false })
   })
 
   it('resolves custom c12 $env environments before planning', async () => {

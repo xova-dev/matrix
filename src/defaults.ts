@@ -10,6 +10,7 @@ export const MATRIX_DEFAULTS = {
     dev: { environment: 'development', nodeEnv: 'development', continuous: true },
     build: { environment: 'production', nodeEnv: 'production', continuous: false },
     preview: { environment: 'production', nodeEnv: 'production', continuous: true },
+    test: { environment: 'development', nodeEnv: 'test', continuous: false },
   },
 } as const
 
