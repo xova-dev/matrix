@@ -1,6 +1,23 @@
 # Changelog
 
 
+## v0.1.2
+
+[compare changes](https://github.com/xova-dev/matrix/compare/v0.1.1...v0.1.2)
+
+### 🚀 Enhancements
+
+- **matrix:** Support ordered targets and artifact sets ([3eb3b10](https://github.com/xova-dev/matrix/commit/3eb3b10))
+- Add scoped build runtime integration ([1605e82](https://github.com/xova-dev/matrix/commit/1605e82))
+
+### 🩹 Fixes
+
+- **ci:** Publish tagged releases without branch checks ([c81c901](https://github.com/xova-dev/matrix/commit/c81c901))
+
+### ❤️ Contributors
+
+- Oevery ([@oevery](https://github.com/oevery))
+
 ## v0.1.1
 
 [compare changes](https://github.com/xova-dev/matrix/compare/v0.1.0...v0.1.1)
