@@ -1,6 +1,28 @@
 # Changelog
 
 
+## v0.1.3
+
+[compare changes](https://github.com/xova-dev/matrix/compare/v0.1.2...v0.1.3)
+
+### 🚀 Enhancements
+
+- **artifacts:** Clean outputs before materialization ([016d06a](https://github.com/xova-dev/matrix/commit/016d06a))
+- **targets:** Add test target defaults ([b302f3d](https://github.com/xova-dev/matrix/commit/b302f3d))
+- **targets:** Add dist target defaults ([61daf94](https://github.com/xova-dev/matrix/commit/61daf94))
+
+### 🩹 Fixes
+
+- **schema:** Accept ordered project target commands ([e988b62](https://github.com/xova-dev/matrix/commit/e988b62))
+
+### 💅 Refactors
+
+- **artifacts:** Remove none sentinel and harden delivery ([ee9414e](https://github.com/xova-dev/matrix/commit/ee9414e))
+
+### ❤️ Contributors
+
+- Oevery ([@oevery](https://github.com/oevery))
+
 ## v0.1.2
 
 [compare changes](https://github.com/xova-dev/matrix/compare/v0.1.1...v0.1.2)
