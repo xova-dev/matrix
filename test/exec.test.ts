@@ -21,7 +21,6 @@ function task(id: string, command: string, overrides: Partial<ExecutionTask> = {
     cwd: process.cwd(),
     env: {},
     continuous: false,
-    artifacts: { mode: 'none', format: 'zip', clean: false },
     outputDir: process.cwd(),
     dependsOn: [],
     ...overrides,

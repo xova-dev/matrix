@@ -47,6 +47,13 @@ export interface ArtifactConfig {
   clean?: boolean
 }
 
+/** Resolved artifact delivery settings for a target that enables artifacts. */
+export interface NormalizedArtifactConfig {
+  mode: 'move' | 'archive' | 'both'
+  format: 'zip' | 'tar.gz'
+  clean: boolean
+}
+
 /** Dependency on another variant of the same product. */
 export interface TargetDependency {
   /** Variant that must be executed first. */
@@ -140,7 +147,7 @@ export const MATRIX_ENVIRONMENTS = ['development', 'staging', 'production'] as c
 export type MatrixEnvironment = typeof MATRIX_ENVIRONMENTS[number]
 
 /** Target after defaults and variant overrides have been resolved. */
-export type NormalizedTarget = Omit<CommandTarget, 'outputDir' | 'dependsOn' | 'artifacts'> & { name: string, continuous: boolean, nodeEnv: NodeEnvironment, outputDir: string, artifacts: { mode: 'move' | 'archive' | 'both' | 'none', format: 'zip' | 'tar.gz', clean: boolean }, dependsOn: TargetDependency[] }
+export type NormalizedTarget = Omit<CommandTarget, 'outputDir' | 'dependsOn' | 'artifacts'> & { name: string, continuous: boolean, nodeEnv: NodeEnvironment, outputDir: string, artifacts?: NormalizedArtifactConfig, dependsOn: TargetDependency[] }
 
 /** Project after its target definitions have been normalized. */
 export type NormalizedProject = Omit<ProjectConfig, 'targets'> & { id: string, targets: Record<string, NormalizedTarget> }
@@ -180,7 +187,7 @@ export interface ExecutionTask {
   /** Whether the command is expected to remain running. */
   continuous: boolean
   /** Resolved artifact settings. */
-  artifacts: { mode: 'move' | 'archive' | 'both' | 'none', format: 'zip' | 'tar.gz', clean: boolean }
+  artifacts?: NormalizedArtifactConfig
   /** Readiness probe, when configured. */
   readyWhen?: { type: 'port', host?: string, port: number, timeout?: number }
   /** Absolute output directory. */

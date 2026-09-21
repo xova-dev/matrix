@@ -121,7 +121,7 @@ export function createExecutionPlan(input: CreateExecutionPlanInput): ExecutionP
           : {}),
       }),
       continuous: target.continuous,
-      artifacts: target.artifacts,
+      ...(target.artifacts ? { artifacts: target.artifacts } : {}),
       ...(target.readyWhen ? { readyWhen: target.readyWhen } : {}),
       outputDir: path.resolve(projectRoot, target.outputDir),
       dependsOn: dependencyTasks,

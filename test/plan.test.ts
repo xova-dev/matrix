@@ -66,7 +66,7 @@ describe('matrix plan', () => {
     const plan = createExecutionPlan({ config, projects: { web: {}, desktop: {} }, products, cwd: process.cwd(), productNames: ['app'], target: 'build', envName: 'development' })
     expect(plan.tasks.map(task => task.id)).toEqual(['app:web:build', 'app:desktop:build'])
     expect(plan.tasks[1]?.command).toBe('desktop-build')
-    expect(plan.tasks[1]?.artifacts.mode).toBe('archive')
+    expect(plan.tasks[1]?.artifacts?.mode).toBe('archive')
   })
 
   it('merges environment layers with external values taking precedence', () => {

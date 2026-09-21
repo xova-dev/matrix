@@ -102,7 +102,7 @@ describe('matrix config', () => {
       projects: { web: { targets: { test: 'test' } } },
       products: { app: { variants: { web: 'web' } } },
     })
-    expect(products.app?.variants.web?.targets.test?.artifacts).toEqual({ mode: 'none', format: 'zip', clean: false })
+    expect(products.app?.variants.web?.targets.test?.artifacts).toBeUndefined()
   })
 
   it('applies artifact defaults when a variant adds artifact delivery', () => {

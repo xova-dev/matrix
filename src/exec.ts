@@ -122,7 +122,7 @@ export async function runExecutionPlan(plan: ExecutionPlan): Promise<{ children:
         }
       }
 
-      if (!task.continuous && task.artifacts.clean)
+      if (!task.continuous && task.artifacts?.clean)
         await cleanOutputDirectory(task.projectRoot, task.outputDir)
 
       const commands = Array.isArray(task.command) ? task.command : [task.command]
@@ -155,7 +155,7 @@ export async function runExecutionPlan(plan: ExecutionPlan): Promise<{ children:
           throw new Error(`${task.id} exited with code ${result.exitCode}`)
       }
 
-      if (!task.continuous && task.artifacts.mode !== 'none') {
+      if (!task.continuous && task.artifacts) {
         const artifactPath = await materializeArtifact({
           sourceDir: task.outputDir,
           artifactsRoot: plan.artifactsRoot,

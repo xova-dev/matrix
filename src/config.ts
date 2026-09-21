@@ -87,18 +87,19 @@ function normalizeTarget(name: string, value: TargetConfig): NormalizedTarget {
         format: target.artifacts.format ?? MATRIX_DEFAULTS.artifacts.format,
         clean: target.artifacts.clean ?? MATRIX_DEFAULTS.artifacts.clean,
       }
-    : { mode: 'none' as const, format: MATRIX_DEFAULTS.artifacts.format, clean: false }
+    : undefined
+  const { artifacts: _configuredArtifacts, ...targetWithoutArtifacts } = target
   const targetDefaults = MATRIX_DEFAULTS.targets[name as keyof typeof MATRIX_DEFAULTS.targets]
   const continuous = target.continuous ?? targetDefaults?.continuous ?? false
   if (continuous && Array.isArray(target.command))
     throw new Error('Continuous targets cannot use multiple commands')
   return {
-    ...target,
+    ...targetWithoutArtifacts,
     name,
     continuous,
     nodeEnv: target.nodeEnv ?? targetDefaults?.nodeEnv ?? 'development',
     outputDir: target.outputDir ?? MATRIX_DEFAULTS.outputDir,
-    artifacts,
+    ...(artifacts ? { artifacts } : {}),
     dependsOn: (target.dependsOn ?? []).map(dependency => typeof dependency === 'string' ? { variant: dependency } : dependency),
   }
 }
@@ -111,7 +112,7 @@ function mergeTarget(base: NormalizedTarget, override: TargetOverride): Normaliz
     : { ...base.readyWhen, ...override.readyWhen }
   const artifacts = override.artifacts === undefined
     ? base.artifacts
-    : { ...(base.artifacts.mode === 'none' ? MATRIX_DEFAULTS.artifacts : base.artifacts), ...override.artifacts }
+    : { ...(base.artifacts ?? MATRIX_DEFAULTS.artifacts), ...override.artifacts }
   return normalizeTarget(base.name, {
     ...base,
     ...override,

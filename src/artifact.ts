@@ -112,10 +112,24 @@ export async function materializeArtifact(options: MaterializeArtifactOptions): 
   else {
     await ensureAvailable(movedPath)
     const temporaryArchive = path.join(artifactDirectory, `.${stem}.${randomUUID()}.${archiveExtension(options.format)}`)
+    const temporaryMovedPath = path.join(artifactDirectory, `.${stem}.${randomUUID()}.dir`)
+    let sourceMoved = false
+    let committed = false
     try {
       await archiveDirectory(options.sourceDir, temporaryArchive, options.format)
-      await rename(options.sourceDir, movedPath)
-      await rename(temporaryArchive, path.join(movedPath, `${stem}.${archiveExtension(options.format)}`))
+      await rename(options.sourceDir, temporaryMovedPath)
+      sourceMoved = true
+      await rename(temporaryArchive, path.join(temporaryMovedPath, `${stem}.${archiveExtension(options.format)}`))
+      await rename(temporaryMovedPath, movedPath)
+      committed = true
+    }
+    catch (error) {
+      if (sourceMoved && !committed) {
+        await rename(temporaryMovedPath, options.sourceDir).catch((restoreError: unknown) => {
+          throw new AggregateError([error, restoreError], `Unable to restore artifact source directory: ${options.sourceDir}`)
+        })
+      }
+      throw error
     }
     finally {
       await rm(temporaryArchive, { force: true })

@@ -57,6 +57,26 @@ describe('materializeArtifact', () => {
     await expect(fs.stat(project.output)).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
+  it('archives and moves the source as one artifact set', async () => {
+    const project = await createProject()
+    const result = await materializeArtifact({
+      sourceDir: project.output,
+      artifactsRoot: project.artifacts,
+      product: 'english-speaking',
+      environment: 'staging',
+      variant: 'desktop',
+      projectRoot: project.root,
+      mode: 'both',
+      format: 'zip',
+      retention: 5,
+      now: new Date(2026, 8, 21, 15, 30, 12),
+    })
+
+    await expect(fs.readFile(path.join(result, 'index.html'), 'utf8')).resolves.toBe('matrix')
+    await expect(fs.stat(path.join(result, 'desktop-0.1.8-20260921-153012.zip'))).resolves.toMatchObject({ isFile: expect.any(Function) })
+    await expect(fs.stat(project.output)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
   it('keeps the newest five ArtifactSets for a variant', async () => {
     const project = await createProject()
     for (let index = 0; index < 6; index++) {
