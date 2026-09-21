@@ -1,6 +1,7 @@
 {
   "name": "matrix-basic-example",
   "type": "module",
+  "version": "0.1.0",
   "private": true,
   "scripts": {
     "matrix": "node ../../bin/matrix.mjs",

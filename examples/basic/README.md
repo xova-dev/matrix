@@ -14,7 +14,7 @@ It demonstrates:
 - product-scoped `qa`, `staging`, and `production` environment variables
 - environment-specific identity suffixes
 - a variant dependency shared by `dev` and `build`
-- both ZIP and `tar.gz` build archives
+- ordered target commands and ZIP or moved build artifacts
 
 The example uses the short `dependsOn: ['web']` form. Matrix selects `ready` for continuous
 targets such as `dev` and `completed` for one-shot targets such as `build`.
@@ -47,5 +47,6 @@ other scripts pass explicit selections and are intended for repeatable non-inter
 `pnpm run dev` starts the Web project first and starts the Desktop project after the Web port is
 ready. Stop continuous commands with `Ctrl+C`.
 
-The build command writes files to both project `dist` directories and creates a Web ZIP plus a
-Desktop `tar.gz` under `examples/basic/artifacts/app/staging/`.
+The build command writes files to both project `dist` directories, creates a Web ZIP, and moves
+the Desktop output under `examples/basic/artifacts/app/staging/`. Source output directories are
+removed after successful artifact delivery.

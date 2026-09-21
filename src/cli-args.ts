@@ -4,11 +4,10 @@ export interface Args {
   variants: string[]
   env?: string
   target?: string
-  archive?: boolean
   help?: boolean
 }
 
-export const CLI_HELP = 'matrix [target] [product] [--product name] [--variant name] [--env name] [--target name] [--archive|--no-archive] [-h|--help]'
+export const CLI_HELP = 'matrix [target] [product] [--product name] [--variant name] [--env name] [--target name] [-h|--help]'
 
 function optionValue(argv: string[], index: number, option: string): string {
   const value = argv[index + 1]
@@ -34,16 +33,6 @@ export function parseArgs(argv: string[]): Args {
 
     if (value === '--help' || value === '-h') {
       result.help = true
-      continue
-    }
-
-    if (value === '--archive' || value === '--no-archive') {
-      const archive = value === '--archive'
-      if (result.archive !== undefined && result.archive !== archive)
-        throw new Error('Options --archive and --no-archive cannot be used together')
-      if (result.archive === archive)
-        throw new Error(`Duplicate option: ${value}`)
-      result.archive = archive
       continue
     }
 
@@ -94,7 +83,7 @@ export function parseArgs(argv: string[]): Args {
 
 /** Validates argument combinations before loading the workspace configuration. */
 export function validateCliArgs(args: Args): void {
-  const hasSelection = args.product !== undefined || args.target !== undefined || args.env !== undefined || args.variants.length > 0 || args.archive !== undefined
+  const hasSelection = args.product !== undefined || args.target !== undefined || args.env !== undefined || args.variants.length > 0
   if (args.help || args.command === 'help') {
     if (hasSelection || (args.command !== undefined && args.command !== 'help'))
       throw new Error('Help does not accept execution options')
@@ -102,7 +91,7 @@ export function validateCliArgs(args: Args): void {
   }
 
   if (args.command === 'doctor') {
-    if (args.product !== undefined || args.target !== undefined || args.variants.length > 0 || args.archive !== undefined)
+    if (args.product !== undefined || args.target !== undefined || args.variants.length > 0)
       throw new Error('doctor only accepts --env')
     return
   }

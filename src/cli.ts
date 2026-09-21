@@ -158,8 +158,6 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
   if (!selectedTarget)
     return outro('Cancelled')
   const target = selectedTarget.target!
-  if (selectedTarget.archive !== undefined && target !== 'build')
-    throw new Error(`Archive options are only valid for the build target: ${target}`)
   validateTarget(target, product, selectedTarget.variants)
   const availableEnvironments = !selectedTarget.env && process.stdin.isTTY && process.stdout.isTTY
     ? await listMatrixEnvironments({ productName: selectedTarget.product! })
@@ -179,12 +177,6 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
   const products = [selectedEnvironment.product!]
   const planInput = { config: loaded.config, projects: loaded.projects, products: loaded.products, externalEnv: loaded.externalEnv, cwd: loaded.cwd, productNames: products, target, envName: loaded.envName }
   const plan = selectedEnvironment.variants.length ? createExecutionPlan({ ...planInput, variantNames: selectedEnvironment.variants }) : createExecutionPlan(planInput)
-  if (selectedEnvironment.archive !== undefined) {
-    for (const task of plan.tasks) {
-      if (task.target === 'build')
-        task.archive.enabled = selectedEnvironment.archive
-    }
-  }
   if (command === 'plan') {
     const visibleEnvKeys = new Set(Object.keys(loaded.config.env ?? {}))
     for (const productName of products) {

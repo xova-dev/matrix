@@ -6,7 +6,7 @@ export default defineMatrixConfig({
       root: './apps/web',
       targets: {
         dev: { command: 'node dev.mjs', readyWhen: { type: 'port', port: 5310 } },
-        build: { command: 'node build.mjs', archive: true },
+        build: { command: 'node build.mjs', artifacts: { mode: 'archive', format: 'zip' } },
         preview: { command: 'node preview.mjs', readyWhen: { type: 'port', port: 5311 } },
         test: 'node test.mjs',
       },
@@ -15,7 +15,7 @@ export default defineMatrixConfig({
       root: './apps/desktop',
       targets: {
         dev: { command: 'node dev.mjs', readyWhen: { type: 'port', port: 5320 } },
-        build: { command: 'node build.mjs', archive: { enabled: true, format: 'tar.gz' } },
+        build: { command: ['node build.mjs', 'node test.mjs'], artifacts: { mode: 'move' } },
         preview: { command: 'node preview.mjs', readyWhen: { type: 'port', port: 5321 } },
         test: 'node test.mjs',
       },

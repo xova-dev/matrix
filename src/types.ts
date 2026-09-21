@@ -10,7 +10,7 @@ export type EnvMap = Record<string, Scalar>
 /** Configuration for a project command such as `dev`, `build`, or `preview`. */
 export interface CommandTarget {
   /** Command to execute from the project's root directory. */
-  command: string
+  command: string | string[]
   /** Whether the command keeps running after it starts. Defaults from the target name. */
   continuous?: boolean
   /** Node.js runtime mode passed to the target process. */
@@ -26,19 +26,25 @@ export interface CommandTarget {
     /** Maximum time to wait for readiness, in milliseconds. */
     timeout?: number
   }
-  /** Directory to archive, relative to the project root. Defaults to `dist`. */
+  /** Directory containing completed output, relative to the project root. Defaults to `dist`. */
   outputDir?: string
-  /** Whether to archive build output and, optionally, which archive format to use. Only valid on the build target. */
-  archive?: boolean | { enabled: boolean, format?: 'zip' | 'tar.gz' }
+  /** How completed output should be materialized as an artifact. */
+  artifacts?: ArtifactConfig
   /** Other variants that must run before this target. */
   dependsOn?: Array<string | TargetDependency>
 }
 
 /** Short target syntax containing only the command. */
-export type TargetConfig = string | CommandTarget
+export type TargetConfig = string | string[] | CommandTarget
 
 /** Partial target configuration used to override a project's target on a variant. */
-export type TargetOverride = string | Partial<CommandTarget>
+export type TargetOverride = string | string[] | Partial<CommandTarget>
+
+export interface ArtifactConfig {
+  mode?: 'move' | 'archive' | 'both'
+  format?: 'zip' | 'tar.gz'
+  removeSource?: boolean
+}
 
 /** Dependency on another variant of the same product. */
 export interface TargetDependency {
@@ -123,7 +129,7 @@ export interface MatrixConfig {
   /** Products composed from the projects above. */
   products: Record<string, ProductConfig>
   /** Output artifact configuration. */
-  artifacts?: { root?: string }
+  artifacts?: { root?: string, retention?: { keep?: number } }
 }
 
 /** Built-in environment names offered by Matrix. Custom names can be added with `$env`. */
@@ -133,7 +139,7 @@ export const MATRIX_ENVIRONMENTS = ['development', 'staging', 'production'] as c
 export type MatrixEnvironment = typeof MATRIX_ENVIRONMENTS[number]
 
 /** Target after defaults and variant overrides have been resolved. */
-export type NormalizedTarget = Omit<CommandTarget, 'outputDir' | 'dependsOn'> & { name: string, continuous: boolean, nodeEnv: NodeEnvironment, outputDir: string, archive: { enabled: boolean, format: 'zip' | 'tar.gz' }, dependsOn: TargetDependency[] }
+export type NormalizedTarget = Omit<CommandTarget, 'outputDir' | 'dependsOn' | 'artifacts'> & { name: string, continuous: boolean, nodeEnv: NodeEnvironment, outputDir: string, artifacts: { mode: 'move' | 'archive' | 'both' | 'none', format: 'zip' | 'tar.gz', removeSource: boolean }, dependsOn: TargetDependency[] }
 
 /** Project after its target definitions have been normalized. */
 export type NormalizedProject = Omit<ProjectConfig, 'targets'> & { id: string, targets: Record<string, NormalizedTarget> }
@@ -164,16 +170,16 @@ export interface ExecutionTask {
   slug: string
   /** Resolved application identifier, when configured. */
   appId?: string
-  /** Command to execute. */
-  command: string
+  /** Command or ordered commands to execute. */
+  command: string | string[]
   /** Working directory for the command. */
   cwd: string
   /** Environment passed to the command. */
   env: EnvMap
   /** Whether the command is expected to remain running. */
   continuous: boolean
-  /** Resolved archive settings. */
-  archive: { enabled: boolean, format: 'zip' | 'tar.gz' }
+  /** Resolved artifact settings. */
+  artifacts: { mode: 'move' | 'archive' | 'both' | 'none', format: 'zip' | 'tar.gz', removeSource: boolean }
   /** Readiness probe, when configured. */
   readyWhen?: { type: 'port', host?: string, port: number, timeout?: number }
   /** Absolute output directory. */
@@ -188,14 +194,15 @@ export interface ExecutionPlan {
   envName: string
   /** Tasks in dependency-safe execution order. */
   tasks: ExecutionTask[]
-  /** Absolute root directory for generated archives. */
+  /** Absolute root directory for generated artifacts. */
   artifactsRoot: string
+  artifactRetention: number
 }
 
 /** Input accepted by {@link createExecutionPlan}. */
 export interface CreateExecutionPlanInput {
   /** Resolved root-level configuration values used by planning. */
-  config: { artifacts?: { root?: string }, env?: EnvMap, suffixes?: Record<string, SuffixConfig> }
+  config: { artifacts?: { root?: string, retention?: { keep?: number } }, env?: EnvMap, suffixes?: Record<string, SuffixConfig> }
   /** Normalized projects keyed by project name. */
   projects: Record<string, { root?: string }>
   /** Normalized products keyed by product name. */

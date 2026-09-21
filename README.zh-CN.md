@@ -15,7 +15,7 @@
 - 支持 `qa`、`uat` 等自定义环境名称
 - 支持 dotenv 和 Shell 覆盖的分层环境变量
 - 支持交互式选择产品和环境
-- 支持将构建结果归档到 `artifacts`
+- 支持顺序执行多个 Target 命令，并按配置移动或压缩产物
 
 ## 安装
 
@@ -38,7 +38,7 @@ export default defineMatrixConfig({
       root: './apps/web',
       targets: {
         dev: 'vite',
-        build: { command: 'vite build', archive: true },
+        build: { command: 'vite build', artifacts: { mode: 'archive', format: 'zip' } },
         preview: 'vite preview',
       },
     },
@@ -187,7 +187,7 @@ dotenv 文件按 `.env`、`.env.local`、`.env.<environment>` 和 `.env.<environ
 | `build`   | `production`  | 否           |
 | `preview` | `production`  | 是           |
 
-自定义目标默认不会持续运行，未指定 `--env` 时使用 `development`。内置目标的运行模式为：`dev` 使用 `development`，`build` 和 `preview` 使用 `production`。自定义目标也可以将 `nodeEnv` 配置为 `development`、`production` 或 `test`。项目默认使用当前目录，目标输出目录默认为 `dist`，归档输出目录默认为 `artifacts`。归档默认关闭，只允许配置在 build 目标上，启用后默认使用 zip 格式。配置了归档但输出目录不存在时，构建会失败。
+自定义目标默认不会持续运行，未指定 `--env` 时使用 `development`。内置目标的运行模式为：`dev` 使用 `development`，`build` 和 `preview` 使用 `production`。自定义目标也可以将 `nodeEnv` 配置为 `development`、`production` 或 `test`。项目默认使用当前目录，目标输出目录默认为 `dist`，产物根目录默认为 `artifacts`。Target 可以使用字符串数组顺序执行多个命令，例如 `release: ['pnpm build', 'pnpm package']`。产物支持 `move`、`archive` 和 `both` 三种模式，成功处理后默认删除原始输出目录。产物命名为 `<variant>-<version>-<YYYYMMDD-HHmmss>`，默认按 Product、Environment、Variant 保留最近 5 个 ArtifactSet。
 
 交互式运行会先选择 Variant，再选择 Target。Target 选项来自已选 Variant 共同支持的目标；非交互式运行可以使用 `--variant` 提前指定执行范围。
 
@@ -199,7 +199,7 @@ dotenv 文件按 `.env`、`.env.local`、`.env.<environment>` 和 `.env.<environ
 matrix [target] [product] [--variant name] [--env <environment>]
 matrix --product <product> [--target <target>] [--variant name] [--env <environment>]
 matrix dev [product]
-matrix build [product] [--env <environment>] [--archive]
+matrix build [product] [--env <environment>]
 matrix preview [product] [--env <environment>]
 matrix plan [product] [--target <target>] [--env <environment>]
 matrix doctor

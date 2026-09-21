@@ -73,13 +73,36 @@ describe('matrix config', () => {
     expect('$env' in (loaded.config.products.app ?? {})).toBe(false)
   })
 
-  it('rejects archives on non-build targets', () => {
+  it('normalizes ordered target commands and artifact settings', () => {
     expect(() => normalizeMatrixConfig({
       projects: {
-        web: { targets: { test: { command: 'test', archive: true } } },
+        web: { targets: { release: { command: ['build', 'package'], artifacts: { mode: 'move' } } } },
       },
       products: { app: { variants: { web: 'web' } } },
-    })).toThrow('Archive is only supported for build targets: test')
+    })).not.toThrow()
+    const { products } = normalizeMatrixConfig({
+      projects: { web: { targets: { release: { command: ['build', 'package'], artifacts: { mode: 'move' } } } } },
+      products: { app: { variants: { web: 'web' } } },
+    })
+    expect(products.app?.variants.web?.targets.release).toMatchObject({
+      command: ['build', 'package'],
+      artifacts: { mode: 'move', removeSource: true },
+    })
+  })
+
+  it('revalidates variant target overrides after merging defaults', () => {
+    expect(() => normalizeMatrixConfig({
+      projects: {
+        web: { targets: { dev: { command: 'vite', continuous: true } } },
+      },
+      products: {
+        app: {
+          variants: {
+            web: { project: 'web', targets: { dev: { command: ['prepare', 'vite'] } } },
+          },
+        },
+      },
+    })).toThrow('Continuous targets cannot use multiple commands')
   })
 
   it('rejects invalid readiness port and timeout values', () => {

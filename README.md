@@ -15,7 +15,7 @@ Define projects once, then run development, builds, previews, and custom command
 - Custom environment names such as `qa` and `uat`
 - Layered environment variables with dotenv and shell overrides
 - Interactive product and environment selection
-- Optional build archives under `artifacts`
+- Ordered target commands and configurable artifact materialization under `artifacts`
 
 ## Install
 
@@ -38,7 +38,7 @@ export default defineMatrixConfig({
       root: './apps/web',
       targets: {
         dev: 'vite',
-        build: { command: 'vite build', archive: true },
+        build: { command: 'vite build', artifacts: { mode: 'archive', format: 'zip' } },
         preview: 'vite preview',
       },
     },
@@ -187,7 +187,7 @@ The built-in targets use these defaults:
 | `build`   | `production`  | No         |
 | `preview` | `production`  | Yes        |
 
-Custom targets are non-continuous by default and use `development` unless `--env` is provided. The built-in target runtime modes are `development` for `dev` and `production` for `build` and `preview`. Custom targets may set `nodeEnv` to `development`, `production`, or `test`. Project roots default to `.`, target output directories default to `dist`, and archive output defaults to `artifacts`. Archives are disabled by default, are only valid for the build target, and use zip when enabled. A configured archive fails the build when its output directory does not exist.
+Custom targets are non-continuous by default and use `development` unless `--env` is provided. The built-in target runtime modes are `development` for `dev` and `production` for `build` and `preview`. Custom targets may set `nodeEnv` to `development`, `production`, or `test`. Project roots default to `.`, target output directories default to `dist`, and artifact output defaults to `artifacts`. Targets may use a string array for ordered commands, such as `release: ['pnpm build', 'pnpm package']`. Artifact delivery is configured per target with `artifacts.mode`: `move`, `archive`, or `both`; the source output is removed after successful delivery by default. Artifact names use `<variant>-<version>-<YYYYMMDD-HHmmss>`, with five ArtifactSets retained by default per product, environment, and variant.
 
 Interactive Variant selection comes before Target selection. Target options are derived from the common targets available to the selected Variants; use `--variant` to provide the scope in non-interactive runs.
 
@@ -199,7 +199,7 @@ Any configured target can be invoked from the CLI. `test`, `lint`, and `e2e` are
 matrix [target] [product] [--variant name] [--env <environment>]
 matrix --product <product> [--target <target>] [--variant name] [--env <environment>]
 matrix dev [product]
-matrix build [product] [--env <environment>] [--archive]
+matrix build [product] [--env <environment>]
 matrix preview [product] [--env <environment>]
 matrix plan [product] [--target <target>] [--env <environment>]
 matrix doctor

@@ -7,22 +7,28 @@ const targetDependency = v.object({ variant: v.string(), target: v.optional(v.st
 const dependency = v.union([v.string(), targetDependency])
 const readyPort = v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(65_535))
 const readyTimeout = v.pipe(v.number(), v.integer(), v.minValue(1))
+const command = v.union([v.string(), v.pipe(v.array(v.string()), v.minLength(1))])
+const artifactConfig = v.object({
+  mode: v.optional(v.picklist(['move', 'archive', 'both'])),
+  format: v.optional(v.picklist(['zip', 'tar.gz'])),
+  removeSource: v.optional(v.boolean()),
+})
 const target = v.union([v.string(), v.object({
-  command: v.string(),
+  command,
   continuous: v.optional(v.boolean()),
   nodeEnv: v.optional(v.picklist(['development', 'production', 'test'])),
   readyWhen: v.optional(v.object({ type: v.literal('port'), host: v.optional(v.string()), port: readyPort, timeout: v.optional(readyTimeout) })),
   outputDir: v.optional(v.string()),
-  archive: v.optional(v.union([v.boolean(), v.object({ enabled: v.boolean(), format: v.optional(v.picklist(['zip', 'tar.gz'])) })])),
+  artifacts: v.optional(artifactConfig),
   dependsOn: v.optional(v.array(dependency)),
 })])
-const targetOverride = v.union([v.string(), v.object({
-  command: v.optional(v.string()),
+const targetOverride = v.union([v.string(), command, v.object({
+  command: v.optional(command),
   continuous: v.optional(v.boolean()),
   nodeEnv: v.optional(v.picklist(['development', 'production', 'test'])),
   readyWhen: v.optional(v.object({ type: v.literal('port'), host: v.optional(v.string()), port: readyPort, timeout: v.optional(readyTimeout) })),
   outputDir: v.optional(v.string()),
-  archive: v.optional(v.union([v.boolean(), v.object({ enabled: v.boolean(), format: v.optional(v.picklist(['zip', 'tar.gz'])) })])),
+  artifacts: v.optional(artifactConfig),
   dependsOn: v.optional(v.array(dependency)),
 })])
 const project = v.object({ root: v.optional(v.string()), targets: v.record(v.string(), target) })
@@ -52,7 +58,7 @@ export const matrixConfigSchema = v.object({
   $env: v.optional(v.record(v.string(), environment)),
   projects: v.record(v.string(), project),
   products: v.record(v.string(), product),
-  artifacts: v.optional(v.object({ root: v.optional(v.string()) })),
+  artifacts: v.optional(v.object({ root: v.optional(v.string()), retention: v.optional(v.object({ keep: v.optional(v.pipe(v.number(), v.integer(), v.minValue(1))) })) })),
 })
 
 /** Validates a configuration and throws a Valibot error when it is malformed. */

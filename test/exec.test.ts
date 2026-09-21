@@ -21,7 +21,7 @@ function task(id: string, command: string, overrides: Partial<ExecutionTask> = {
     cwd: process.cwd(),
     env: {},
     continuous: false,
-    archive: { enabled: false, format: 'zip' },
+    artifacts: { mode: 'none', format: 'zip', removeSource: true },
     outputDir: process.cwd(),
     dependsOn: [],
     ...overrides,
@@ -41,7 +41,7 @@ function scriptedTask(id: string, script: string, overrides: Partial<ExecutionTa
 }
 
 function plan(tasks: ExecutionTask[]): ExecutionPlan {
-  return { envName: 'development', tasks, artifactsRoot: process.cwd() }
+  return { envName: 'development', tasks, artifactsRoot: process.cwd(), artifactRetention: 5 }
 }
 
 async function freePort(): Promise<number> {

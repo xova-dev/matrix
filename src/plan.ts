@@ -121,7 +121,7 @@ export function createExecutionPlan(input: CreateExecutionPlanInput): ExecutionP
           : {}),
       }),
       continuous: target.continuous,
-      archive: target.archive,
+      artifacts: target.artifacts,
       ...(target.readyWhen ? { readyWhen: target.readyWhen } : {}),
       outputDir: path.resolve(projectRoot, target.outputDir),
       dependsOn: dependencyTasks,
@@ -143,6 +143,7 @@ export function createExecutionPlan(input: CreateExecutionPlanInput): ExecutionP
     envName: input.envName,
     tasks: ordered,
     artifactsRoot: path.resolve(input.cwd, input.config.artifacts?.root ?? MATRIX_DEFAULTS.artifactsRoot),
+    artifactRetention: input.config.artifacts?.retention?.keep ?? MATRIX_DEFAULTS.artifacts.retention,
   }
 }
 

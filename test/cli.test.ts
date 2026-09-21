@@ -16,7 +16,7 @@ describe('cli entry', () => {
   })
 
   it('rejects invalid command options before loading a workspace configuration', async () => {
-    await expect(runCli(['doctor', '--archive']))
+    await expect(runCli(['doctor', '--target', 'build']))
       .rejects
       .toThrow('doctor only accepts --env')
   })

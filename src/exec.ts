@@ -1,10 +1,9 @@
 import type { ExecutionPlan, ExecutionTask } from './types.js'
 import net from 'node:net'
-import path from 'node:path'
 import process from 'node:process'
 import consola from 'consola'
 import { execaCommand } from 'execa'
-import { archiveDirectory } from './archive.js'
+import { materializeArtifact } from './artifact.js'
 
 type Child = ReturnType<typeof execaCommand>
 const shutdownGracePeriod = 5_000
@@ -112,37 +111,50 @@ export async function runExecutionPlan(plan: ExecutionPlan): Promise<{ children:
         }
       }
 
-      consola.info(`${task.id} → ${task.command}`)
-      const child = execaCommand(task.command, {
-        cwd: task.cwd,
-        env: Object.fromEntries(Object.entries(task.env).map(([key, value]) => [key, String(value)])),
-        extendEnv: true,
-        stdio: 'inherit',
-        reject: false,
-        killDescendants: true,
-      }) as Child
-      children.set(task.id, child)
-      void child.then(() => settled.add(task.id), () => settled.add(task.id))
+      const commands = Array.isArray(task.command) ? task.command : [task.command]
+      for (const [index, command] of commands.entries()) {
+        consola.info(`${task.id} [${index + 1}/${commands.length}] → ${command}`)
+        const child = execaCommand(command, {
+          cwd: task.cwd,
+          env: Object.fromEntries(Object.entries(task.env).map(([key, value]) => [key, String(value)])),
+          extendEnv: true,
+          stdio: 'inherit',
+          reject: false,
+          killDescendants: true,
+        }) as Child
+        children.set(task.id, child)
+        void child.then(() => settled.add(task.id), () => settled.add(task.id))
 
-      if (task.continuous) {
-        const failure = child.then((result) => {
-          if (stopping.size || result.exitCode === 0)
-            return neverSettles
-          throw new Error(`${task.id} exited with code ${result.exitCode}`)
-        })
-        serviceFailures.add(failure)
-        void failure.catch(() => undefined)
-      }
+        if (task.continuous) {
+          const failure = child.then((result) => {
+            if (stopping.size || result.exitCode === 0)
+              return neverSettles
+            throw new Error(`${task.id} exited with code ${result.exitCode}`)
+          })
+          serviceFailures.add(failure)
+          void failure.catch(() => undefined)
+          break
+        }
 
-      if (!task.continuous) {
         const result = await raceWithServiceFailures(child, serviceFailures)
         if (result.exitCode !== 0)
           throw new Error(`${task.id} exited with code ${result.exitCode}`)
-        if (task.target === 'build' && task.archive.enabled) {
-          const extension = task.archive.format === 'zip' ? 'zip' : 'tar.gz'
-          const destination = path.join(plan.artifactsRoot, task.product, plan.envName, `${task.variant}.${extension}`)
-          await archiveDirectory(task.outputDir, destination, task.archive.format)
-        }
+      }
+
+      if (!task.continuous && task.artifacts.mode !== 'none') {
+        const artifactPath = await materializeArtifact({
+          sourceDir: task.outputDir,
+          artifactsRoot: plan.artifactsRoot,
+          product: task.product,
+          environment: plan.envName,
+          variant: task.variant,
+          projectRoot: task.projectRoot,
+          mode: task.artifacts.mode,
+          format: task.artifacts.format,
+          removeSource: task.artifacts.removeSource,
+          retention: plan.artifactRetention,
+        })
+        consola.success(`Artifact: ${artifactPath}`)
       }
     }
 

@@ -75,46 +75,48 @@ export async function listMatrixEnvironments(options: { cwd?: string, configFile
   return [...environments]
 }
 
-function normalizeTarget(name: string, value: string | CommandTarget): NormalizedTarget {
-  const target = typeof value === 'string' ? { command: value } : { ...value }
+function normalizeTarget(name: string, value: TargetConfig): NormalizedTarget {
+  const target = typeof value === 'string' || Array.isArray(value) ? { command: value } : { ...value }
   if (!target.command)
     throw new Error(`Target ${name} must define a command`)
-  const archive = typeof target.archive === 'boolean'
-    ? { enabled: target.archive, format: MATRIX_DEFAULTS.archive.format }
-    : { enabled: target.archive?.enabled ?? MATRIX_DEFAULTS.archive.enabled, format: target.archive?.format ?? MATRIX_DEFAULTS.archive.format }
+  if (Array.isArray(target.command) && (!target.command.length || target.command.some(command => !command.trim())))
+    throw new Error('Target commands must contain non-empty commands')
+  const artifacts = {
+    mode: target.artifacts?.mode ?? MATRIX_DEFAULTS.artifacts.mode,
+    format: target.artifacts?.format ?? MATRIX_DEFAULTS.artifacts.format,
+    removeSource: target.artifacts?.removeSource ?? MATRIX_DEFAULTS.artifacts.removeSource,
+  }
   const targetDefaults = MATRIX_DEFAULTS.targets[name as keyof typeof MATRIX_DEFAULTS.targets]
+  const continuous = target.continuous ?? targetDefaults?.continuous ?? false
+  if (continuous && Array.isArray(target.command))
+    throw new Error('Continuous targets cannot use multiple commands')
   return {
     ...target,
     name,
-    continuous: target.continuous ?? targetDefaults?.continuous ?? false,
+    continuous,
     nodeEnv: target.nodeEnv ?? targetDefaults?.nodeEnv ?? 'development',
     outputDir: target.outputDir ?? MATRIX_DEFAULTS.outputDir,
-    archive,
+    artifacts,
     dependsOn: (target.dependsOn ?? []).map(dependency => typeof dependency === 'string' ? { variant: dependency } : dependency),
   }
 }
 
-function assertArchiveTarget(name: string, value: TargetConfig | TargetOverride): void {
-  if (name !== 'build' && typeof value !== 'string' && value.archive !== undefined)
-    throw new Error(`Archive is only supported for build targets: ${name}`)
-}
-
-function mergeTarget(base: NormalizedTarget, override: TargetOverride): TargetConfig {
-  if (typeof override === 'string')
-    return override
+function mergeTarget(base: NormalizedTarget, override: TargetOverride): NormalizedTarget {
+  if (typeof override === 'string' || Array.isArray(override))
+    return normalizeTarget(base.name, override)
   const readyWhen = override.readyWhen === undefined
     ? base.readyWhen
     : { ...base.readyWhen, ...override.readyWhen }
-  const baseArchive = typeof base.archive === 'object' ? base.archive : { enabled: base.archive }
-  const archive = typeof override.archive === 'object' && override.archive !== null
-    ? { ...baseArchive, ...override.archive }
-    : override.archive ?? baseArchive
-  return {
+  const artifacts = override.artifacts === undefined
+    ? base.artifacts
+    : { ...base.artifacts, ...override.artifacts }
+  return normalizeTarget(base.name, {
     ...base,
     ...override,
-    archive,
+    artifacts,
+    dependsOn: (override.dependsOn ?? base.dependsOn).map(dependency => typeof dependency === 'string' ? { variant: dependency } : dependency),
     ...(readyWhen ? { readyWhen } : {}),
-  }
+  } as CommandTarget)
 }
 
 function mergeEnv(...maps: Array<EnvMap | undefined>): EnvMap {
@@ -136,7 +138,6 @@ export function normalizeMatrixConfig(raw: MatrixConfig): { config: MatrixConfig
     ...project,
     id,
     targets: Object.fromEntries(Object.entries(project.targets).map(([name, target]) => {
-      assertArchiveTarget(name, target)
       return [name, normalizeTarget(name, target)]
     })),
   }])) as Record<string, NormalizedProject>
@@ -149,14 +150,11 @@ export function normalizeMatrixConfig(raw: MatrixConfig): { config: MatrixConfig
         throw new Error(`Product ${key} variant ${id} references unknown project ${variant.project}`)
       const targets = Object.fromEntries(Object.entries(project.targets).map(([name, target]) => {
         const override = variant.targets?.[name]
-        if (override !== undefined)
-          assertArchiveTarget(name, override)
-        return [name, normalizeTarget(name, override === undefined ? target : mergeTarget(target, override))]
+        return [name, override === undefined ? target : mergeTarget(target, override)]
       }))
       for (const [name, target] of Object.entries(variant.targets ?? {})) {
         if (!(name in targets)) {
-          assertArchiveTarget(name, target)
-          if (typeof target === 'string')
+          if (typeof target === 'string' || Array.isArray(target))
             targets[name] = normalizeTarget(name, target)
           else if (target.command)
             targets[name] = normalizeTarget(name, target as CommandTarget)
