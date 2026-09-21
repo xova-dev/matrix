@@ -22,10 +22,14 @@ export interface MatrixUnpluginOptions {
 
 export function createMatrixRuntime(env: Record<string, string>, envPrefix: EnvPrefix | undefined = ['VITE_', 'MATRIX_']): MatrixRuntime {
   const prefixes = normalizeEnvPrefix(envPrefix)
+  const nodeEnv = env.NODE_ENV ?? ''
   return {
     environment: env.MATRIX_ENV_NAME ?? '',
     target: env.MATRIX_TARGET ?? '',
-    nodeEnv: env.NODE_ENV ?? '',
+    nodeEnv,
+    isDevelopment: nodeEnv === 'development' || nodeEnv === 'dev',
+    isProduction: nodeEnv === 'production',
+    isTest: nodeEnv === 'test',
     variant: env.MATRIX_VARIANT ?? '',
     project: env.MATRIX_PROJECT ?? '',
     product: {

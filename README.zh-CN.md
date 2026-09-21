@@ -196,6 +196,12 @@ Vite 适配器会保留最终解析出的 envPrefix，并自动加入 Matrix 保
     matrix.product.appId
     matrix.config.apiBase
 
+    matrix.isDevelopment
+    matrix.isProduction
+    matrix.isTest
+
+这些模式标记由 Matrix 解析后的 `nodeEnv`（`development`、`production` 或 `test`）生成，是构建时快照值。`dev`、`build`、`dist`、`preview` 等 Matrix 专属目标仍应通过 `matrix.target` 判断。
+
 同一套工厂也可以通过 @xova/matrix/rollup、@xova/matrix/webpack 和 @xova/matrix/esbuild 使用。虚拟模块是构建时快照，不是部署后可变的 runtime config；只有宿主构建工具已通过前缀暴露的变量，才会进入 matrix.config。
 
 Electron 多配置时为每个构建指定 scope，避免 main、preload、renderer 互相覆盖：

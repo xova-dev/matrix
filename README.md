@@ -196,6 +196,12 @@ The Vite adapter preserves the resolved envPrefix and adds the reserved MATRIX_ 
     matrix.product.appId
     matrix.config.apiBase
 
+    matrix.isDevelopment
+    matrix.isProduction
+    matrix.isTest
+
+The mode flags are derived from Matrix's resolved `nodeEnv` (`development`, `production`, or `test`). They are build-time snapshot values; use `matrix.target` for Matrix-specific targets such as `dev`, `build`, `dist`, and `preview`.
+
 The same factory is available from @xova/matrix/rollup, @xova/matrix/webpack, and @xova/matrix/esbuild. The virtual module is a build-time snapshot, not a deployment-time runtime configuration system. Only variables already exposed by the host prefixes are mapped into matrix.config.
 
 For multiple Electron configs, assign a scope to each build so main, preload, and renderer do not overwrite one another:

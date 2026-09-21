@@ -26,6 +26,9 @@ describe('matrix unplugin', () => {
       environment: 'staging',
       target: 'build',
       nodeEnv: 'production',
+      isDevelopment: false,
+      isProduction: true,
+      isTest: false,
       variant: 'desktop',
       project: 'desktop',
       product: {
@@ -40,5 +43,15 @@ describe('matrix unplugin', () => {
         windowTitle: 'Matrix',
       },
     })
+  })
+
+  it.each([
+    ['development', true, false, false],
+    ['dev', true, false, false],
+    ['test', false, false, true],
+    ['production', false, true, false],
+    ['custom', false, false, false],
+  ])('derives runtime mode flags from NODE_ENV=%s', (nodeEnv, isDevelopment, isProduction, isTest) => {
+    expect(createMatrixRuntime({ NODE_ENV: nodeEnv })).toMatchObject({ isDevelopment, isProduction, isTest })
   })
 })

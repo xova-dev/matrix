@@ -2,6 +2,9 @@ export interface MatrixRuntime<Config extends object = Record<string, string>> {
   environment: string
   target: string
   nodeEnv: 'development' | 'production' | 'test' | string
+  isDevelopment: boolean
+  isProduction: boolean
+  isTest: boolean
   variant: string
   project: string
   product: {
