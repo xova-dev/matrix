@@ -220,7 +220,7 @@ export default defineConfig({
 
 Import `virtual:matrix/runtime/main` and `virtual:matrix/runtime/preload` respectively. Their declarations are generated as `.matrix/types/matrix-runtime-main.d.ts` and `.matrix/types/matrix-runtime-preload.d.ts`.
 
-Run `matrix prepare` to generate `.matrix/types/matrix-runtime.d.ts` under every project referenced by the selected products. When a project is shared by multiple products, its declaration contains the union of their public environment keys. It derives `ImportMetaEnv` and `matrix.config` key types from `VITE_*` (and other configured public prefixes) without writing environment values. Build plugins also generate the matching declaration after resolving the final `envPrefix` by default; set `types: false` to disable it. Add `.matrix/types` to each project's `include` list in `tsconfig.json` to enable the declarations:
+Run `matrix prepare` to generate `.matrix/types/matrix-runtime.d.ts` under every project referenced by the selected products. When a project is shared by multiple products, its declaration contains the union of their public environment keys. It derives `ImportMetaEnv` and `matrix.config` key types from `VITE_*` (and other configured public prefixes) without writing environment values. Build plugins also generate the matching declaration after resolving the final `envPrefix` by default; in a Vitest environment they do not overwrite existing types by default, while `types: true` or `types: { output: '...' }` explicitly enables generation and `types: false` always disables it. Add `.matrix/types` to each project's `include` list in `tsconfig.json` to enable the declarations:
 
 ```json
 {

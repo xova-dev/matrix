@@ -220,7 +220,7 @@ export default defineConfig({
 
 分别使用 `virtual:matrix/runtime/main` 和 `virtual:matrix/runtime/preload`。对应类型文件会生成到 `.matrix/types/matrix-runtime-main.d.ts` 和 `.matrix/types/matrix-runtime-preload.d.ts`。
 
-运行一次 `matrix prepare` 会在所选 product 引用的每个 project 目录下生成 `.matrix/types/matrix-runtime.d.ts`。如果多个 product 复用同一个 project，该 project 的声明会合并这些 product 的公开环境变量键。它会根据 `VITE_*`（以及配置的其他公开前缀）生成 `ImportMetaEnv` 和 `matrix.config` 的键类型，不会写入环境变量的实际值。构建插件默认也会在解析最终 `envPrefix` 后生成对应类型；可通过 `types: false` 关闭。将每个 project 下的 `.matrix/types` 加入对应 `tsconfig.json` 的 `include` 即可获得类型提示：
+运行一次 `matrix prepare` 会在所选 product 引用的每个 project 目录下生成 `.matrix/types/matrix-runtime.d.ts`。如果多个 product 复用同一个 project，该 project 的声明会合并这些 product 的公开环境变量键。它会根据 `VITE_*`（以及配置的其他公开前缀）生成 `ImportMetaEnv` 和 `matrix.config` 的键类型，不会写入环境变量的实际值。构建插件默认也会在解析最终 `envPrefix` 后生成对应类型；但在 Vitest 环境中默认不会覆盖已有类型，可通过 `types: true` 或 `types: { output: '...' }` 显式开启，也可通过 `types: false` 始终关闭。将每个 project 下的 `.matrix/types` 加入对应 `tsconfig.json` 的 `include` 即可获得类型提示：
 
 ```json
 {

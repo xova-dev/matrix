@@ -54,6 +54,10 @@ function currentProcessEnv(): Record<string, string> {
   return Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined))
 }
 
+function isVitest(): boolean {
+  return process.env.VITEST !== undefined
+}
+
 /** Shared Unplugin factory; host adapters are exported from separate entrypoints. */
 export const matrixUnpluginFactory: UnpluginFactory<MatrixUnpluginOptions | undefined> = (options = {}) => {
   let envPrefix = ensureMatrixEnvPrefix(options.envPrefix)
@@ -63,7 +67,7 @@ export const matrixUnpluginFactory: UnpluginFactory<MatrixUnpluginOptions | unde
   const resolvedRuntimeId = `\0${runtimeId}`
 
   async function generateTypes(cwd: string): Promise<void> {
-    if (options.types === false || typesGenerated)
+    if (options.types === false || (options.types === undefined && isVitest()) || typesGenerated)
       return
     await generateMatrixTypes({
       cwd,
