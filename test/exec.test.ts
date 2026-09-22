@@ -63,6 +63,20 @@ async function freePort(): Promise<number> {
   return port
 }
 
+async function waitForFile(file: string, timeout: number): Promise<void> {
+  const deadline = Date.now() + timeout
+  while (Date.now() < deadline) {
+    try {
+      await fs.stat(file)
+      return
+    }
+    catch {
+      await new Promise(resolve => setTimeout(resolve, 20))
+    }
+  }
+  throw new Error(`Timed out waiting for file: ${file}`)
+}
+
 describe('runExecutionPlan', () => {
   it('cancels a running child through SIGINT and waits for cleanup', async () => {
     const running = scriptedTask('app:running:test', 'setTimeout(() => {}, 5_000)')
@@ -72,6 +86,75 @@ describe('runExecutionPlan', () => {
     process.emit('SIGINT')
 
     await expect(execution).resolves.toEqual(expect.objectContaining({ children: expect.any(Map) }))
+  })
+
+  it('waits for a child graceful shutdown before returning after SIGINT', async () => {
+    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'matrix-exec-shutdown-'))
+    const marker = path.join(cwd, 'cleanup-complete')
+    const running = scriptedTask('app:running:test', [
+      'const fs = require("node:fs")',
+      'process.on("SIGTERM", () => setTimeout(() => { fs.writeFileSync(process.env.MATRIX_TEST_MARKER, "done"); process.exit(0) }, 100))',
+      'setTimeout(() => {}, 5_000)',
+    ].join(String.fromCharCode(10)), {
+      env: { MATRIX_TEST_MARKER: marker },
+    })
+    const execution = runExecutionPlan(plan([running]))
+
+    await new Promise(resolve => setTimeout(resolve, 100))
+    process.emit('SIGINT')
+
+    await execution
+    await expect(fs.readFile(marker, 'utf8')).resolves.toBe('done')
+  })
+
+  it('waits for every running child to finish graceful shutdown', async () => {
+    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'matrix-exec-multi-shutdown-'))
+    const firstMarker = path.join(cwd, 'first-cleanup-complete')
+    const secondMarker = path.join(cwd, 'second-cleanup-complete')
+    const createRunningTask = (id: string, marker: string): ExecutionTask => scriptedTask(id, [
+      'const fs = require("node:fs")',
+      'process.on("SIGTERM", () => setTimeout(() => { fs.writeFileSync(process.env.MATRIX_TEST_MARKER, "done"); process.exit(0) }, 100))',
+      'setTimeout(() => {}, 5_000)',
+    ].join(String.fromCharCode(10)), {
+      continuous: true,
+      env: { MATRIX_TEST_MARKER: marker },
+    })
+    const execution = runExecutionPlan(plan([
+      createRunningTask('app:first:test', firstMarker),
+      createRunningTask('app:second:test', secondMarker),
+    ]))
+
+    await new Promise(resolve => setTimeout(resolve, 150))
+    process.emit('SIGINT')
+
+    await execution
+    await expect(fs.readFile(firstMarker, 'utf8')).resolves.toBe('done')
+    await expect(fs.readFile(secondMarker, 'utf8')).resolves.toBe('done')
+  })
+
+  it('terminates descendants started through a shell command', async () => {
+    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'matrix-exec-descendants-'))
+    const marker = path.join(cwd, 'descendant-survived')
+    const running = scriptedTask('app:running:test', [
+      'const { spawn } = require("node:child_process")',
+      'const fs = require("node:fs")',
+      'const descendant = spawn(process.execPath, ["-e", `setTimeout(() => require("node:fs").writeFileSync(process.env.MATRIX_TEST_MARKER, "survived"), 500)`], { stdio: "ignore", env: process.env })',
+      'fs.writeFileSync(process.env.MATRIX_TEST_DESCENDANT_PID, String(descendant.pid))',
+      'setTimeout(() => {}, 5_000)',
+    ].join(String.fromCharCode(10)), {
+      env: {
+        MATRIX_TEST_MARKER: marker,
+        MATRIX_TEST_DESCENDANT_PID: path.join(cwd, 'descendant.pid'),
+      },
+    })
+    const execution = runExecutionPlan(plan([running]))
+
+    await waitForFile(path.join(cwd, 'descendant.pid'), 2_000)
+    process.emit('SIGINT')
+
+    await execution
+    await new Promise(resolve => setTimeout(resolve, 700))
+    await expect(fs.stat(marker)).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
   it('cleans stale output before execution and keeps the current archived output', async () => {

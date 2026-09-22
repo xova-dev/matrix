@@ -10,6 +10,7 @@
     "doctor": "node ../../bin/matrix.mjs doctor",
     "plan": "node ../../bin/matrix.mjs plan app --target build --env staging",
     "preview": "node ../../bin/matrix.mjs preview app --env production",
-    "test": "node ../../bin/matrix.mjs test app --env development"
+    "test": "node ../../bin/matrix.mjs test app --env development",
+    "shutdown-test": "node scripts/shutdown-smoke.mjs"
   }
 }

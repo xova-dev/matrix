@@ -8,7 +8,7 @@ import { execa } from 'execa'
 import { materializeArtifact } from './artifact.js'
 
 type Child = ReturnType<typeof execa>
-const shutdownGracePeriod = 5_000
+const shutdownGracePeriod = 30_000
 const neverSettles: Promise<never> = new Promise(() => undefined)
 
 function wait(ms: number): Promise<void> {
@@ -61,20 +61,32 @@ async function waitReady(child: Child, task: ExecutionTask, serviceFailures: Set
 
 async function stopChildren(children: Map<string, Child>, stopping: Set<string>, settled: Set<string>): Promise<void> {
   for (const [id, child] of children) {
-    if (!stopping.has(id)) {
+    if (!settled.has(id) && !stopping.has(id)) {
       stopping.add(id)
       child.kill('SIGTERM')
     }
   }
 
-  await Promise.race([Promise.allSettled([...children.values()]), wait(shutdownGracePeriod)])
+  const pending = [...children.entries()].filter(([id]) => !settled.has(id)).map(([, child]) => child)
+  if (!pending.length)
+    return
+
+  const allSettled = Promise.allSettled(pending)
+  const timedOut = await Promise.race([
+    allSettled.then(() => false),
+    wait(shutdownGracePeriod).then(() => true),
+  ])
+
+  if (!timedOut)
+    return
+
   for (const [id, child] of children) {
     if (!settled.has(id)) {
       stopping.add(id)
       child.kill('SIGKILL')
     }
   }
-  await Promise.allSettled([...children.values()])
+  await allSettled
 }
 
 async function cleanOutputDirectory(projectRoot: string, outputDir: string): Promise<void> {
@@ -92,16 +104,15 @@ export async function runExecutionPlan(plan: ExecutionPlan): Promise<{ children:
   const stopping = new Set<string>()
   const settled = new Set<string>()
   const serviceFailures = new Set<Promise<never>>()
-  const cancellation = new AbortController()
   let cancelled = false
   const stopAll = (): void => {
     cancelled = true
-    for (const id of children.keys()) {
-      if (!stopping.has(id)) {
+    for (const [id, child] of children) {
+      if (!settled.has(id) && !stopping.has(id)) {
         stopping.add(id)
+        child.kill('SIGTERM')
       }
     }
-    cancellation.abort()
   }
 
   process.on('SIGINT', stopAll)
@@ -145,8 +156,7 @@ export async function runExecutionPlan(plan: ExecutionPlan): Promise<{ children:
           cwd: task.cwd,
           env: Object.fromEntries(Object.entries(task.env).map(([key, value]) => [key, String(value)])),
           extendEnv: true,
-          cancelSignal: cancellation.signal,
-          forceKillAfterDelay: shutdownGracePeriod,
+          forceKillAfterDelay: false,
           shell: true,
           stdio: 'inherit',
           reject: false,
@@ -157,7 +167,7 @@ export async function runExecutionPlan(plan: ExecutionPlan): Promise<{ children:
 
         if (task.continuous) {
           const failure = child.then((result) => {
-            if (stopping.size || result.exitCode === 0)
+            if (cancelled || stopping.size || result.exitCode === 0)
               return neverSettles
             throw new Error(`${task.id} exited with code ${result.exitCode}`)
           })
@@ -202,7 +212,7 @@ export async function runExecutionPlan(plan: ExecutionPlan): Promise<{ children:
     return { children }
   }
   finally {
-    if (plan.tasks.some(task => task.continuous))
+    if (cancelled || plan.tasks.some(task => task.continuous))
       await stopChildren(children, stopping, settled)
     else
       await Promise.allSettled([...children.values()])
