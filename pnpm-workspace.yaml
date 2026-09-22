@@ -7,14 +7,14 @@ allowBuilds:
 
 catalog:
   '@antfu/eslint-config': ^9.5.1
-  '@clack/prompts': ^0.11.0
+  '@clack/prompts': ^1.8.1
   '@types/archiver': ^8.0.0
   '@types/node': ^24.9.2
   archiver: ^8.0.0
   c12: ^3.3.0
   changelogen: ^0.6.2
   consola: ^3.4.2
-  eslint: ^10.10.0
+  eslint: ^10.11.0
   eslint-plugin-format: ^2.0.1
   execa: ^10.0.1
   prettier: ^3.9.8
@@ -23,5 +23,5 @@ catalog:
   tsdown: ^0.23.0
   typescript: ^5.9.3
   unplugin: ^3.4.0
-  valibot: ^1.1.0
+  valibot: ^1.5.0
   vitest: ^5.0.1
