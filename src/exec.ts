@@ -92,25 +92,33 @@ export async function runExecutionPlan(plan: ExecutionPlan): Promise<{ children:
   const stopping = new Set<string>()
   const settled = new Set<string>()
   const serviceFailures = new Set<Promise<never>>()
+  const cancellation = new AbortController()
+  let cancelled = false
   const stopAll = (): void => {
-    for (const [id, child] of children) {
+    cancelled = true
+    for (const id of children.keys()) {
       if (!stopping.has(id)) {
         stopping.add(id)
-        child.kill('SIGTERM')
       }
     }
+    cancellation.abort()
   }
 
   process.on('SIGINT', stopAll)
   process.on('SIGTERM', stopAll)
   try {
     for (const task of plan.tasks) {
+      if (cancelled)
+        break
+
       for (const dependency of task.dependsOn) {
         const child = children.get(dependency.id)
         if (!child)
           throw new Error(`Dependency ${dependency.id} was not started`)
         if (dependency.condition === 'completed') {
           const result = await raceWithServiceFailures(child, serviceFailures)
+          if (cancelled)
+            return { children }
           if (result.exitCode !== 0)
             throw new Error(`${dependency.id} exited with code ${result.exitCode}`)
         }
@@ -119,8 +127,13 @@ export async function runExecutionPlan(plan: ExecutionPlan): Promise<{ children:
           if (!dependencyTask)
             throw new Error(`Dependency task ${dependency.id} is missing`)
           await waitReady(child, dependencyTask, serviceFailures)
+          if (cancelled)
+            return { children }
         }
       }
+
+      if (cancelled)
+        break
 
       if (!task.continuous && task.artifacts?.clean)
         await cleanOutputDirectory(task.projectRoot, task.outputDir)
@@ -132,6 +145,8 @@ export async function runExecutionPlan(plan: ExecutionPlan): Promise<{ children:
           cwd: task.cwd,
           env: Object.fromEntries(Object.entries(task.env).map(([key, value]) => [key, String(value)])),
           extendEnv: true,
+          cancelSignal: cancellation.signal,
+          forceKillAfterDelay: shutdownGracePeriod,
           shell: true,
           stdio: 'inherit',
           reject: false,
@@ -152,6 +167,8 @@ export async function runExecutionPlan(plan: ExecutionPlan): Promise<{ children:
         }
 
         const result = await raceWithServiceFailures(child, serviceFailures)
+        if (cancelled)
+          return { children }
         if (result.exitCode !== 0)
           throw new Error(`${task.id} exited with code ${result.exitCode}`)
       }

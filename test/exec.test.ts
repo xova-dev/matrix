@@ -64,6 +64,16 @@ async function freePort(): Promise<number> {
 }
 
 describe('runExecutionPlan', () => {
+  it('cancels a running child through SIGINT and waits for cleanup', async () => {
+    const running = scriptedTask('app:running:test', 'setTimeout(() => {}, 5_000)')
+    const execution = runExecutionPlan(plan([running]))
+
+    await new Promise(resolve => setTimeout(resolve, 100))
+    process.emit('SIGINT')
+
+    await expect(execution).resolves.toEqual(expect.objectContaining({ children: expect.any(Map) }))
+  })
+
   it('cleans stale output before execution and keeps the current archived output', async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'matrix-exec-artifact-'))
     const output = path.join(root, 'dist')
