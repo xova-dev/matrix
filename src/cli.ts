@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 import type { Args } from './cli-args.js'
+import type { EnvMap } from './types.js'
+import path from 'node:path'
 import process from 'node:process'
 import { isCancel, multiselect, outro, select } from '@clack/prompts'
 import consola from 'consola'
@@ -26,6 +28,32 @@ function redactPlan(plan: Awaited<ReturnType<typeof createExecutionPlan>>, visib
 
 type Products = Awaited<ReturnType<typeof loadMatrixConfig>>['products']
 type Product = Products[string]
+type LoadedConfig = Awaited<ReturnType<typeof loadMatrixConfig>>
+
+async function generateProjectTypes(loaded: LoadedConfig, products: Product[]): Promise<string[]> {
+  const projectProducts = new Map<string, Product[]>()
+  for (const product of products) {
+    for (const variant of Object.values(product.variants)) {
+      if (!loaded.projects[variant.project])
+        throw new Error(`Variant ${product.key}/${variant.id} references unknown project ${variant.project}`)
+      const linkedProducts = projectProducts.get(variant.project) ?? []
+      if (!linkedProducts.includes(product))
+        linkedProducts.push(product)
+      projectProducts.set(variant.project, linkedProducts)
+    }
+  }
+
+  const outputs: string[] = []
+  for (const [projectName, linkedProducts] of projectProducts) {
+    const project = loaded.projects[projectName]!
+    const envs: Array<EnvMap | undefined> = [loaded.config.env, loaded.externalEnv, ...linkedProducts.map(product => product.env)]
+    outputs.push(await generateMatrixTypes({
+      cwd: path.resolve(loaded.cwd, project.root ?? MATRIX_DEFAULTS.projectRoot),
+      env: matrixTypeEnvKeys(...envs),
+    }))
+  }
+  return outputs
+}
 
 function availableTargets(product: Product, variantNames: string[] = []): string[] {
   const variants = variantNames.length
@@ -146,11 +174,10 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
     const selectedProduct = args.product ? loaded.products[args.product] : undefined
     if (args.product && !selectedProduct)
       throw new Error(`Unknown product: ${args.product}`)
-    const envs = [loaded.config.env, loaded.externalEnv]
-    for (const product of selectedProduct ? [selectedProduct] : Object.values(loaded.products))
-      envs.push(product.env)
-    const output = await generateMatrixTypes({ cwd: loaded.cwd, env: matrixTypeEnvKeys(...envs) })
-    consola.success(`Types generated: ${output}`)
+    const products = selectedProduct ? [selectedProduct] : Object.values(loaded.products)
+    const outputs = await generateProjectTypes(loaded, products)
+    for (const output of outputs)
+      consola.success(`Types generated: ${output}`)
     return
   }
   const initialTarget = args.target ?? (args.command && args.command !== 'plan' ? args.command : MATRIX_DEFAULTS.target)
