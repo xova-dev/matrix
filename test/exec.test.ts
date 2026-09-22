@@ -27,7 +27,11 @@ function task(id: string, command: string, overrides: Partial<ExecutionTask> = {
   }
 }
 
-const scriptCommand = [process.execPath, '--eval=eval(Buffer.from(process.env.MATRIX_TEST_SCRIPT,String.fromCharCode(98,97,115,101,54,52)).toString())'].join(' ')
+const scriptCommand = [
+  process.execPath,
+  '--eval',
+  JSON.stringify('eval(Buffer.from(process.env.MATRIX_TEST_SCRIPT,String.fromCharCode(98,97,115,101,54,52)).toString())'),
+].join(' ')
 
 function scriptedTask(id: string, script: string, overrides: Partial<ExecutionTask> = {}): ExecutionTask {
   return task(id, scriptCommand, {

@@ -3,7 +3,7 @@ import { createWriteStream } from 'node:fs'
 import { mkdir, rename, stat, unlink } from 'node:fs/promises'
 import path from 'node:path'
 import { pipeline } from 'node:stream/promises'
-import archiver from 'archiver'
+import { TarArchive, ZipArchive } from 'archiver'
 
 /** Archives a directory as a zip or gzip-compressed tar file. */
 export async function archiveDirectory(sourceDir: string, destination: string, format: 'zip' | 'tar.gz'): Promise<void> {
@@ -31,10 +31,9 @@ export async function archiveDirectory(sourceDir: string, destination: string, f
   let piping: Promise<void> | undefined
   try {
     const output = createWriteStream(temporaryDestination)
-    const archive = archiver(
-      format === 'zip' ? 'zip' : 'tar',
-      format === 'tar.gz' ? { gzip: true, gzipOptions: { level: 9 } } : undefined,
-    )
+    const archive = format === 'zip'
+      ? new ZipArchive()
+      : new TarArchive({ gzip: true, gzipOptions: { level: 9 } })
     piping = pipeline(archive, output)
     archive.directory(sourceDir, false)
     await archive.finalize()

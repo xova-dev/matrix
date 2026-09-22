@@ -4,10 +4,10 @@ import net from 'node:net'
 import path from 'node:path'
 import process from 'node:process'
 import consola from 'consola'
-import { execaCommand } from 'execa'
+import { execa } from 'execa'
 import { materializeArtifact } from './artifact.js'
 
-type Child = ReturnType<typeof execaCommand>
+type Child = ReturnType<typeof execa>
 const shutdownGracePeriod = 5_000
 const neverSettles: Promise<never> = new Promise(() => undefined)
 
@@ -128,10 +128,11 @@ export async function runExecutionPlan(plan: ExecutionPlan): Promise<{ children:
       const commands = Array.isArray(task.command) ? task.command : [task.command]
       for (const [index, command] of commands.entries()) {
         consola.info(`${task.id} [${index + 1}/${commands.length}] → ${command}`)
-        const child = execaCommand(command, {
+        const child = execa(command, {
           cwd: task.cwd,
           env: Object.fromEntries(Object.entries(task.env).map(([key, value]) => [key, String(value)])),
           extendEnv: true,
+          shell: true,
           stdio: 'inherit',
           reject: false,
           killDescendants: true,
