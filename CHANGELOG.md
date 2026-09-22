@@ -1,6 +1,21 @@
 # Changelog
 
 
+## v0.1.6
+
+[compare changes](https://github.com/xova-dev/matrix/compare/v0.1.4...v0.1.6)
+
+### 🩹 Fixes
+
+- **runtime:** Align development flag with vite ([917367e](https://github.com/xova-dev/matrix/commit/917367e))
+- **cli:** Gracefully cancel child processes ([183d03d](https://github.com/xova-dev/matrix/commit/183d03d))
+- **vite:** Preserve Matrix node environment ([558d083](https://github.com/xova-dev/matrix/commit/558d083))
+- **prepare:** Generate types per project ([4f00790](https://github.com/xova-dev/matrix/commit/4f00790))
+
+### ❤️ Contributors
+
+- Oevery ([@oevery](https://github.com/oevery))
+
 ## v0.1.4
 
 [compare changes](https://github.com/xova-dev/matrix/compare/v0.1.3...v0.1.4)
