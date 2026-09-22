@@ -54,4 +54,13 @@ describe('matrix unplugin', () => {
   ])('derives runtime mode flags from NODE_ENV=%s', (nodeEnv, isDevelopment, isProduction, isTest) => {
     expect(createMatrixRuntime({ NODE_ENV: nodeEnv })).toMatchObject({ isDevelopment, isProduction, isTest })
   })
+
+  it('falls back to the Matrix-prefixed node environment used by Vite', () => {
+    expect(createMatrixRuntime({ MATRIX_NODE_ENV: 'production' })).toMatchObject({
+      nodeEnv: 'production',
+      isDevelopment: false,
+      isProduction: true,
+      isTest: false,
+    })
+  })
 })

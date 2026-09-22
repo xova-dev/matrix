@@ -115,6 +115,7 @@ export function createExecutionPlan(input: CreateExecutionPlanInput): ExecutionP
         MATRIX_PRODUCT_SLUG: identity.slug,
         MATRIX_VARIANT: variantName,
         MATRIX_PROJECT: variant.project,
+        MATRIX_NODE_ENV: target.nodeEnv,
         NODE_ENV: target.nodeEnv,
         ...(identity.appId
           ? { MATRIX_PRODUCT_APP_ID: identity.appId }

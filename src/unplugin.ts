@@ -22,7 +22,9 @@ export interface MatrixUnpluginOptions {
 
 export function createMatrixRuntime(env: Record<string, string>, envPrefix: EnvPrefix | undefined = ['VITE_', 'MATRIX_']): MatrixRuntime {
   const prefixes = normalizeEnvPrefix(envPrefix)
-  const nodeEnv = env.NODE_ENV ?? ''
+  // Vite's config.env only contains prefixed variables, so keep a Matrix-prefixed
+  // snapshot as a fallback while preserving NODE_ENV for the child process.
+  const nodeEnv = env.NODE_ENV ?? env.MATRIX_NODE_ENV ?? ''
   const isProduction = nodeEnv === 'production'
   return {
     environment: env.MATRIX_ENV_NAME ?? '',

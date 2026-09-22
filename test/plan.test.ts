@@ -40,6 +40,7 @@ describe('matrix plan', () => {
       MATRIX_PRODUCT_APP_ID: 'com.example.classroom-test',
       MATRIX_VARIANT: 'desktop',
       MATRIX_PROJECT: 'desktop',
+      MATRIX_NODE_ENV: 'development',
       NODE_ENV: 'development',
     })
     expect(plan.tasks[1]?.appId).toBe('com.example.classroom-test')

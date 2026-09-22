@@ -147,10 +147,11 @@ MATRIX_PRODUCT_SLUG
 MATRIX_PRODUCT_APP_ID
 MATRIX_VARIANT
 MATRIX_PROJECT
+MATRIX_NODE_ENV
 NODE_ENV
 ```
 
-`MATRIX_ENV_NAME` is the selected Matrix configuration environment and may be a custom name such as `staging` or `qa`. `NODE_ENV` describes the target process mode: `dev` uses `development`, `test` uses `test`, while `build` and `preview` use `production`. Therefore a staging build normally receives `MATRIX_ENV_NAME=staging` and `NODE_ENV=production`. `MATRIX_PRODUCT_APP_ID` is emitted only when the resolved product identity has an `appId`; environment suffixes are applied before it is exported.
+`MATRIX_ENV_NAME` is the selected Matrix configuration environment and may be a custom name such as `staging` or `qa`. `NODE_ENV` describes the target process mode: `dev` uses `development`, `test` uses `test`, while `build` and `preview` use `production`. `MATRIX_NODE_ENV` is the same generated value under the reserved `MATRIX_` prefix so Vite's prefixed `config.env` can carry it into the build-time runtime module. Therefore a staging build normally receives `MATRIX_ENV_NAME=staging`, `MATRIX_NODE_ENV=production`, and `NODE_ENV=production`. `MATRIX_PRODUCT_APP_ID` is emitted only when the resolved product identity has an `appId`; environment suffixes are applied before it is exported.
 
 Product-level environment values are resolved independently for each product. This lets two products reuse the same Desktop project while connecting it to different Web variants or services.
 
