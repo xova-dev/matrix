@@ -1,6 +1,35 @@
 # Changelog
 
 
+## v0.1.7
+
+[compare changes](https://github.com/xova-dev/matrix/compare/v0.1.6...v0.1.7)
+
+### 🚀 Enhancements
+
+- **cli:** ⚠️  Streamline selection and config loading ([eaeef71](https://github.com/xova-dev/matrix/commit/eaeef71))
+- **prepare:** Add project preparation lifecycle ([8129da9](https://github.com/xova-dev/matrix/commit/8129da9))
+
+### 🩹 Fixes
+
+- **vite:** Skip default type generation in Vitest ([6cd2715](https://github.com/xova-dev/matrix/commit/6cd2715))
+- **exec:** Wait for child processes during shutdown ([2910db7](https://github.com/xova-dev/matrix/commit/2910db7))
+- **exec:** Wait for process-tree shutdown across platforms ([a4b4f12](https://github.com/xova-dev/matrix/commit/a4b4f12))
+- **examples:** Make Electron acceptance portable ([63e869e](https://github.com/xova-dev/matrix/commit/63e869e))
+
+### ✅ Tests
+
+- **smoke:** Isolate packaged CLI shutdown verification ([eac035d](https://github.com/xova-dev/matrix/commit/eac035d))
+- **ci:** Add cross-platform multi-product acceptance ([cf410ac](https://github.com/xova-dev/matrix/commit/cf410ac))
+
+#### ⚠️ Breaking Changes
+
+- **cli:** ⚠️  Streamline selection and config loading ([eaeef71](https://github.com/xova-dev/matrix/commit/eaeef71))
+
+### ❤️ Contributors
+
+- Oevery ([@oevery](https://github.com/oevery))
+
 ## v0.1.6
 
 [compare changes](https://github.com/xova-dev/matrix/compare/v0.1.4...v0.1.6)

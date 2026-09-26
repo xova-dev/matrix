@@ -1,7 +1,7 @@
 {
   "name": "@xova/matrix",
   "type": "module",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "packageManager": "pnpm@12.4.2",
   "description": "A configuration-driven multi-app workspace orchestration engine and CLI.",
   "license": "MIT",
