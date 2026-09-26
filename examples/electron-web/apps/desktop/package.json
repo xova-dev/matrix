@@ -1,0 +1,9 @@
+{
+  "name": "matrix-desktop-example",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Shared Electron shell for the Matrix multi-product example",
+  "author": "Matrix contributors",
+  "license": "MIT",
+  "main": "main.cjs"
+}

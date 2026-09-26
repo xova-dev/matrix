@@ -156,7 +156,8 @@ describe('project preparation', () => {
       process.emit('SIGTERM')
       await running
       expect(process.exitCode).toBe(143)
-      expect((await events()).map(event => event.event)).toEqual(['first', 'cleanup'])
+      // Windows termination does not deliver POSIX cleanup callbacks.
+      expect((await events()).map(event => event.event)).toEqual(process.platform === 'win32' ? ['first'] : ['first', 'cleanup'])
       await expect(readFile(path.join(cwd, '.matrix/types/matrix-runtime.d.ts'))).rejects.toMatchObject({ code: 'ENOENT' })
     }
     finally {

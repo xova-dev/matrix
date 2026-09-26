@@ -317,6 +317,10 @@ matrix <custom-target> [product] [--env <environment>]
 
 ## Development
 
+Keep `examples/basic` for the framework-free introduction. The [dual-Web/shared-Electron example](examples/electron-web/README.md) exercises two products through preparation, development dependencies, packaging, and real application startup. Run `pnpm test:electron-web` to verify the current tarball in a temporary consumer, or `pnpm example:electron-web` to install it into the local example for manual exploration.
+
+CI runs on pull requests, main pushes, and manual dispatch. A Node 24 job checks lint and types. Six compatibility jobs cover Ubuntu, macOS, and Windows with exact Node 22.18.0 and Node 24.x. Each runs behavior tests and package smoke; the Node 24 jobs additionally run real Electron/Web acceptance. POSIX-only signal assertions explicitly skip Windows, while portable cancellation and execution behavior remain covered.
+
 Dependency versions are maintained in the pnpm catalog in `pnpm-workspace.yaml`.
 
 ```bash

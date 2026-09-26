@@ -70,6 +70,8 @@
     "release:prepare": "changelogen --clean --release --push",
     "release:github": "changelogen gh release",
     "test:pack": "node scripts/pack-smoke.mjs",
+    "example:electron-web": "node scripts/electron-web.mjs --setup",
+    "test:electron-web": "node scripts/electron-web.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "lint": "eslint .",

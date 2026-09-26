@@ -1,0 +1,20 @@
+{
+  "name": "matrix-electron-web-example",
+  "type": "module",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev:alpha": "matrix dev alpha -v desktop",
+    "dev:beta": "matrix dev beta -v desktop",
+    "build:alpha": "matrix build alpha -v desktop -e staging",
+    "build:beta": "matrix build beta -v desktop -e production",
+    "prepare:projects": "matrix prepare",
+    "verify": "node scripts/verify.mjs"
+  },
+  "devDependencies": {
+    "electron": "44.4.5",
+    "electron-builder": "26.15.3",
+    "execa": "10.0.1",
+    "vite": "8.3.1"
+  }
+}

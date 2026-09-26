@@ -5,6 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { setTimeout as delay } from 'node:timers/promises'
+import { execaSync } from 'execa'
 
 async function withTimeout(promise, milliseconds, message) {
   let timeout
@@ -156,7 +157,7 @@ try {
     private: true,
   }))
 
-  execFileSync('pnpm', [
+  execaSync('pnpm', [
     'pack',
     '--pack-destination',
     packRoot,
@@ -169,7 +170,7 @@ try {
     throw new Error('pnpm pack did not produce a tarball')
   const tarball = path.join(packRoot, tarballName)
 
-  execFileSync('npm', [
+  execaSync('npm', [
     'install',
     '--ignore-scripts',
     '--no-package-lock',
