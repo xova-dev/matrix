@@ -11,11 +11,13 @@ describe('cli entry', () => {
     console.log = (...args: unknown[]) => output.push(args.join(' '))
     try {
       await runCli(['--help'])
+      await runCli(['dev', 'app', '-h'])
     }
     finally {
       console.log = originalLog
     }
     expect(output[0]).toContain('matrix')
+    expect(output[1]).toContain('matrix')
   })
 
   it('rejects invalid command options before loading a workspace configuration', async () => {

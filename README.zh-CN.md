@@ -60,9 +60,15 @@ matrix plan app --target preview --env production
 matrix doctor
 ```
 
-在交互式终端中，如果省略产品、目标或 `--env`，Matrix 会提示选择。交互式选择顺序为 Product → Variant → Target → Environment，一次运行只选择一个 Product。可以使用 `--product` 和 `--target` 显式指定选择，避免依赖位置参数顺序。
+运行 `matrix` 进入“产品 → 动作 → 配置”。唯一候选自动选择；紧凑配置菜单直接显示当前变体和环境，可以运行、修改字段、查看执行详情或返回动作列表。详情包含依赖、Node 模式和等价命令。一次运行只选择一个产品，调整不会记忆到下次运行。
+
+支持的交互终端中，向导使用临时屏幕，每次切换替换当前页面，不累计选择历史。运行、取消或异常退出都会恢复原终端；执行前只打印一次最终摘要，任务日志留在正常终端中。`ACCESSIBLE=1`、Clack 无障碍设置及 `TERM=dumb` / `TERM=unknown` 将提示保留在普通终端中，不切换屏幕、不清除页面。完整命令和非交互运行不会进入临时屏幕。
+
+`matrix dev app` 等完整命令在终端里也直接执行：环境采用目标默认值，范围默认为全部变体。`matrix dev` 或 `matrix --product app` 等不完整命令只补选缺少的产品或动作，再显示配置菜单。非终端或 CI 环境中，如果产品或动作无法唯一确定，则报错并给出补全提示，不弹菜单。可以使用 `--product` 和 `--target` 显式选择，使用 `--help` 查看示例；也支持 `--env=name` 和重复的 `--variant` / `-v`。
 
 完整的可运行示例见 [`examples/basic`](examples/basic/README.md)，它不依赖具体前端框架。
+
+CI 判断中，未设置、空值、`false` 和 `0` 在输入输出均为终端时允许交互；判断会去掉首尾空白并忽略大小写。其他非空值禁用提示和临时屏幕。
 
 ## 配置
 
@@ -178,6 +184,8 @@ matrix plan app --target preview --env qa
 
 dotenv 文件按 `.env`、`.env.local`、`.env.<environment>` 和 `.env.<environment>.local` 加载。Matrix 会将 `VITE_*`、`NUXT_*` 等变量传递给子进程，应用框架继续负责自己的运行时配置。
 
+配置文件求值期间可以通过 `process.env` 读取本次 dotenv，继承的 Shell 变量保持更高优先级。每次配置加载或环境列表读取都在短生命周期 Worker 中执行，拥有独立环境和完整的 ESM/CommonJS 模块缓存；本地配置依赖随本次加载一起求值，不修改宿主环境或宿主模块缓存。结果返回后 Worker 会被销毁，因此配置文件应生成数据，不应启动持久服务。执行计划保留独立环境快照；返回的 `layers` 是 JSON 诊断快照，不携带可执行对象。
+
 ### 构建工具接入
 
 Matrix 提供统一的 Unplugin 工厂，以及各构建工具的入口。
@@ -242,11 +250,25 @@ export default defineConfig({
 
 自定义目标默认不会持续运行，未指定 `--env` 时使用 `development`。内置目标的运行模式为：`dev` 使用 `development`，`test` 使用 `test`，`build`、`dist` 和 `preview` 使用 `production`。自定义目标也可以将 `nodeEnv` 配置为 `development`、`production` 或 `test`。项目默认使用当前目录，目标输出目录默认为 `dist`，产物根目录默认为 `artifacts`。Target 可以使用字符串数组顺序执行多个命令，例如 `release: ['pnpm build', 'pnpm package']`。产物默认使用 `move` 模式，归档格式默认为 ZIP；需要归档时只需将 `artifacts.mode` 设置为 `archive` 或 `both`。启用产物交付时，`artifacts.clean` 默认为 `true`，会在每个非持续 Target 执行前清理输出目录，确保产物只包含本次执行的输出。`archive` 模式会保留本次输出目录，`move` 和 `both` 会将其移动到产物目录。产物命名为 `<variant>-<version>-<YYYYMMDD-HHmmss>`，默认按 Product、Environment、Variant 保留最近 5 个 ArtifactSet。
 
-交互式运行会先选择 Variant，再选择 Target。Target 选项来自已选 Variant 共同支持的目标；非交互式运行可以使用 `--variant` 提前指定执行范围。
+动作菜单包含单端专属目标并标注适用范围；选择后，配置菜单明确显示该范围。显式传入 `--variant` 时，只展示所选变体共同支持的动作。直接命令不会静默跳过不支持目标的变体，需要用 `--variant` 缩小范围。调整变体至少选择一项；返回动作列表时，本次向导调整重置为原始 CLI 参数和新目标的默认值。
+
+`matrix plan app --target build` 输出 JSON，不执行任务。每个任务的 `env` 展示 Matrix 配置、所选产品和本次 dotenv 文件声明的变量，以及 `MATRIX_*`、`NODE_ENV` 的最终合并值，其中包含 Shell 覆盖结果。无关的继承 Shell 变量不展示，但仍会传递给子进程。不按变量名自动脱敏，因此 plan 输出可能包含敏感值，请勿直接粘贴到公开日志或 issue。完整的 plan 命令只输出 JSON，不显示交互摘要。
 
 配置中的任意目标都可以通过 CLI 调用。常见的自定义目标包括 `test`、`lint` 和 `e2e`。
 
 ## 命令
+
+短参数：`-p` / `--product`、`-t` / `--target`、`-e` / `--env`、`-v` / `--variant`、`-h` / `--help`。原有 `--mode` 别名已移除，请改用 `--env` 或 `-e`。同一参数混用长短形式仍按重复参数报错，变体参数除外，允许重复指定。交互生成的等价命令使用短参数。
+
+参数语法统一由 Node 的严格参数解析器处理，Matrix 只校验重复选择、变体列表和命令专属组合；帮助从同一份参数定义生成。支持 `--env=staging`，也保留已有的 `-e=staging` 写法。
+
+```bash
+matrix dev app -v desktop -e staging
+matrix plan app -t build -e production
+matrix -p app # 继续交互选择动作
+```
+
+自定义目标与 `help`、`plan`、`doctor` 或 `prepare` 同名时，使用显式目标参数，例如 `matrix -p app -t prepare -e development`。生成的等价命令也会使用这一形式，避免误入内置命令分支。
 
 ```text
 matrix [target] [product] [--variant name] [--env <environment>]

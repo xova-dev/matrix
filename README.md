@@ -60,9 +60,15 @@ matrix plan app --target preview --env production
 matrix doctor
 ```
 
-When `product`, target, or `--env` is omitted in an interactive terminal, Matrix prompts for a selection. Interactive selection follows Product → Variant → Target → Environment, and one run selects a single Product. Use `--product` and `--target` to provide explicit selections without relying on positional argument order.
+Run `matrix` for Product → Action → Configuration. Unique choices are selected automatically. The compact configuration menu shows the current variants and environment; run immediately, edit either field, view execution details, or return to the action list. Details include dependencies, Node mode, and the equivalent command. One run selects one product; adjustments are not remembered between runs.
+
+In supported interactive terminals, the wizard uses a temporary alternate screen and replaces the previous page instead of accumulating selection history. Run, cancel, and error paths restore the original terminal; execution prints one final summary and leaves task logs on the normal screen. `ACCESSIBLE=1`, Clack accessibility settings, and `TERM=dumb` / `TERM=unknown` keep prompts on the normal screen without switching screens or clearing pages. Complete commands and non-interactive runs never enter the temporary screen.
+
+Complete commands such as `matrix dev app` run immediately, even in a terminal: the environment defaults from the target and the scope defaults to all variants. Incomplete commands such as `matrix dev` or `matrix --product app` prompt only for missing product/action choices, then show the configuration menu. Outside a terminal or in CI, ambiguous product/action selections fail with guidance instead of prompting. Use `--product` and `--target` for explicit selections, `--help` for examples, and `--env=name` or repeated `--variant` / `-v` options when convenient.
 
 See [`examples/basic`](examples/basic/README.md) for a self-contained example that runs without a framework dependency.
+
+For CI detection, unset, empty, `false`, and `0` values allow interactive mode when both input and output are terminals. Values are trimmed and case-insensitive; other non-empty values disable prompts and temporary screens.
 
 ## Configuration
 
@@ -178,6 +184,8 @@ Custom environments are available through `--env`. When running interactively, M
 
 Dotenv files are loaded as `.env`, `.env.local`, `.env.<environment>`, and `.env.<environment>.local`. Matrix passes variables such as `VITE_*` and `NUXT_*` to child processes; application frameworks keep ownership of their own runtime configuration.
 
+Configuration files can read the selected dotenv values through `process.env` during evaluation, with inherited Shell values taking precedence. Each configuration load or environment discovery runs in a short-lived Worker with its own environment and complete ESM/CommonJS module cache. Local configuration imports are evaluated together for that load; the host's environment and module caches are not modified. The Worker is terminated after returning the result, so configuration files should produce data rather than start persistent services. Execution plans retain a separate environment snapshot; returned `layers` are JSON diagnostic snapshots, not executable objects.
+
 ### Build tool integration
 
 Matrix provides one Unplugin factory and host-specific entrypoints.
@@ -242,11 +250,25 @@ The built-in targets use these defaults:
 
 Custom targets are non-continuous by default and use `development` unless `--env` is provided. The built-in target runtime modes are `development` for `dev`, `test` for `test`, and `production` for `build`, `dist`, and `preview`. Custom targets may set `nodeEnv` to `development`, `production`, or `test`. Project roots default to `.`, target output directories default to `dist`, and artifact output defaults to `artifacts`. Targets may use a string array for ordered commands, such as `release: ['pnpm build', 'pnpm package']`. Artifact delivery defaults to `move` with ZIP as the archive format; set `artifacts.mode` to `archive` or `both` when needed. When artifact delivery is enabled, `artifacts.clean` defaults to `true` and clears the output directory before each non-continuous target runs, so materialized artifacts contain only the current execution's output. Archive mode keeps the current output directory, while move and both relocate it into the artifact directory. Artifact names use `<variant>-<version>-<YYYYMMDD-HHmmss>`, with five ArtifactSets retained by default per product, environment, and variant.
 
-Interactive Variant selection comes before Target selection. Target options are derived from the common targets available to the selected Variants; use `--variant` to provide the scope in non-interactive runs.
+The action menu includes variant-specific targets and labels their applicable scope. Choosing one displays that scope explicitly in the configuration menu. When `--variant` is provided, actions must support every requested variant. Direct commands never silently drop unsupported variants: use `--variant` to narrow their scope. Variant adjustment requires at least one selection. Returning to actions resets wizard adjustments to the original CLI arguments and the new target's defaults.
+
+`matrix plan app --target build` prints JSON without executing tasks. Each task's `env` shows the final merged values for variables declared in Matrix configuration, the selected product, and the active dotenv files, plus `MATRIX_*` and `NODE_ENV`. Shell overrides are reflected in these values; unrelated inherited Shell variables are omitted from the output but still passed to child processes. Values are not automatically redacted based on variable names, so plan output may contain secrets: do not paste it into public logs or issues. Complete plan commands emit JSON without interactive summaries.
 
 Any configured target can be invoked from the CLI. `test`, `lint`, and `e2e` are common custom targets.
 
 ## Commands
+
+Short options: `-p` / `--product`, `-t` / `--target`, `-e` / `--env`, `-v` / `--variant`, and `-h` / `--help`. The former `--mode` alias has been removed; use `--env` or `-e` instead. Mixing aliases for the same option is rejected, except repeatable variants. Interactive equivalent commands use short options.
+
+Node's strict argument parser handles option syntax; Matrix validates duplicate selections, variant lists, and command-specific combinations. Help is generated from the same option definitions. Both `--env=staging` and the existing `-e=staging` spelling are supported.
+
+```bash
+matrix dev app -v desktop -e staging
+matrix plan app -t build -e production
+matrix -p app # Continue by selecting an action interactively
+```
+
+For a custom target named `help`, `plan`, `doctor`, or `prepare`, use explicit target selection, for example `matrix -p app -t prepare -e development`. Generated equivalent commands use this form to avoid invoking the built-in command instead.
 
 ```text
 matrix [target] [product] [--variant name] [--env <environment>]

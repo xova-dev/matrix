@@ -1,9 +1,8 @@
 import type { CommandTarget, EnvMap, MatrixConfig, NormalizedProduct, NormalizedProject, NormalizedTarget, NormalizedVariant, TargetConfig, TargetOverride } from './types.js'
 import path from 'node:path'
 import process from 'node:process'
-import { loadConfig } from 'c12'
+import { evaluateConfig } from './config-loader.js'
 import { MATRIX_DEFAULTS } from './defaults.js'
-import { assertMatrixConfig } from './schema.js'
 import { MATRIX_ENVIRONMENTS } from './types.js'
 
 export { defaultEnvironmentForTarget, MATRIX_DEFAULTS } from './defaults.js'
@@ -37,42 +36,15 @@ export function defineMatrixEnv<T extends Record<string, EnvMap>>(environments: 
   return Object.fromEntries(Object.entries(environments).map(([name, env]) => [name, { env }])) as { [K in keyof T]: { env: T[K] } }
 }
 
-interface RawEnvironmentConfig {
-  $env?: Record<string, unknown>
-  products?: Record<string, { $env?: Record<string, unknown> }>
-}
-
-/**
- * Lists built-in and configured environment names without applying dotenv or process overrides.
- *
- * When `productName` is provided, product-scoped environments are included only for that
- * product. This is used by the interactive CLI after product selection.
- */
-export async function listMatrixEnvironments(options: { cwd?: string, configFile?: string, productName?: string } = {}): Promise<string[]> {
-  const cwd = path.resolve(options.cwd ?? process.cwd())
-  const loaded = await loadConfig<RawEnvironmentConfig>({
-    name: 'matrix',
-    cwd,
-    ...(options.configFile ? { configFile: options.configFile } : {}),
-    envName: false,
-    dotenv: false,
-    omit$Keys: false,
-    rcFile: false,
-    packageJson: false,
+/** List declared environments without applying $env layers in an isolated evaluation. */
+export async function listMatrixEnvironments(options: { cwd?: string, configFile?: string, productName?: string, envName?: string, signal?: AbortSignal } = {}): Promise<string[]> {
+  const declared = await evaluateConfig({
+    ...options,
+    cwd: path.resolve(options.cwd ?? process.cwd()),
+    envName: options.envName ?? MATRIX_DEFAULTS.environment,
+    discover: true,
   })
-  const config = loaded.config
-  const environments = new Set<string>(MATRIX_ENVIRONMENTS)
-  for (const name of Object.keys(config.$env ?? {}))
-    environments.add(name)
-  const selectedProduct = options.productName ? config.products?.[options.productName] : undefined
-  const products = options.productName
-    ? (selectedProduct ? [selectedProduct] : [])
-    : Object.values(config.products ?? {})
-  for (const product of products) {
-    for (const name of Object.keys(product.$env ?? {}))
-      environments.add(name)
-  }
-  return [...environments]
+  return [...new Set([...MATRIX_ENVIRONMENTS, ...declared])]
 }
 
 function normalizeTarget(name: string, value: TargetConfig): NormalizedTarget {
@@ -184,6 +156,7 @@ type LoadedMatrixConfig = ReturnType<typeof normalizeMatrixConfig> & {
   cwd: string
   envName: string
   externalEnv: EnvMap
+  dotenvKeys: string[]
 }
 
 /**
@@ -192,21 +165,10 @@ type LoadedMatrixConfig = ReturnType<typeof normalizeMatrixConfig> & {
  * The selected environment applies c12 `$env` layers and the dotenv files `.env`,
  * `.env.local`, `.env.<environment>`, and `.env.<environment>.local`.
  */
-export async function loadMatrixConfig(options: { cwd?: string, envName?: string, configFile?: string } = {}): Promise<LoadedMatrixConfig> {
+export async function loadMatrixConfig(options: { cwd?: string, envName?: string, configFile?: string, signal?: AbortSignal } = {}): Promise<LoadedMatrixConfig> {
   const cwd = path.resolve(options.cwd ?? process.cwd())
   const envName = options.envName ?? MATRIX_DEFAULTS.environment
-  const loadOptions = {
-    name: 'matrix',
-    cwd,
-    ...(options.configFile ? { configFile: options.configFile } : {}),
-    envName,
-    dotenv: { fileName: ['.env', '.env.local', `.env.${envName}`, `.env.${envName}.local`] },
-    omit$Keys: true,
-    rcFile: false as const,
-    packageJson: false,
-  }
-  const loaded = await loadConfig<MatrixConfig>(loadOptions)
-  const config = resolveProductEnvironments(assertMatrixConfig(loaded.config) as MatrixConfig, envName)
-  const externalEnv = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)) as EnvMap
-  return { ...normalizeMatrixConfig(config), configFile: loaded.configFile, layers: loaded.layers, cwd, envName, externalEnv }
+  const loaded = await evaluateConfig({ ...options, cwd, envName })
+  const config = resolveProductEnvironments(loaded.config, envName)
+  return { ...normalizeMatrixConfig(config), configFile: loaded.configFile, layers: loaded.layers, cwd, envName, externalEnv: loaded.externalEnv, dotenvKeys: loaded.dotenvKeys }
 }

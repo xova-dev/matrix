@@ -1,17 +1,14 @@
 import fs from 'node:fs/promises'
+import { createRequire } from 'node:module'
 import os from 'node:os'
 import path from 'node:path'
-import { describe, expect, it } from 'vitest'
+import process from 'node:process'
+import { describe, expect, it, vi } from 'vitest'
 import { defaultEnvironmentForTarget, defineMatrixEnv, listMatrixEnvironments, loadMatrixConfig, MATRIX_DEFAULTS, normalizeMatrixConfig } from '../src/config.js'
+import { createExecutionPlan } from '../src/plan.js'
 import { assertMatrixConfig } from '../src/schema.js'
 
 describe('matrix config', () => {
-  it('provides a c12-compatible shorthand for environment overrides', () => {
-    expect(defineMatrixEnv({ staging: { API_BASE: 'https://staging.example.com' } })).toEqual({
-      staging: { env: { API_BASE: 'https://staging.example.com' } },
-    })
-  })
-
   it('uses target defaults for the standard environments', () => {
     expect(MATRIX_DEFAULTS).toMatchObject({ target: 'dev', projectRoot: '.', outputDir: 'dist', artifactsRoot: 'artifacts' })
     expect(MATRIX_DEFAULTS.artifacts).toMatchObject({ mode: 'move', format: 'zip', clean: true })
@@ -47,7 +44,7 @@ describe('matrix config', () => {
     const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'matrix-config-'))
     await fs.writeFile(path.join(cwd, 'matrix.config.mjs'), `export default {
       env: { API_BASE: 'http://localhost' },
-      $env: { qa: { env: { API_BASE: 'https://qa.example.com', QA_ONLY: 'yes' } } },
+      $env: ${JSON.stringify(defineMatrixEnv({ qa: { API_BASE: 'https://qa.example.com', QA_ONLY: 'yes' } }))},
       projects: { web: { targets: { dev: 'vite' } } },
       products: { app: { variants: { web: 'web' } } },
     }`)
@@ -71,6 +68,93 @@ describe('matrix config', () => {
     }`)
 
     await expect(listMatrixEnvironments({ cwd })).resolves.toEqual(['development', 'staging', 'production', 'qa', 'preview'])
+  })
+
+  it('isolates ESM and CommonJS config dependencies and preserves dotenv and shell precedence', async () => {
+    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'matrix-scoped-env-'))
+    const require = createRequire(import.meta.url)
+    vi.stubEnv('MATRIX_CONFIG_ROOT', undefined)
+    vi.stubEnv('MATRIX_CONFIG_DEV_ONLY', undefined)
+    vi.stubEnv('MATRIX_CONFIG_SHELL', 'host-value')
+    try {
+      await fs.writeFile(path.join(cwd, '.env'), 'MATRIX_CONFIG_ROOT=base\nMATRIX_CONFIG_SHELL=file-value\n')
+      await fs.writeFile(path.join(cwd, '.env.local'), 'MATRIX_CONFIG_ROOT=local\n')
+      await fs.writeFile(path.join(cwd, '.env.development'), 'MATRIX_CONFIG_ROOT=development\nMATRIX_CONFIG_DEV_ONLY=dev\n')
+      await fs.writeFile(path.join(cwd, '.env.development.local'), 'MATRIX_CONFIG_ROOT=dev-local\n')
+      await fs.writeFile(path.join(cwd, '.env.staging'), 'MATRIX_CONFIG_ROOT=staging-app\n')
+      await fs.writeFile(path.join(cwd, 'settings.cjs'), `module.exports = { root: process.env.MATRIX_CONFIG_ROOT, devOnly: process.env.MATRIX_CONFIG_DEV_ONLY ?? 'absent' }`)
+      await fs.writeFile(path.join(cwd, 'settings.mjs'), `import settings from './settings.cjs'; export const root = settings.root; export const devOnly = settings.devOnly;`)
+      const hostSettings = require(path.join(cwd, 'settings.cjs'))
+      await fs.writeFile(path.join(cwd, 'matrix.config.mjs'), `
+        import { root, devOnly } from './settings.mjs';
+        if (!process.env.MATRIX_CONFIG_ROOT) throw new Error('Missing project root');
+        export default {
+          env: { SHELL_VALUE: process.env.MATRIX_CONFIG_SHELL, DEV_ONLY: devOnly },
+          $env: { qa: { env: {} } },
+          projects: { web: { root, targets: { build: 'echo build' } } },
+          products: { app: { variants: { web: 'web' } } },
+        }
+      `)
+      const development = await loadMatrixConfig({ cwd, envName: 'development' })
+      expect(development.projects.web!.root).toBe('dev-local')
+      expect(development.config.env).toMatchObject({ SHELL_VALUE: 'host-value', DEV_ONLY: 'dev' })
+      const staging = await loadMatrixConfig({ cwd, envName: 'staging' })
+      expect(staging.projects.web!.root).toBe('staging-app')
+      expect(staging.config.env).toMatchObject({ SHELL_VALUE: 'host-value', DEV_ONLY: 'absent' })
+      expect(staging.externalEnv).not.toHaveProperty('MATRIX_CONFIG_DEV_ONLY')
+      expect(development.externalEnv.MATRIX_CONFIG_ROOT).toBe('dev-local')
+      const plan = createExecutionPlan({ ...staging, productNames: ['app'], target: 'build' })
+      expect(plan.tasks[0]!.cwd).toBe(path.join(cwd, 'staging-app'))
+      expect(plan.tasks[0]!.env.MATRIX_CONFIG_ROOT).toBe('staging-app')
+      await expect(listMatrixEnvironments({ cwd, envName: 'staging' })).resolves.toContain('qa')
+      expect(process.env.MATRIX_CONFIG_ROOT).toBeUndefined()
+      expect(process.env.MATRIX_CONFIG_DEV_ONLY).toBeUndefined()
+      expect(process.env.MATRIX_CONFIG_SHELL).toBe('host-value')
+      expect(require(path.join(cwd, 'settings.cjs'))).toBe(hostSettings)
+      expect(hostSettings.root).toBeUndefined()
+    }
+    finally {
+      delete require.cache[path.join(cwd, 'settings.cjs')]
+      vi.unstubAllEnvs()
+      await fs.rm(cwd, { recursive: true, force: true })
+    }
+  })
+
+  it('isolates concurrent async config evaluations and leaves the host untouched on failure', async () => {
+    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'matrix-concurrent-env-'))
+    vi.stubEnv('MATRIX_CONFIG_ROOT', undefined)
+    try {
+      for (const envName of ['development', 'broken', 'staging'])
+        await fs.writeFile(path.join(cwd, `.env.${envName}`), `MATRIX_CONFIG_ROOT=${envName}\n`)
+      await fs.writeFile(path.join(cwd, 'matrix.config.mjs'), `
+        export default async () => {
+          const before = process.env.MATRIX_CONFIG_ROOT;
+          await new Promise(resolve => setTimeout(resolve, 20));
+          if (before !== process.env.MATRIX_CONFIG_ROOT) throw new Error('Environment crossed evaluations');
+          if (before === 'broken') throw new Error('Broken configuration');
+          return {
+            $env: { [before]: { env: {} } },
+            projects: { web: { root: before, targets: { build: 'echo build' } } },
+            products: { app: { variants: { web: 'web' } } },
+          };
+        };
+      `)
+      const [development, broken, staging, environments] = await Promise.allSettled([
+        loadMatrixConfig({ cwd, envName: 'development' }),
+        loadMatrixConfig({ cwd, envName: 'broken' }),
+        loadMatrixConfig({ cwd, envName: 'staging' }),
+        listMatrixEnvironments({ cwd, envName: 'staging' }),
+      ])
+      expect(development).toMatchObject({ status: 'fulfilled', value: { projects: { web: { root: 'development' } } } })
+      expect(broken).toMatchObject({ status: 'rejected', reason: new Error('Broken configuration') })
+      expect(staging).toMatchObject({ status: 'fulfilled', value: { projects: { web: { root: 'staging' } } } })
+      expect(environments).toMatchObject({ status: 'fulfilled', value: ['development', 'staging', 'production'] })
+      expect(process.env.MATRIX_CONFIG_ROOT).toBeUndefined()
+    }
+    finally {
+      vi.unstubAllEnvs()
+      await fs.rm(cwd, { recursive: true, force: true })
+    }
   })
 
   it('resolves product-specific $env overrides independently', async () => {
