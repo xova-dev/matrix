@@ -1,14 +1,15 @@
-import { cp, mkdtemp, readdir, rm } from 'node:fs/promises'
+import { cp, mkdtemp, readdir, realpath, rm } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { execa } from 'execa'
 
-const repository = fileURLToPath(new URL('../', import.meta.url))
+const repository = await realpath(fileURLToPath(new URL('../', import.meta.url)))
 const example = path.join(repository, 'examples/electron-web')
 const setup = process.argv.includes('--setup')
-const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), 'matrix electron-web-'))
+// Windows temp directories can contain 8.3 aliases, which Vite intentionally rejects.
+const temporaryRoot = await realpath(await mkdtemp(path.join(os.tmpdir(), 'matrix electron-web-')))
 const consumer = setup ? example : path.join(temporaryRoot, 'consumer with spaces')
 const controller = new AbortController()
 const interrupt = () => controller.abort()

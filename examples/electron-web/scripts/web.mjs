@@ -1,4 +1,4 @@
-import { writeFile } from 'node:fs/promises'
+import { realpath, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import process from 'node:process'
 import matrix from '@xova/matrix/vite'
@@ -6,7 +6,7 @@ import { build, createServer } from 'vite'
 
 const config = {
   configFile: false,
-  root: process.cwd(),
+  root: await realpath(process.cwd()),
   base: './',
   plugins: [matrix()],
   build: { outDir: 'dist', emptyOutDir: true },

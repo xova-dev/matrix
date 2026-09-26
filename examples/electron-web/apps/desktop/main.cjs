@@ -17,12 +17,8 @@ const metadata = app.isPackaged
       label: process.env.VITE_PRODUCT_LABEL,
     }
 
-if (output) {
+if (output)
   app.commandLine.appendSwitch('disable-gpu')
-  // Only the disposable CI smoke run needs this on Linux sandbox-restricted runners.
-  if (process.platform === 'linux' && process.env.CI)
-    app.commandLine.appendSwitch('no-sandbox')
-}
 if (process.platform === 'win32')
   app.setAppUserModelId(metadata.appId)
 

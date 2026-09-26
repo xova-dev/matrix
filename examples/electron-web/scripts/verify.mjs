@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict'
-import { access, mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
+import { access, mkdtemp, readdir, readFile, realpath, rm } from 'node:fs/promises'
 import net from 'node:net'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { execa } from 'execa'
 
-const root = fileURLToPath(new URL('../', import.meta.url))
+const root = await realpath(fileURLToPath(new URL('../', import.meta.url)))
 const cli = fileURLToPath(new URL('../bin/matrix.mjs', import.meta.resolve('@xova/matrix')))
 const controller = new AbortController()
 const interrupt = () => controller.abort()
@@ -121,7 +121,7 @@ try {
     assert.ok(binary, 'Unpacked application executable is missing')
     const output = path.join(reports, `${product}-${environment}.json`)
     // Deliberately pass conflicting host values: packaged resources must remain authoritative.
-    await run(binary, [], { EXAMPLE_SMOKE_OUTPUT: output, MATRIX_PRODUCT_KEY: 'wrong-product', VITE_API_BASE: 'wrong-api' })
+    await run(binary, ['--no-sandbox'], { EXAMPLE_SMOKE_OUTPUT: output, MATRIX_PRODUCT_KEY: 'wrong-product', VITE_API_BASE: 'wrong-api' })
     verifyReport(JSON.parse(await readFile(output, 'utf8')), product, environment, true)
     assert.equal(await preparationCount(), ++prepared)
     console.log(`Packaged application verified: ${product} / ${environment}.`)

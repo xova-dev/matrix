@@ -47,7 +47,7 @@ pnpm test:electron-web
 
 应用自检通过 `EXAMPLE_SMOKE_OUTPUT` 启用：窗口隐藏，但页面确实由 Electron 加载并执行。普通启动仍显示窗口。验收使用 electron-builder 的 dir 目标，不制作安装器、不发布、不使用分发签名证书。
 
-Linux 的图形验收需要显示服务器，CI 使用 Xvfb。仅 Linux CI 自检会加 `--no-sandbox` 以适应受限 runner；常规应用窗口保持 context isolation、sandbox，禁用 node integration。API 地址是示例数据，不会发起外部 API 请求。
+Linux 的图形验收需要显示服务器，CI 使用 Xvfb。所有平台的自检启动（开发态和打包后）均在启动命令中传入 `--no-sandbox`，不验证沙箱配置；普通手动启动不传该参数，保留 sandbox。窗口始终启用 context isolation，禁用 node integration。API 地址是示例数据，不会发起外部 API 请求。
 
 ## CI 边界
 

@@ -7,7 +7,9 @@ import { execa } from 'execa'
 const require = createRequire(import.meta.url)
 const env = { ...process.env }
 delete env.ELECTRON_RUN_AS_NODE
-const child = execa(require('electron'), [fileURLToPath(new URL('.', import.meta.url))], { env, extendEnv: false, stdio: 'inherit', reject: false, killDescendants: true })
+// Sandbox initialization precedes main.cjs; supply the flag at process startup.
+const args = [...(env.EXAMPLE_SMOKE_OUTPUT ? ['--no-sandbox'] : []), fileURLToPath(new URL('.', import.meta.url))]
+const child = execa(require('electron'), args, { env, extendEnv: false, stdio: 'inherit', reject: false, killDescendants: true })
 
 process.on('SIGINT', () => child.kill('SIGTERM'))
 process.on('SIGTERM', () => child.kill('SIGTERM'))
