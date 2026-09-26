@@ -325,7 +325,9 @@ pnpm check
 pnpm lint:fix
 ```
 
-`pnpm lint:fix` formats JavaScript, TypeScript, and Markdown through ESLint. `pnpm check` runs lint, typecheck, tests, and the production build.
+`pnpm lint:fix` formats JavaScript, TypeScript, and Markdown through ESLint. `pnpm check` runs lint, typecheck, tests, and the production build without starting example services.
+
+`pnpm test:pack` installs the packed package into a temporary consumer and checks exports, configuration isolation, preparation, and CLI shutdown. The shutdown check uses two minimal processes without network ports; on macOS/Linux it sends SIGINT to Matrix and verifies exit code 130, cleanup completion, and no remaining fixture processes. This POSIX signal check is explicitly skipped on Windows; the other package checks still run. Successful runs print a short summary and failures include diagnostics. The release workflow runs both `pnpm check` and `pnpm test:pack`.
 
 ## License
 

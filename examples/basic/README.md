@@ -39,7 +39,6 @@ pnpm run test
 pnpm run plan
 pnpm run build
 pnpm run preview
-pnpm run shutdown-test
 ```
 
 `pnpm run matrix` starts the interactive Product → Variant → Target → Environment flow. The
@@ -48,9 +47,9 @@ other scripts pass explicit selections and are intended for repeatable non-inter
 `pnpm run dev` starts the Web project first and starts the Desktop project after the Web port is
 ready. Stop continuous commands with `Ctrl+C`.
 
-`pnpm run shutdown-test` starts the real `dev` plan, waits for both development servers, sends
-`SIGINT`, and verifies that Matrix exits cleanly and both server ports are released. It covers
-process shutdown behavior but does not replace acceptance in a real interactive TTY.
+This example is for manual exploration. Automated CLI shutdown acceptance runs through the
+repository-root `pnpm test:pack` against the installed package with isolated, port-free fixtures,
+not these example servers. It does not replace acceptance in a real interactive TTY.
 
 The build command cleans both project `dist` directories first, creates a Web ZIP while retaining
 the current Web output, and moves the Desktop output under `examples/basic/artifacts/app/staging/`.
