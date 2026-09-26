@@ -21,6 +21,8 @@ Define projects once, then run development, builds, previews, and custom command
 
 Requires Node.js `>=22.18.0`.
 
+Process-tree shutdown uses the system `ps` command on macOS/Linux (install `procps` in minimal Linux images) and `taskkill.exe` on Windows. POSIX tasks receive SIGTERM, followed by SIGKILL after 30 seconds if needed; Matrix waits for the controlled process group to stop, not just its shell.
+
 ```bash
 pnpm add -D @xova/matrix
 ```

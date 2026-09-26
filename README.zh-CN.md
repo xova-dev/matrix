@@ -21,6 +21,8 @@
 
 需要 Node.js `>=22.18.0`。
 
+进程树关闭在 macOS/Linux 使用系统 `ps` 命令（精简 Linux 镜像需安装 `procps`），在 Windows 使用 `taskkill.exe`。POSIX 任务先收到 SIGTERM，必要时在 30 秒后收到 SIGKILL；Matrix 等待受控进程组停止，而不只是 shell 退出。
+
 ```bash
 pnpm add -D @xova/matrix
 ```

@@ -31,6 +31,8 @@ function task(id: string, command: string, overrides: Partial<ExecutionTask> = {
 const scriptCommand = [process.execPath, fileURLToPath(new URL('./fixtures/exec-child.cjs', import.meta.url))]
   .map(value => `"${value}"`)
   .join(' ')
+  // Keep a real shell parent on POSIX, including shells that otherwise exec the last command.
+  + (process.platform === 'win32' ? '' : '; exit $?')
 
 function scriptedTask(id: string, script: string, overrides: Partial<ExecutionTask> = {}): ExecutionTask {
   return task(id, scriptCommand, {
@@ -119,13 +121,15 @@ describe('runExecutionPlan', () => {
       await vi.advanceTimersByTimeAsync(1)
       await vi.waitFor(() => expect(completed).toBe(true), { timeout: 1000 })
       expect((await execution).cancelled).toBe('SIGINT')
-      expect(() => process.kill(pid!, 0)).toThrow()
+      // The OS may reap an orphan just after the process group has stopped running.
+      await vi.waitFor(() => expect(() => process.kill(pid!, 0)).toThrow())
       await expect(fs.stat(marker)).rejects.toMatchObject({ code: 'ENOENT' })
       expect(process.listenerCount('SIGINT')).toBe(listeners)
     }
     finally {
       vi.useRealTimers()
-      process.emit('SIGINT')
+      if (!completed)
+        process.emit('SIGINT')
       if (pid) {
         try {
           process.kill(pid, 'SIGKILL')
@@ -143,7 +147,7 @@ describe('runExecutionPlan', () => {
     }
   })
 
-  it('cancels execution, reaps the child, and never starts the next task on every platform', async () => {
+  it('cancels execution, terminates the child, and never starts the next task on every platform', async () => {
     const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'matrix-exec-cancel-'))
     const ready = path.join(cwd, 'ready.pid')
     const nextMarker = path.join(cwd, 'next-started')
@@ -152,21 +156,66 @@ describe('runExecutionPlan', () => {
       'setInterval(() => {}, 1000)',
     ].join(String.fromCharCode(10)), { env: { MATRIX_TEST_READY: ready } })
     const next = scriptedTask('app:next:test', 'require("node:fs").writeFileSync(process.env.MATRIX_TEST_MARKER, "started")', { env: { MATRIX_TEST_MARKER: nextMarker } })
-    const execution = runExecutionPlan(plan([running, next]))
+    let completed = false
+    const execution = runExecutionPlan(plan([running, next])).then((result) => {
+      completed = true
+      return result
+    })
     try {
       await waitForFile(ready, 2000)
       const pid = Number(await fs.readFile(ready, 'utf8'))
       process.emit('SIGINT')
       expect((await execution).cancelled).toBe('SIGINT')
-      expect(() => process.kill(pid, 0)).toThrow()
+      await vi.waitFor(() => expect(() => process.kill(pid, 0)).toThrow())
       await expect(fs.stat(nextMarker)).rejects.toMatchObject({ code: 'ENOENT' })
     }
     finally {
-      process.emit('SIGINT')
+      if (!completed)
+        process.emit('SIGINT')
       await execution
       await fs.rm(cwd, { recursive: true, force: true })
     }
   })
+
+  it.skipIf(process.platform === 'win32')('waits for all task groups to exit before reporting a process inspection failure', async () => {
+    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'matrix-exec-inspection-'))
+    const files = ['first.pid', 'second.pid'].map(name => path.join(cwd, name))
+    const tasks = files.map((file, index) => scriptedTask(`app:service${index}:test`, [
+      'process.on("SIGTERM", () => {})',
+      'setInterval(() => {}, 1000)',
+      'require("node:fs").writeFileSync(process.env.MATRIX_TEST_READY, String(process.pid))',
+    ].join(String.fromCharCode(10)), { continuous: true, env: { MATRIX_TEST_READY: file } }))
+    const originalPath = process.env.PATH
+    const listeners = process.listenerCount('SIGINT')
+    let completed = false
+    const execution = runExecutionPlan(plan(tasks)).finally(() => {
+      completed = true
+    })
+    void execution.catch(() => undefined)
+    try {
+      await Promise.all(files.map(file => waitForFile(file, 2000)))
+      const pids = await Promise.all(files.map(async file => Number(await fs.readFile(file, 'utf8'))))
+      for (const pid of pids)
+        expect(pid).toBeGreaterThan(0)
+      process.env.PATH = cwd // No ps binary: exercise the real spawn failure boundary.
+      process.emit('SIGINT')
+      await expect(execution).rejects.toMatchObject({ code: 'ENOENT' })
+      // No retry here: failure must not be reported before cleanup has finished.
+      for (const pid of pids)
+        expect(() => process.kill(pid, 0)).toThrow()
+      expect(process.listenerCount('SIGINT')).toBe(listeners)
+    }
+    finally {
+      if (originalPath === undefined)
+        delete process.env.PATH
+      else
+        process.env.PATH = originalPath
+      if (!completed)
+        process.emit('SIGINT')
+      await execution.catch(() => undefined)
+      await fs.rm(cwd, { recursive: true, force: true })
+    }
+  }, 10_000)
 
   it.skipIf(process.platform === 'win32')('waits for a child graceful shutdown before returning after SIGINT (POSIX)', async () => {
     const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'matrix-exec-shutdown-'))

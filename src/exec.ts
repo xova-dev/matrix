@@ -6,9 +6,9 @@ import process from 'node:process'
 import consola from 'consola'
 import { execa } from 'execa'
 import { materializeArtifact } from './artifact.js'
+import { stopProcessTrees } from './process-tree.js'
 
 type Child = ReturnType<typeof execa>
-const shutdownGracePeriod = 30_000
 const neverSettles: Promise<never> = new Promise(() => undefined)
 
 function raceWithInterruptions<T>(promise: Promise<T>, interruptions: Set<Promise<never>>): Promise<T> {
@@ -55,42 +55,6 @@ async function waitReady(child: Child, task: ExecutionTask, interruptions: Set<P
   throw new Error(`Timed out waiting for ${task.id} on port ${readyWhen.port}`)
 }
 
-async function stopChildren(children: Map<string, Child>, stopping: Set<string>, settled: Set<string>): Promise<void> {
-  for (const [id, child] of children) {
-    if (!settled.has(id) && !stopping.has(id)) {
-      stopping.add(id)
-      child.kill('SIGTERM')
-    }
-  }
-
-  const pending = [...children.entries()].filter(([id]) => !settled.has(id)).map(([, child]) => child)
-  if (!pending.length)
-    return
-
-  const allSettled = Promise.allSettled(pending)
-  let timeout: ReturnType<typeof setTimeout> | undefined
-  try {
-    const timedOut = await Promise.race([
-      allSettled.then(() => false),
-      new Promise<boolean>((resolve) => {
-        timeout = setTimeout(resolve, shutdownGracePeriod, true)
-      }),
-    ])
-    if (!timedOut)
-      return
-    for (const [id, child] of children) {
-      if (!settled.has(id)) {
-        stopping.add(id)
-        child.kill('SIGKILL')
-      }
-    }
-    await allSettled
-  }
-  finally {
-    clearTimeout(timeout)
-  }
-}
-
 async function cleanOutputDirectory(projectRoot: string, outputDir: string): Promise<void> {
   const projectPath = path.resolve(projectRoot)
   const outputPath = path.resolve(outputDir)
@@ -104,7 +68,7 @@ async function cleanOutputDirectory(projectRoot: string, outputDir: string): Pro
 export async function runExecutionPlan(plan: ExecutionPlan): Promise<{ children: Map<string, Child>, cancelled: false | 'SIGINT' | 'SIGTERM' }> {
   const children = new Map<string, Child>()
   const stopping = new Set<string>()
-  const settled = new Set<string>()
+  const settled = new Set<Child>()
   const cancellationError = new Error('Execution cancelled')
   let interruptWaits!: () => void
   const cancellation = new Promise<never>((_, reject) => {
@@ -114,18 +78,24 @@ export async function runExecutionPlan(plan: ExecutionPlan): Promise<{ children:
   void cancellation.catch(() => undefined)
   const interruptions = new Set<Promise<never>>([cancellation])
   const prepared = new Set<string>()
+  let shutdown: Promise<void> | undefined
+  const stopChildren = (): Promise<void> => {
+    if (!shutdown) {
+      for (const id of children.keys())
+        stopping.add(id)
+      shutdown = stopProcessTrees([...children.values()], settled)
+      // An interrupt can arrive during artifact I/O, before finally awaits shutdown.
+      void shutdown.catch(() => undefined)
+    }
+    return shutdown
+  }
   let cancelled: false | 'SIGINT' | 'SIGTERM' = false
   const stopAll = (signal: 'SIGINT' | 'SIGTERM'): void => {
     if (cancelled)
       return
     cancelled = signal
     interruptWaits()
-    for (const [id, child] of children) {
-      if (!settled.has(id) && !stopping.has(id)) {
-        stopping.add(id)
-        child.kill('SIGTERM')
-      }
-    }
+    void stopChildren()
   }
 
   const interrupt = (): void => stopAll('SIGINT')
@@ -147,10 +117,9 @@ export async function runExecutionPlan(plan: ExecutionPlan): Promise<{ children:
         reject: false,
         killDescendants: true,
       }) as Child
-      settled.delete(task.id)
       stopping.delete(task.id)
       children.set(task.id, child)
-      void child.then(() => settled.add(task.id), () => settled.add(task.id))
+      void child.then(() => settled.add(child), () => settled.add(child))
 
       if (task.continuous) {
         const failure = child.then((result) => {
@@ -262,11 +231,17 @@ export async function runExecutionPlan(plan: ExecutionPlan): Promise<{ children:
     return { children, cancelled }
   }
   finally {
-    if (cancelled || plan.tasks.some(task => task.continuous))
-      await stopChildren(children, stopping, settled)
-    else
-      await Promise.allSettled([...children.values()])
-    process.removeListener('SIGINT', interrupt)
-    process.removeListener('SIGTERM', terminate)
+    try {
+      if (cancelled || plan.tasks.some(task => task.continuous)) {
+        await stopChildren()
+      }
+      else {
+        await Promise.allSettled([...children.values()])
+      }
+    }
+    finally {
+      process.removeListener('SIGINT', interrupt)
+      process.removeListener('SIGTERM', terminate)
+    }
   }
 }

@@ -25,7 +25,7 @@ beforeEach(async () => {
     'if (event === "wait") {',
     '  process.on("SIGTERM", () => setTimeout(() => { record("cleanup"); process.exit(0); }, 50));',
     '  setInterval(() => {}, 1000);',
-    '  writeFileSync("ready", "ready");',
+    '  writeFileSync("ready", String(process.pid));',
     '} else {',
     '  record(event);',
     '  if (event === "fail") process.exit(7);',
@@ -34,7 +34,8 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
-  await rm(cwd, { recursive: true, force: true })
+  // Windows may briefly retain directory handles after process termination.
+  await rm(cwd, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 })
 })
 
 async function execution(config: MatrixConfig, productNames = ['app']) {
@@ -88,7 +89,7 @@ describe('project preparation', () => {
     const recorded = await events()
     const expected = ['skipped', 'dependency-prepare', 'dependency', 'prepare:first', 'prepare:last', 'first', 'second', 'other']
     expect(recorded.map(event => event.event)).toEqual(expected)
-    expect(recorded[3]).toEqual({ event: 'prepare:first', cwd: await realpath(cwd), layer: 'global', project: 'shared', environment: 'qa', dotenv: 'dotenv-value' })
+    expect({ ...recorded[3], cwd: await realpath(recorded[3]!.cwd as string) }).toEqual({ event: 'prepare:first', cwd: await realpath(cwd), layer: 'global', project: 'shared', environment: 'qa', dotenv: 'dotenv-value' })
     expect(recorded[5]).toMatchObject({ layer: 'product', product: 'app', variant: 'first' })
     await runExecutionPlan(plan)
     expect((await events()).map(event => event.event)).toEqual([...expected, ...expected])
@@ -152,10 +153,15 @@ describe('project preparation', () => {
     process.chdir(cwd)
     const running = runCli([command, 'app', '-e', 'qa'])
     try {
-      await vi.waitFor(async () => expect(await readFile(path.join(cwd, 'ready'), 'utf8')).toBe('ready'), { timeout: 2000 })
+      let pid = 0
+      await vi.waitFor(async () => {
+        pid = Number(await readFile(path.join(cwd, 'ready'), 'utf8'))
+        expect(pid).toBeGreaterThan(0)
+      }, { timeout: 2000 })
       process.emit('SIGTERM')
       await running
       expect(process.exitCode).toBe(143)
+      await vi.waitFor(() => expect(() => process.kill(pid, 0)).toThrow())
       // Windows termination does not deliver POSIX cleanup callbacks.
       expect((await events()).map(event => event.event)).toEqual(process.platform === 'win32' ? ['first'] : ['first', 'cleanup'])
       await expect(readFile(path.join(cwd, '.matrix/types/matrix-runtime.d.ts'))).rejects.toMatchObject({ code: 'ENOENT' })
