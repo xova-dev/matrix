@@ -11,6 +11,8 @@ export type EnvMap = Record<string, Scalar>
 export interface CommandTarget {
   /** Command to execute from the project's root directory. */
   command: string | string[]
+  /** Set false to skip this project's preparation for this target. */
+  prepare?: boolean
   /** Whether the command keeps running after it starts. Defaults from the target name. */
   continuous?: boolean
   /** Node.js runtime mode passed to the target process. */
@@ -68,6 +70,8 @@ export interface TargetDependency {
 export interface ProjectConfig {
   /** Project directory, relative to the Matrix configuration directory. Defaults to `.`. */
   root?: string
+  /** Finite commands run once per invocation before this project's first eligible target. */
+  prepare?: CommandTarget['command']
   /** Named commands exposed by this project. */
   targets: Record<string, TargetConfig>
 }
@@ -196,12 +200,25 @@ export interface ExecutionTask {
   dependsOn: Array<{ id: string, condition: 'completed' | 'ready' }>
 }
 
+/** Project-scoped preparation, independent of product and variant identity. */
+export interface ProjectPreparation {
+  id: string
+  project: string
+  command: CommandTarget['command']
+  cwd: string
+  env: EnvMap
+  /** Run immediately before this task; omitted for an explicit prepare invocation. */
+  beforeTask?: string
+}
+
 /** Ordered executable tasks and their shared artifact destination. */
 export interface ExecutionPlan {
   /** Environment selected for this plan. */
   envName: string
   /** Tasks in dependency-safe execution order. */
   tasks: ExecutionTask[]
+  /** Project preparations in first-use order, deduplicated by project key. */
+  preparations?: ProjectPreparation[]
   /** Absolute root directory for generated artifacts. */
   artifactsRoot: string
   artifactRetention: number
@@ -212,7 +229,7 @@ export interface CreateExecutionPlanInput {
   /** Resolved root-level configuration values used by planning. */
   config: { artifacts?: { root?: string, retention?: { keep?: number } }, env?: EnvMap, suffixes?: Record<string, SuffixConfig> }
   /** Normalized projects keyed by project name. */
-  projects: Record<string, { root?: string }>
+  projects: Record<string, Pick<ProjectConfig, 'root' | 'prepare'>>
   /** Normalized products keyed by product name. */
   products: Record<string, NormalizedProduct>
   /** External process environment to merge into each task. */

@@ -11,12 +11,8 @@ type Child = ReturnType<typeof execa>
 const shutdownGracePeriod = 30_000
 const neverSettles: Promise<never> = new Promise(() => undefined)
 
-function wait(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms))
-}
-
-function raceWithServiceFailures<T>(promise: Promise<T>, failures: Set<Promise<never>>): Promise<T> {
-  return failures.size ? Promise.race([promise, ...failures]) : promise
+function raceWithInterruptions<T>(promise: Promise<T>, interruptions: Set<Promise<never>>): Promise<T> {
+  return interruptions.size ? Promise.race([promise, ...interruptions]) : promise
 }
 
 function canConnect(host: string, port: number, timeout: number): Promise<boolean> {
@@ -36,7 +32,7 @@ function canConnect(host: string, port: number, timeout: number): Promise<boolea
   })
 }
 
-async function waitReady(child: Child, task: ExecutionTask, serviceFailures: Set<Promise<never>>): Promise<void> {
+async function waitReady(child: Child, task: ExecutionTask, interruptions: Set<Promise<never>>): Promise<void> {
   const readyWhen = task.readyWhen
   if (!readyWhen)
     return
@@ -47,12 +43,12 @@ async function waitReady(child: Child, task: ExecutionTask, serviceFailures: Set
     const remaining = deadline - Date.now()
     if (remaining <= 0)
       break
-    if (await raceWithServiceFailures(canConnect(readyWhen.host ?? '127.0.0.1', readyWhen.port, Math.min(1_000, remaining)), serviceFailures))
+    if (await raceWithInterruptions(canConnect(readyWhen.host ?? '127.0.0.1', readyWhen.port, Math.min(1_000, remaining)), interruptions))
       return
-    const result = await raceWithServiceFailures(Promise.race([
+    const result = await raceWithInterruptions(Promise.race([
       child.then(value => value),
       new Promise<undefined>(resolve => setTimeout(resolve, Math.min(200, Math.max(1, deadline - Date.now())))),
-    ]), serviceFailures)
+    ]), interruptions)
     if (result !== undefined)
       throw new Error(`${task.id} exited before becoming ready`)
   }
@@ -72,21 +68,27 @@ async function stopChildren(children: Map<string, Child>, stopping: Set<string>,
     return
 
   const allSettled = Promise.allSettled(pending)
-  const timedOut = await Promise.race([
-    allSettled.then(() => false),
-    wait(shutdownGracePeriod).then(() => true),
-  ])
-
-  if (!timedOut)
-    return
-
-  for (const [id, child] of children) {
-    if (!settled.has(id)) {
-      stopping.add(id)
-      child.kill('SIGKILL')
+  let timeout: ReturnType<typeof setTimeout> | undefined
+  try {
+    const timedOut = await Promise.race([
+      allSettled.then(() => false),
+      new Promise<boolean>((resolve) => {
+        timeout = setTimeout(resolve, shutdownGracePeriod, true)
+      }),
+    ])
+    if (!timedOut)
+      return
+    for (const [id, child] of children) {
+      if (!settled.has(id)) {
+        stopping.add(id)
+        child.kill('SIGKILL')
+      }
     }
+    await allSettled
   }
-  await allSettled
+  finally {
+    clearTimeout(timeout)
+  }
 }
 
 async function cleanOutputDirectory(projectRoot: string, outputDir: string): Promise<void> {
@@ -99,14 +101,25 @@ async function cleanOutputDirectory(projectRoot: string, outputDir: string): Pro
 }
 
 /** Executes tasks in plan order while respecting dependency readiness conditions. */
-export async function runExecutionPlan(plan: ExecutionPlan): Promise<{ children: Map<string, Child> }> {
+export async function runExecutionPlan(plan: ExecutionPlan): Promise<{ children: Map<string, Child>, cancelled: false | 'SIGINT' | 'SIGTERM' }> {
   const children = new Map<string, Child>()
   const stopping = new Set<string>()
   const settled = new Set<string>()
-  const serviceFailures = new Set<Promise<never>>()
-  let cancelled = false
-  const stopAll = (): void => {
-    cancelled = true
+  const cancellationError = new Error('Execution cancelled')
+  let interruptWaits!: () => void
+  const cancellation = new Promise<never>((_, reject) => {
+    interruptWaits = () => reject(cancellationError)
+  })
+  // Cancellation can arrive between waits, so keep the rejection handled.
+  void cancellation.catch(() => undefined)
+  const interruptions = new Set<Promise<never>>([cancellation])
+  const prepared = new Set<string>()
+  let cancelled: false | 'SIGINT' | 'SIGTERM' = false
+  const stopAll = (signal: 'SIGINT' | 'SIGTERM'): void => {
+    if (cancelled)
+      return
+    cancelled = signal
+    interruptWaits()
     for (const [id, child] of children) {
       if (!settled.has(id) && !stopping.has(id)) {
         stopping.add(id)
@@ -115,9 +128,66 @@ export async function runExecutionPlan(plan: ExecutionPlan): Promise<{ children:
     }
   }
 
-  process.on('SIGINT', stopAll)
-  process.on('SIGTERM', stopAll)
+  const interrupt = (): void => stopAll('SIGINT')
+  const terminate = (): void => stopAll('SIGTERM')
+
+  async function runCommands(task: Pick<ExecutionTask, 'id' | 'command' | 'cwd' | 'env'> & { continuous?: boolean }): Promise<void> {
+    const commands = Array.isArray(task.command) ? task.command : [task.command]
+    for (const [index, command] of commands.entries()) {
+      if (cancelled)
+        return
+      consola.info(`${task.id} [${index + 1}/${commands.length}] → ${command}`)
+      const child = execa(command, {
+        cwd: task.cwd,
+        env: Object.fromEntries(Object.entries(task.env).map(([key, value]) => [key, String(value)])),
+        extendEnv: true,
+        forceKillAfterDelay: false,
+        shell: true,
+        stdio: 'inherit',
+        reject: false,
+        killDescendants: true,
+      }) as Child
+      settled.delete(task.id)
+      stopping.delete(task.id)
+      children.set(task.id, child)
+      void child.then(() => settled.add(task.id), () => settled.add(task.id))
+
+      if (task.continuous) {
+        const failure = child.then((result) => {
+          if (cancelled || stopping.size || result.exitCode === 0)
+            return neverSettles
+          throw new Error(`${task.id} exited with code ${result.exitCode}`)
+        })
+        interruptions.add(failure)
+        void failure.catch(() => undefined)
+        return
+      }
+
+      const result = await raceWithInterruptions(child, interruptions)
+      if (cancelled)
+        return
+      if (result.exitCode !== 0)
+        throw new Error(`${task.id} exited with code ${result.exitCode}`)
+    }
+  }
+
+  async function prepare(beforeTask?: string): Promise<void> {
+    for (const preparation of plan.preparations ?? []) {
+      if (preparation.beforeTask !== beforeTask || prepared.has(preparation.project))
+        continue
+      await runCommands(preparation)
+      if (cancelled)
+        return
+      prepared.add(preparation.project)
+    }
+  }
+
+  process.on('SIGINT', interrupt)
+  process.on('SIGTERM', terminate)
   try {
+    await prepare()
+    if (cancelled)
+      return { children, cancelled }
     for (const task of plan.tasks) {
       if (cancelled)
         break
@@ -127,9 +197,9 @@ export async function runExecutionPlan(plan: ExecutionPlan): Promise<{ children:
         if (!child)
           throw new Error(`Dependency ${dependency.id} was not started`)
         if (dependency.condition === 'completed') {
-          const result = await raceWithServiceFailures(child, serviceFailures)
+          const result = await raceWithInterruptions(child, interruptions)
           if (cancelled)
-            return { children }
+            return { children, cancelled }
           if (result.exitCode !== 0)
             throw new Error(`${dependency.id} exited with code ${result.exitCode}`)
         }
@@ -137,51 +207,24 @@ export async function runExecutionPlan(plan: ExecutionPlan): Promise<{ children:
           const dependencyTask = plan.tasks.find(item => item.id === dependency.id)
           if (!dependencyTask)
             throw new Error(`Dependency task ${dependency.id} is missing`)
-          await waitReady(child, dependencyTask, serviceFailures)
+          await waitReady(child, dependencyTask, interruptions)
           if (cancelled)
-            return { children }
+            return { children, cancelled }
         }
       }
 
       if (cancelled)
         break
-
       if (!task.continuous && task.artifacts?.clean)
         await cleanOutputDirectory(task.projectRoot, task.outputDir)
 
-      const commands = Array.isArray(task.command) ? task.command : [task.command]
-      for (const [index, command] of commands.entries()) {
-        consola.info(`${task.id} [${index + 1}/${commands.length}] → ${command}`)
-        const child = execa(command, {
-          cwd: task.cwd,
-          env: Object.fromEntries(Object.entries(task.env).map(([key, value]) => [key, String(value)])),
-          extendEnv: true,
-          forceKillAfterDelay: false,
-          shell: true,
-          stdio: 'inherit',
-          reject: false,
-          killDescendants: true,
-        }) as Child
-        children.set(task.id, child)
-        void child.then(() => settled.add(task.id), () => settled.add(task.id))
+      await prepare(task.id)
+      if (cancelled)
+        return { children, cancelled }
 
-        if (task.continuous) {
-          const failure = child.then((result) => {
-            if (cancelled || stopping.size || result.exitCode === 0)
-              return neverSettles
-            throw new Error(`${task.id} exited with code ${result.exitCode}`)
-          })
-          serviceFailures.add(failure)
-          void failure.catch(() => undefined)
-          break
-        }
-
-        const result = await raceWithServiceFailures(child, serviceFailures)
-        if (cancelled)
-          return { children }
-        if (result.exitCode !== 0)
-          throw new Error(`${task.id} exited with code ${result.exitCode}`)
-      }
+      await runCommands(task)
+      if (cancelled)
+        return { children, cancelled }
 
       if (!task.continuous && task.artifacts) {
         const artifactPath = await materializeArtifact({
@@ -199,24 +242,31 @@ export async function runExecutionPlan(plan: ExecutionPlan): Promise<{ children:
       }
     }
 
+    if (cancelled)
+      return { children, cancelled }
     const services = plan.tasks.filter(task => task.continuous).map(task => children.get(task.id)!)
     if (services.length) {
-      await raceWithServiceFailures(Promise.race(services.map(async (child) => {
+      await raceWithInterruptions(Promise.race(services.map(async (child) => {
         const result = await child
         if (stopping.size)
           return
         if (result.exitCode !== 0)
           throw new Error(`Service exited with code ${result.exitCode}`)
-      })), serviceFailures)
+      })), interruptions)
     }
-    return { children }
+    return { children, cancelled }
+  }
+  catch (error) {
+    if (error !== cancellationError)
+      throw error
+    return { children, cancelled }
   }
   finally {
     if (cancelled || plan.tasks.some(task => task.continuous))
       await stopChildren(children, stopping, settled)
     else
       await Promise.allSettled([...children.values()])
-    process.removeListener('SIGINT', stopAll)
-    process.removeListener('SIGTERM', stopAll)
+    process.removeListener('SIGINT', interrupt)
+    process.removeListener('SIGTERM', terminate)
   }
 }

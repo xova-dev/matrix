@@ -7,7 +7,8 @@ const targetDependency = v.object({ variant: v.string(), target: v.optional(v.st
 const dependency = v.union([v.string(), targetDependency])
 const readyPort = v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(65_535))
 const readyTimeout = v.pipe(v.number(), v.integer(), v.minValue(1))
-const command = v.union([v.string(), v.pipe(v.array(v.string()), v.minLength(1))])
+const commandString = v.pipe(v.string(), v.check(value => Boolean(value.trim()), 'Commands must be non-empty'))
+const command = v.union([commandString, v.pipe(v.array(commandString), v.minLength(1))])
 const artifactConfig = v.object({
   mode: v.optional(v.picklist(['move', 'archive', 'both'])),
   format: v.optional(v.picklist(['zip', 'tar.gz'])),
@@ -15,6 +16,7 @@ const artifactConfig = v.object({
 })
 const target = v.union([command, v.object({
   command,
+  prepare: v.optional(v.boolean()),
   continuous: v.optional(v.boolean()),
   nodeEnv: v.optional(v.picklist(['development', 'production', 'test'])),
   readyWhen: v.optional(v.object({ type: v.literal('port'), host: v.optional(v.string()), port: readyPort, timeout: v.optional(readyTimeout) })),
@@ -22,8 +24,9 @@ const target = v.union([command, v.object({
   artifacts: v.optional(artifactConfig),
   dependsOn: v.optional(v.array(dependency)),
 })])
-const targetOverride = v.union([v.string(), command, v.object({
+const targetOverride = v.union([command, v.object({
   command: v.optional(command),
+  prepare: v.optional(v.boolean()),
   continuous: v.optional(v.boolean()),
   nodeEnv: v.optional(v.picklist(['development', 'production', 'test'])),
   readyWhen: v.optional(v.object({ type: v.literal('port'), host: v.optional(v.string()), port: readyPort, timeout: v.optional(readyTimeout) })),
@@ -31,7 +34,7 @@ const targetOverride = v.union([v.string(), command, v.object({
   artifacts: v.optional(artifactConfig),
   dependsOn: v.optional(v.array(dependency)),
 })])
-const project = v.object({ root: v.optional(v.string()), targets: v.record(v.string(), target) })
+const project = v.object({ root: v.optional(v.string()), prepare: v.optional(command), targets: v.record(v.string(), target) })
 const environment = v.object({ env })
 const variant = v.union([v.string(), v.object({
   project: v.string(),

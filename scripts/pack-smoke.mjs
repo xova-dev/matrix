@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -49,7 +49,7 @@ try {
     import { root } from './settings.mjs';
     setInterval(() => {}, 1000);
     export default {
-      projects: { web: { root, targets: { build: 'echo build' } } },
+      projects: { web: { root, prepare: ['node prepare.mjs'], targets: { build: 'node build.mjs' } } },
       products: { app: { variants: { web: 'web' } } },
     };
   `)
@@ -65,6 +65,7 @@ try {
         'defineMatrixConfig': main.defineMatrixConfig,
         'defineMatrixEnv': main.defineMatrixEnv,
         'createExecutionPlan': main.createExecutionPlan,
+        'createPreparationPlan': main.createPreparationPlan,
         'config.defineMatrixConfig': config.defineMatrixConfig,
         'plan.createExecutionPlan': plan.createExecutionPlan,
       })) {
@@ -93,6 +94,25 @@ try {
     cwd: consumerRoot,
     stdio: 'inherit',
   })
+
+  for (const root of ['dev-root', 'stage-root']) {
+    const projectRoot = path.join(consumerRoot, root)
+    mkdirSync(projectRoot)
+    writeFileSync(path.join(projectRoot, 'prepare.mjs'), 'import { appendFileSync } from "node:fs"; appendFileSync("prepared", "done;");')
+    writeFileSync(path.join(projectRoot, 'build.mjs'), 'import { readFileSync, writeFileSync } from "node:fs"; if (readFileSync("prepared", "utf8") !== "done;") throw new Error("Preparation did not run once"); writeFileSync("built", "done");')
+  }
+  const cli = 'node_modules/@xova/matrix/bin/matrix.mjs'
+  const planned = JSON.parse(execFileSync(process.execPath, [cli, 'plan', 'app', '-t', 'build', '-e', 'staging'], { cwd: consumerRoot, encoding: 'utf8', timeout: 10_000 }))
+  if (planned.preparations?.[0]?.beforeTask !== 'app:web:build' || existsSync(path.join(consumerRoot, 'stage-root/prepared')))
+    throw new Error('Packaged CLI did not plan preparation without executing it')
+  for (const args of [['build', 'app', '-e', 'staging'], ['prepare', 'app', '-e', 'development']]) {
+    execFileSync(process.execPath, [cli, ...args], { cwd: consumerRoot, stdio: 'inherit', timeout: 10_000 })
+  }
+  if (readFileSync(path.join(consumerRoot, 'stage-root/built'), 'utf8') !== 'done'
+    || readFileSync(path.join(consumerRoot, 'dev-root/prepared'), 'utf8') !== 'done;'
+    || !existsSync(path.join(consumerRoot, 'dev-root/.matrix/types/matrix-runtime.d.ts'))) {
+    throw new Error('Packaged CLI did not complete automatic and explicit preparation')
+  }
 }
 finally {
   rmSync(temporaryRoot, { recursive: true, force: true })

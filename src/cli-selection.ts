@@ -72,6 +72,7 @@ export function selectionSummary(selection: Selection): string {
   return [
     `${selection.product} · ${selection.target} · ${requested.map(task => task.variant).join(', ')} · ${selection.env}`,
     `Node mode: ${[...new Set(requested.map(task => task.env.NODE_ENV))].join(', ')}`,
+    ...(selection.plan.preparations ?? []).map(step => `Prepare: ${step.project} before ${step.beforeTask}`),
     ...(dependencies.length ? [`Dependencies: ${dependencies.map(task => task.id).join(', ')}`] : []),
     ...selection.plan.tasks.flatMap(task => task.dependsOn.map(dependency => `${task.id} waits for ${dependency.id} (${dependency.condition})`)),
   ].join('\n')

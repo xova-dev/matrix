@@ -8,7 +8,7 @@ import { resolveSelection, selectionCommand, selectionSummary } from './cli-sele
 import { loadMatrixConfig } from './config.js'
 import { MATRIX_DEFAULTS } from './defaults.js'
 import { runExecutionPlan } from './exec.js'
-import { validateExecutionGraph } from './plan.js'
+import { createPreparationPlan, validateExecutionGraph } from './plan.js'
 import { generateMatrixTypes, matrixTypeEnvKeys } from './typegen.js'
 
 type Products = Awaited<ReturnType<typeof loadMatrixConfig>>['products']
@@ -66,6 +66,11 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
     if (args.product && !selectedProduct)
       throw new Error(`Unknown product: ${args.product}`)
     const products = selectedProduct ? [selectedProduct] : Object.values(loaded.products)
+    const result = await runExecutionPlan(createPreparationPlan({ ...loaded, productNames: products.map(product => product.key) }))
+    if (result.cancelled) {
+      process.exitCode = result.cancelled === 'SIGINT' ? 130 : 143
+      return
+    }
     const outputs = await generateProjectTypes(loaded, products)
     for (const output of outputs)
       consola.success(`Types generated: ${output}`)
@@ -77,15 +82,19 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
   if (args.command === CLI_COMMANDS.plan) {
     const { plan } = selection
     const declaredEnvKeys = new Set(selection.declaredEnvKeys)
+    const visibleEnv = (env: EnvMap): EnvMap => Object.fromEntries(Object.entries(env).filter(([key]) => declaredEnvKeys.has(key) || key.startsWith('MATRIX_') || key === 'NODE_ENV'))
     console.log(JSON.stringify({
       ...plan,
+      ...(plan.preparations ? { preparations: plan.preparations.map(step => ({ ...step, env: visibleEnv(step.env) })) } : {}),
       tasks: plan.tasks.map(({ env, ...task }) => ({
         ...task,
-        env: Object.fromEntries(Object.entries(env).filter(([key]) => declaredEnvKeys.has(key) || key.startsWith('MATRIX_') || key === 'NODE_ENV')),
+        env: visibleEnv(env),
       })),
     }, null, 2))
     return
   }
   consola.info(`${selectionSummary(selection)}\n${selectionCommand(selection)}`)
-  await runExecutionPlan(selection.plan)
+  const result = await runExecutionPlan(selection.plan)
+  if (result.cancelled)
+    process.exitCode = result.cancelled === 'SIGINT' ? 130 : 143
 }

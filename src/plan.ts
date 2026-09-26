@@ -1,4 +1,4 @@
-import type { CreateExecutionPlanInput, EnvMap, ExecutionPlan, ExecutionTask, NormalizedProduct, NormalizedVariant, TargetDependency } from './types.js'
+import type { CreateExecutionPlanInput, EnvMap, ExecutionPlan, ExecutionTask, NormalizedProduct, NormalizedVariant, ProjectPreparation, TargetDependency } from './types.js'
 import path from 'node:path'
 import process from 'node:process'
 import { MATRIX_DEFAULTS } from './defaults.js'
@@ -45,6 +45,55 @@ function dependencyCondition(dependency: TargetDependency, target: { continuous:
   return dependency.condition ?? (target.continuous ? 'ready' : 'completed')
 }
 
+type PreparationPlanInput = Omit<CreateExecutionPlanInput, 'target' | 'variantNames'>
+
+function projectPreparation(input: PreparationPlanInput, projectName: string): ProjectPreparation | undefined {
+  const project = input.projects[projectName]
+  if (!project)
+    throw new Error(`Unknown project: ${projectName}`)
+  if (project.prepare === undefined)
+    return undefined
+  return {
+    id: `prepare:${projectName}`,
+    project: projectName,
+    command: project.prepare,
+    cwd: path.resolve(input.cwd, project.root ?? MATRIX_DEFAULTS.projectRoot),
+    env: mergeEnv(input.config.env, input.externalEnv ?? currentProcessEnv(), {
+      MATRIX_ENV_NAME: input.envName,
+      MATRIX_PROJECT: projectName,
+      MATRIX_TARGET: 'prepare',
+    }),
+  }
+}
+
+function executionPlan(input: PreparationPlanInput, tasks: ExecutionTask[], preparations: ProjectPreparation[]): ExecutionPlan {
+  return {
+    envName: input.envName,
+    tasks,
+    ...(preparations.length ? { preparations } : {}),
+    artifactsRoot: path.resolve(input.cwd, input.config.artifacts?.root ?? MATRIX_DEFAULTS.artifactsRoot),
+    artifactRetention: input.config.artifacts?.retention?.keep ?? MATRIX_DEFAULTS.artifacts.retention,
+  }
+}
+
+/** Plans explicit project preparation without selecting or running a target. */
+export function createPreparationPlan(input: PreparationPlanInput): ExecutionPlan {
+  const preparations = new Map<string, ProjectPreparation>()
+  for (const productName of input.productNames) {
+    const product = input.products[productName]
+    if (!product)
+      throw new Error(`Unknown product: ${productName}`)
+    for (const variant of Object.values(product.variants)) {
+      if (preparations.has(variant.project))
+        continue
+      const preparation = projectPreparation(input, variant.project)
+      if (preparation)
+        preparations.set(variant.project, preparation)
+    }
+  }
+  return executionPlan(input, [], [...preparations.values()])
+}
+
 /**
  * Creates an ordered execution plan for one target across selected products or variants.
  *
@@ -53,6 +102,7 @@ function dependencyCondition(dependency: TargetDependency, target: { continuous:
  */
 export function createExecutionPlan(input: CreateExecutionPlanInput): ExecutionPlan {
   const tasks = new Map<string, ExecutionTask>()
+  const preparations = new Map<string, ProjectPreparation>()
   const visiting = new Set<string>()
   const ordered: ExecutionTask[] = []
 
@@ -90,6 +140,11 @@ export function createExecutionPlan(input: CreateExecutionPlanInput): ExecutionP
       return { id: dependencyTask.id, condition: dependencyCondition(dependency, dependencyTarget) }
     })
     visiting.delete(id)
+    if (target.prepare !== false && !preparations.has(variant.project)) {
+      const preparation = projectPreparation(input, variant.project)
+      if (preparation)
+        preparations.set(variant.project, { ...preparation, beforeTask: id })
+    }
 
     const effectiveEnv = mergeEnv(input.config.env, product.env, input.externalEnv ?? currentProcessEnv())
     const identity = resolvedVariant({ ...product, suffixes: mergeSuffixes(input.config.suffixes, product.suffixes) }, variant, input.envName, effectiveEnv)
@@ -140,12 +195,7 @@ export function createExecutionPlan(input: CreateExecutionPlanInput): ExecutionP
     for (const variantName of selected) addTask(productName, variantName, input.target)
   }
 
-  return {
-    envName: input.envName,
-    tasks: ordered,
-    artifactsRoot: path.resolve(input.cwd, input.config.artifacts?.root ?? MATRIX_DEFAULTS.artifactsRoot),
-    artifactRetention: input.config.artifacts?.retention?.keep ?? MATRIX_DEFAULTS.artifacts.retention,
-  }
+  return executionPlan(input, ordered, [...preparations.values()])
 }
 
 /** Validates every configured product, variant, and target without starting any process. */

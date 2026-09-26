@@ -256,6 +256,37 @@ The action menu includes variant-specific targets and labels their applicable sc
 
 Any configured target can be invoked from the CLI. `test`, `lint`, and `e2e` are common custom targets.
 
+### Project preparation
+
+Declare optional `project.prepare` commands using the same string or string-array format as target commands. Arrays run in order; empty commands and full target objects are not supported.
+
+```ts
+export default {
+  projects: {
+    desktop: {
+      root: './apps/desktop',
+      prepare: ['pnpm run setup', 'pnpm run generate'],
+      targets: {
+        dev: 'pnpm dev',
+        build: 'pnpm build',
+        lint: { command: 'pnpm lint', prepare: false },
+      },
+    },
+  },
+  products: { app: { variants: { desktop: 'desktop' } } },
+}
+```
+
+- Preparation runs before the project's first eligible target, including projects reached through dependencies. Unrelated projects are not prepared.
+- Projects are deduplicated by key within each invocation, even when shared by multiple products or variants. Preparation completes only after every command succeeds. There is no persistent completion cache; commands should be repeatable and manage their own resource caches.
+- With artifact cleanup enabled, the order is: clean the target output directory, prepare if needed, run the target, then deliver artifacts. Later variants may still clean or move the output directory. Keep reusable preparation files outside target output directories; generate per-build output files in the target command array rather than in one-time project preparation.
+- `target.prepare: false` skips preparation only for that target; later eligible targets still trigger it. Failure or cancellation stops execution before subsequent targets start.
+- Commands run in the project root with global configuration, selected dotenv, and Shell values, without merging product env or injecting product/variant identity. They do not inherit a target's default NODE_ENV; global/external values are preserved. Matrix injects `MATRIX_PROJECT`, `MATRIX_ENV_NAME`, and `MATRIX_TARGET=prepare`.
+- `matrix prepare [product]` explicitly prepares projects referenced by the selected product (all products if omitted), then generates runtime types without running business targets. Build-plugin type generation is unchanged.
+- `matrix plan` lists preparation commands, working directories, environments, and `beforeTask` in its JSON `preparations` field. `doctor` only validates configuration and dependencies. Neither executes preparation.
+
+`project.prepare` is separate from an ordinary target named `prepare`. Preparation never recursively prepares itself and does not support dependencies, continuous services, or artifact settings.
+
 ## Commands
 
 Short options: `-p` / `--product`, `-t` / `--target`, `-e` / `--env`, `-v` / `--variant`, and `-h` / `--help`. The former `--mode` alias has been removed; use `--env` or `-e` instead. Mixing aliases for the same option is rejected, except repeatable variants. Interactive equivalent commands use short options.

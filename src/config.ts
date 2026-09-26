@@ -47,12 +47,17 @@ export async function listMatrixEnvironments(options: { cwd?: string, configFile
   return [...new Set([...MATRIX_ENVIRONMENTS, ...declared])]
 }
 
+function validateCommands(command: CommandTarget['command']): void {
+  const commands = Array.isArray(command) ? command : [command]
+  if (!commands.length || commands.some(command => !command.trim()))
+    throw new Error('Target commands must contain non-empty commands')
+}
+
 function normalizeTarget(name: string, value: TargetConfig): NormalizedTarget {
   const target = typeof value === 'string' || Array.isArray(value) ? { command: value } : { ...value }
   if (!target.command)
     throw new Error(`Target ${name} must define a command`)
-  if (Array.isArray(target.command) && (!target.command.length || target.command.some(command => !command.trim())))
-    throw new Error('Target commands must contain non-empty commands')
+  validateCommands(target.command)
   const artifacts = target.artifacts
     ? {
         mode: target.artifacts.mode ?? MATRIX_DEFAULTS.artifacts.mode,
@@ -109,6 +114,10 @@ function resolveProductEnvironments(config: MatrixConfig, envName: string): Matr
 
 /** Resolves target, identity, and project defaults into execution-ready structures. */
 export function normalizeMatrixConfig(raw: MatrixConfig): { config: MatrixConfig, projects: Record<string, NormalizedProject>, products: Record<string, NormalizedProduct> } {
+  for (const project of Object.values(raw.projects)) {
+    if (project.prepare !== undefined)
+      validateCommands(project.prepare)
+  }
   const projects = Object.fromEntries(Object.entries(raw.projects).map(([id, project]) => [id, {
     ...project,
     id,

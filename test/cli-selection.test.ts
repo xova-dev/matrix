@@ -199,6 +199,24 @@ describe('cli selection and execution plans', () => {
     expect(select).not.toHaveBeenCalled()
   })
 
+  it('shows preparation in plan JSON without executing it in plan or doctor', async () => {
+    terminal(false)
+    const marker = await executableTargets(['build'])
+    await writeFile(path.join(cwd, 'matrix.config.json'), JSON.stringify({
+      projects: { web: { prepare: 'node record.mjs', targets: { build: 'node record.mjs' } } },
+      products: { app: { variants: { web: 'web' } } },
+    }))
+    vi.stubEnv('PLAN_PREPARE_UNRELATED', 'shell-only')
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+    await runCli(['plan', 'app', '-t', 'build'])
+    const plan = JSON.parse(String(log.mock.calls[0]![0]))
+    expect(plan.preparations).toHaveLength(1)
+    expect(plan.preparations[0]).toMatchObject({ project: 'web', command: 'node record.mjs', beforeTask: 'app:web:build', env: { MATRIX_TARGET: 'prepare' } })
+    expect(plan.preparations[0].env).not.toHaveProperty('PLAN_PREPARE_UNRELATED')
+    await runCli(['doctor'])
+    await expect(readFile(marker)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
   it('cancels without executing a task', async () => {
     const marker = await executableTargets(['build', 'test'])
     vi.mocked(outro).mockImplementation(() => {
