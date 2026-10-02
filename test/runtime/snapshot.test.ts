@@ -1,0 +1,67 @@
+import { describe, expect, it } from 'vitest'
+import { ensureMatrixEnvPrefix } from '../../src/runtime/public-env.js'
+import { createMatrixRuntime } from '../../src/runtime/snapshot.js'
+
+describe('matrix runtime snapshot', () => {
+  it('adds the reserved Matrix prefix without removing host prefixes', () => {
+    expect(ensureMatrixEnvPrefix(['MAIN_VITE_', 'MATRIX_'])).toEqual(['MAIN_VITE_', 'MATRIX_'])
+    expect(ensureMatrixEnvPrefix(undefined)).toEqual(['VITE_', 'MATRIX_'])
+  })
+
+  it('maps exposed prefixed variables into structured runtime config', () => {
+    expect(createMatrixRuntime({
+      MATRIX_ENV_NAME: 'staging',
+      MATRIX_TARGET: 'build',
+      MATRIX_PRODUCT_KEY: 'app',
+      MATRIX_PRODUCT_ID: 'app',
+      MATRIX_PRODUCT_NAME: 'Matrix App',
+      MATRIX_PRODUCT_SLUG: 'matrix-app',
+      MATRIX_PRODUCT_APP_ID: 'com.example.matrix',
+      MATRIX_VARIANT: 'desktop',
+      MATRIX_PROJECT: 'desktop',
+      NODE_ENV: 'production',
+      VITE_API_BASE: 'https://api.example.com',
+      MAIN_VITE_WINDOW_TITLE: 'Matrix',
+      API_SECRET: 'do-not-expose',
+    }, ['VITE_', 'MAIN_VITE_', 'MATRIX_'])).toEqual({
+      environment: 'staging',
+      target: 'build',
+      nodeEnv: 'production',
+      isDevelopment: false,
+      isProduction: true,
+      isTest: false,
+      variant: 'desktop',
+      project: 'desktop',
+      product: {
+        key: 'app',
+        id: 'app',
+        name: 'Matrix App',
+        slug: 'matrix-app',
+        appId: 'com.example.matrix',
+      },
+      config: {
+        apiBase: 'https://api.example.com',
+        windowTitle: 'Matrix',
+      },
+    })
+  })
+
+  it.each([
+    ['development', true, false, false],
+    ['dev', true, false, false],
+    ['test', true, false, true],
+    ['production', false, true, false],
+    ['custom', true, false, false],
+  ])('derives runtime mode flags from NODE_ENV=%s', (nodeEnv, isDevelopment, isProduction, isTest) => {
+    expect(createMatrixRuntime({ NODE_ENV: nodeEnv })).toMatchObject({ isDevelopment, isProduction, isTest })
+  })
+
+  it('falls back to the Matrix-prefixed node environment used by Vite', () => {
+    expect(createMatrixRuntime({ MATRIX_NODE_ENV: 'production' })).toMatchObject({
+      nodeEnv: 'production',
+      isDevelopment: false,
+      isProduction: true,
+      isTest: false,
+    })
+  })
+})

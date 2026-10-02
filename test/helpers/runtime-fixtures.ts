@@ -1,6 +1,6 @@
 import { vi } from 'vitest'
-import { MATRIX_ENV_SCHEMA_KEY, serializeEnvSchema } from '../../src/env-schema.js'
-import { createMatrixRuntime } from '../../src/unplugin.js'
+import { MATRIX_ENV_SCHEMA_KEY, serializeEnvSchema } from '../../src/config/env-schema.js'
+import { createMatrixRuntime } from '../../src/runtime/snapshot.js'
 
 export const runtimeId = 'virtual:matrix/runtime'
 export const runtimeEnv = {
@@ -64,8 +64,26 @@ export const staticReadCase: ReadCase = {
   dce: true,
 }
 
+// A small mode-independent program reused for build-mode compatibility.
+// Expected development observations are declared separately by that matrix.
+export const buildModeCase: ReadCase = {
+  name: 'branches, dynamic fallback and indirect mutation across build modes',
+  source: `${prelude}
+    const alias = matrix.config;
+    const key = () => { globalThis.events.push('key'); return 'enabled'; };
+    const dynamic = matrix.config[key()];
+    try { alias.enabled = true; } catch (error) { globalThis.events.push(error.name); }
+    const changed = Reflect.set(alias, 'enabled', true);
+    globalThis.result = Promise.resolve(matrix.isDevelopment ? import('./dev-only.js') : null)
+      .then(() => [matrix.isProduction, dynamic, alias.enabled, changed]);`,
+  value: [true, false, false, false],
+  events: ['key', 'TypeError'],
+  dce: true,
+}
+
 export const readCases: ReadCase[] = [
   staticReadCase,
+  buildModeCase,
   {
     name: 'dynamic reads, aliases, destructuring and frozen scalar values',
     source: `${prelude}
@@ -259,6 +277,45 @@ for (const [index, wrapper] of wrappers.entries()) {
       name: `wrapped delete target: ${label}`,
       extension: 'ts',
       source: `${prelude} globalThis.result = delete (${wrap('matrix.isProduction', 'boolean')});`,
+    })
+  }
+}
+
+// Exercise transparent syntax along the receiver path, not only around the
+// final scalar. Rotate write operations to bound the matrix while covering
+// different reference contexts. Object instantiation is not valid typed input.
+const receiverWrites = [
+  (target: string) => `${target} = 4`,
+  (target: string) => `${target} += 1`,
+  (target: string) => `${target}++`,
+  (target: string) => `delete ${target}`,
+  (target: string) => `({ value: ${target} } = { value: 4 })`,
+]
+for (const [index, wrapper] of wrappers.filter(wrapper => wrapper.name !== 'instantiation').entries()) {
+  for (const [position, receiver] of [
+    ['root', `${wrapper.wrap('matrix', 'typeof matrix')}.config`],
+    ['intermediate', wrapper.wrap('matrix.config', 'typeof matrix.config')],
+  ]) {
+    const label = `${wrapper.name} at ${position}`
+    readCases.push({
+      name: `wrapped receiver reads and computed key effects: ${label}`,
+      extension: 'ts',
+      source: `${prelude}
+        const config = { limit: 9 };
+        function shadow(matrix) { ${receiver}.limit += 1; return ${receiver}.limit; }
+        const key = () => { globalThis.events.push('key'); return 'limit'; };
+        if (${receiver}.enabled) import('./dev-only.js');
+        const target = {};
+        target[${receiver}[key()]] = 'kept';
+        globalThis.result = [${receiver}.limit, shadow({ config }), target[3]];`,
+      value: [3, 10, 'kept'],
+      events: ['key'],
+      dce: true,
+    })
+    writeCases.push({
+      name: `wrapped receiver write: ${label}`,
+      extension: 'ts',
+      source: `${prelude} ${receiverWrites[(index + (position === 'root' ? 0 : 1)) % receiverWrites.length]!(`${receiver}.limit`)};`,
     })
   }
 }

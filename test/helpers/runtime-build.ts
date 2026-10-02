@@ -1,4 +1,4 @@
-import type { MatrixUnpluginOptions } from '../../src/unplugin.js'
+import type { MatrixUnpluginOptions } from '../../src/unplugin/index.js'
 import type { RuntimeFixture } from './runtime-fixtures.js'
 import { Buffer } from 'node:buffer'
 import { execFile } from 'node:child_process'
@@ -13,8 +13,8 @@ import { build as esbuild, transform } from 'esbuild'
 import { rollup } from 'rollup'
 import { build as vite } from 'vite'
 import webpack from 'webpack'
-import { inlineMatrixReads } from '../../src/runtime-transform.js'
-import { MatrixUnplugin } from '../../src/unplugin.js'
+import { inlineMatrixReads } from '../../src/runtime/transform.js'
+import { MatrixUnplugin } from '../../src/unplugin/index.js'
 import { referenceRuntime, runtimeId, runtimeSnapshot } from './runtime-fixtures.js'
 import { compileWebpack } from './webpack.js'
 
@@ -25,6 +25,7 @@ interface BuildOptions {
   mode?: 'plugin' | 'reference' | 'shared'
   plugins?: MatrixUnpluginOptions[]
   minify?: boolean
+  format?: 'esm' | 'cjs'
 }
 
 export interface Observation {
@@ -64,6 +65,10 @@ export function createRuntimeBuilder(): {
     },
     async build(host: Host, fixture: RuntimeFixture, options: BuildOptions = {}) {
       const mode = options.mode ?? 'plugin'
+      const cjs = options.format === 'cjs'
+      const outputExtension = cjs ? '.cjs' : '.mjs'
+      const outputEntry = `entry${outputExtension}`
+      const outputChunk = `[name]-[hash]${outputExtension}`
       if (mode === 'shared' && host !== 'esbuild')
         throw new Error('Shared transform semantics use esbuild only to emit executable JavaScript')
       if (host === 'rollup' && options.minify)
@@ -106,8 +111,8 @@ export function createRuntimeBuilder(): {
             outDir: out,
             target: 'esnext',
             minify: options.minify ?? false,
-            lib: { entry, formats: ['es'], fileName: () => 'entry.mjs' },
-            rollupOptions: { treeshake: mode !== 'reference', output: { chunkFileNames: '[name]-[hash].mjs' } },
+            lib: { entry, formats: [cjs ? 'cjs' : 'es'], fileName: () => outputEntry },
+            rollupOptions: { treeshake: mode !== 'reference', output: { chunkFileNames: outputChunk } },
           },
         })
       }
@@ -131,7 +136,7 @@ export function createRuntimeBuilder(): {
           }, ...(mode === 'plugin' ? plugins.map(option => MatrixUnplugin.rollup(option)) : [reference])],
         })
         try {
-          await built.write({ dir: out, format: 'es', entryFileNames: 'entry.mjs', chunkFileNames: '[name]-[hash].mjs' })
+          await built.write({ dir: out, format: cjs ? 'cjs' : 'es', entryFileNames: outputEntry, chunkFileNames: outputChunk })
         }
         finally { await built.close() }
       }
@@ -140,10 +145,10 @@ export function createRuntimeBuilder(): {
           entryPoints: [entry],
           bundle: true,
           outdir: out,
-          outExtension: { '.js': '.mjs' },
+          outExtension: { '.js': outputExtension },
           platform: 'node',
-          format: 'esm',
-          splitting: true,
+          format: cjs ? 'cjs' : 'esm',
+          splitting: !cjs,
           treeShaking: mode !== 'reference',
           minify: options.minify ?? false,
           logLevel: 'silent',
@@ -168,8 +173,8 @@ export function createRuntimeBuilder(): {
           entry,
           target: 'node22',
           devtool: false,
-          experiments: { outputModule: true },
-          output: { path: out, filename: 'entry.mjs', chunkFilename: '[name].mjs', module: true, chunkFormat: 'module', chunkLoading: 'import' },
+          experiments: { outputModule: !cjs },
+          output: { path: out, filename: outputEntry, chunkFilename: `[name]${outputExtension}`, module: !cjs, chunkFormat: cjs ? 'commonjs' : 'module', chunkLoading: cjs ? 'require' : 'import' },
           optimization: { minimize: options.minify ?? false },
           module: { rules: [{ test: /\.(?:[cm]?ts|[jt]sx)$/, use: [fileURLToPath(new URL('./typescript-loader.cjs', import.meta.url))] }] },
           plugins: mode === 'plugin'
@@ -177,13 +182,13 @@ export function createRuntimeBuilder(): {
             : [new webpack.NormalModuleReplacementPlugin(/^virtual:matrix\/runtime$/, referenceFile)],
         })
       }
-      const files = await Promise.all((await readdir(out)).filter(name => name.endsWith('.mjs')).map(async name => ({ name, code: await readFile(path.join(out, name), 'utf8') })))
+      const files = await Promise.all((await readdir(out)).filter(name => name.endsWith(outputExtension)).map(async name => ({ name, code: await readFile(path.join(out, name), 'utf8') })))
       return {
         files,
         code: files.map(file => file.code).join('\n'),
         async run(globals: Record<string, unknown> = {}): Promise<Observation> {
           const input = serialize({ key: 'isProduction', events: [], ...globals }).toString('base64')
-          const { stdout } = await promisify(execFile)(process.execPath, ['--input-type=module', '-e', runner, path.join(out, 'entry.mjs'), input], { timeout: 10_000 })
+          const { stdout } = await promisify(execFile)(process.execPath, ['--input-type=module', '-e', runner, path.join(out, outputEntry), input], { timeout: 10_000 })
           const marker = 'MATRIX_TEST_RESULT:'
           const offset = stdout.lastIndexOf(marker)
           if (offset < 0)

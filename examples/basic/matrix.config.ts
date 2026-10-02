@@ -1,4 +1,4 @@
-import { defineMatrixConfig, defineMatrixEnv } from '../../src/config.ts'
+import { defineMatrixConfig, defineMatrixEnv } from '../../src/config/index.ts'
 
 export default defineMatrixConfig({
   projects: {

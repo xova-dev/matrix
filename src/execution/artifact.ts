@@ -1,0 +1,131 @@
+import { randomUUID } from 'node:crypto'
+import { mkdir, readdir, rename, rm, stat } from 'node:fs/promises'
+import path from 'node:path'
+import { readPackageVersion, validateReleaseVersion } from '../product/version.js'
+import { archiveDirectory } from './archive.js'
+
+export interface MaterializeArtifactOptions {
+  sourceDir: string
+  artifactsRoot: string
+  product: string
+  environment: string
+  variant: string
+  projectRoot: string
+  version?: string
+  mode: 'move' | 'archive' | 'both'
+  format: 'zip' | 'tar.gz'
+  retention: number
+  now?: Date
+}
+
+function archiveExtension(format: 'zip' | 'tar.gz'): string {
+  return format === 'zip' ? 'zip' : 'tar.gz'
+}
+
+function timestamp(value: Date): string {
+  const pad = (part: number): string => String(part).padStart(2, '0')
+  return `${String(value.getFullYear()) + pad(value.getMonth() + 1) + pad(value.getDate())}-${pad(value.getHours())}${pad(value.getMinutes())}${pad(value.getSeconds())}`
+}
+
+async function ensureDirectory(sourceDir: string): Promise<void> {
+  const sourceStats = await stat(sourceDir).catch((error: unknown) => {
+    throw new Error(`Artifact source directory does not exist: ${sourceDir}`, { cause: error })
+  })
+  if (!sourceStats.isDirectory())
+    throw new Error(`Artifact source must be a directory: ${sourceDir}`)
+}
+
+async function ensureAvailable(target: string): Promise<void> {
+  try {
+    await stat(target)
+    throw new Error(`Artifact destination already exists: ${target}`)
+  }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
+      throw error
+  }
+}
+
+function timestampFromName(name: string): string | undefined {
+  return name.match(/(\d{8}-\d{6})(?:\.(?:zip|tar\.gz))?$/)?.[1]
+}
+
+function isPackageVersion(value: string): boolean {
+  return /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9a-z-]+(?:\.[0-9a-z-]+)*)?(?:\+[0-9a-z-]+(?:\.[0-9a-z-]+)*)?$/i.test(value)
+}
+
+function isArtifactForVariant(name: string, variant: string): boolean {
+  const stem = name.replace(/\.(?:zip|tar\.gz)$/, '')
+  const timestamp = timestampFromName(name)
+  if (!timestamp)
+    return false
+  const prefix = stem.slice(0, -(timestamp.length + 1))
+  if (!prefix.startsWith(`${variant}-`))
+    return false
+  return isPackageVersion(prefix.slice(variant.length + 1))
+}
+
+async function pruneArtifacts(directory: string, variant: string, keep: number): Promise<void> {
+  const entries = await readdir(directory, { withFileTypes: true })
+  const candidates = entries
+    .filter(entry => isArtifactForVariant(entry.name, variant) && (entry.isDirectory() || entry.name.endsWith('.zip') || entry.name.endsWith('.tar.gz')))
+    .map(async entry => ({
+      name: entry.name,
+      timestamp: timestampFromName(entry.name) ?? '',
+      modifiedAt: (await stat(path.join(directory, entry.name))).mtimeMs,
+    }))
+  const sorted = (await Promise.all(candidates)).sort((left, right) => right.timestamp.localeCompare(left.timestamp) || right.modifiedAt - left.modifiedAt)
+  for (const entry of sorted.slice(Math.max(keep, 0)))
+    await rm(path.join(directory, entry.name), { recursive: true, force: true })
+}
+
+export async function materializeArtifact(options: MaterializeArtifactOptions): Promise<string> {
+  await ensureDirectory(options.sourceDir)
+  const version = options.version === undefined
+    ? readPackageVersion(options.projectRoot, true)
+    : validateReleaseVersion(options.version, 'artifact version')
+  const now = options.now ?? new Date()
+  const stem = `${options.variant}-${version}-${timestamp(now)}`
+  const artifactDirectory = path.join(options.artifactsRoot, options.product, options.environment)
+  const archivePath = path.join(artifactDirectory, `${stem}.${archiveExtension(options.format)}`)
+  const movedPath = path.join(artifactDirectory, stem)
+  await mkdir(artifactDirectory, { recursive: true })
+
+  if (options.mode === 'archive') {
+    await ensureAvailable(archivePath)
+    await archiveDirectory(options.sourceDir, archivePath, options.format)
+  }
+  else if (options.mode === 'move') {
+    await ensureAvailable(movedPath)
+    await rename(options.sourceDir, movedPath)
+  }
+  else {
+    await ensureAvailable(movedPath)
+    const temporaryArchive = path.join(artifactDirectory, `.${stem}.${randomUUID()}.${archiveExtension(options.format)}`)
+    const temporaryMovedPath = path.join(artifactDirectory, `.${stem}.${randomUUID()}.dir`)
+    let sourceMoved = false
+    let committed = false
+    try {
+      await archiveDirectory(options.sourceDir, temporaryArchive, options.format)
+      await rename(options.sourceDir, temporaryMovedPath)
+      sourceMoved = true
+      await rename(temporaryArchive, path.join(temporaryMovedPath, `${stem}.${archiveExtension(options.format)}`))
+      await rename(temporaryMovedPath, movedPath)
+      committed = true
+    }
+    catch (error) {
+      if (sourceMoved && !committed) {
+        await rename(temporaryMovedPath, options.sourceDir).catch((restoreError: unknown) => {
+          throw new AggregateError([error, restoreError], `Unable to restore artifact source directory: ${options.sourceDir}`)
+        })
+      }
+      throw error
+    }
+    finally {
+      await rm(temporaryArchive, { force: true })
+    }
+  }
+
+  await pruneArtifacts(artifactDirectory, options.variant, options.retention)
+  return options.mode === 'archive' ? archivePath : movedPath
+}
