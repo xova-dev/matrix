@@ -96,6 +96,8 @@ export interface TargetDependency {
 export interface ProjectConfig {
   /** Project directory, relative to the Matrix configuration directory. Defaults to `.`. */
   root?: string
+  /** Host config used by prepare, relative to the project root. Does not change target commands. */
+  configFile?: string
   /** Finite commands run once per invocation before this project's first eligible target. */
   prepare?: CommandTarget['command']
   /** Named commands exposed by this project. */

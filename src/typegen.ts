@@ -22,8 +22,15 @@ export function matrixRuntimeModuleId(scope?: string): string {
   return `virtual:matrix/runtime/${scope}`
 }
 
-/** Generates project-local declarations without writing any environment values. */
-export async function generateMatrixTypes(options: GenerateMatrixTypesOptions): Promise<string> {
+export function matrixTypeOutput(options: Pick<GenerateMatrixTypesOptions, 'cwd' | 'scope' | 'output'>): string {
+  matrixRuntimeModuleId(options.scope)
+  return path.resolve(options.cwd, options.output ?? (options.scope
+    ? `.matrix/types/matrix-runtime-${options.scope}.d.ts`
+    : '.matrix/types/matrix-runtime.d.ts'))
+}
+
+/** Render first so preparation can validate every scope before writing declarations. */
+export function renderMatrixTypes(options: GenerateMatrixTypesOptions): string {
   const prefixes = ensureMatrixEnvPrefix(options.envPrefix)
   const schema = options.envSchema ?? {}
   const keys = publicEnvKeys({ ...schema, ...options.env }, prefixes)
@@ -38,11 +45,7 @@ export async function generateMatrixTypes(options: GenerateMatrixTypesOptions): 
       : declaration?.type ?? 'string'
   }
   const moduleId = matrixRuntimeModuleId(options.scope)
-  const defaultOutput = options.scope
-    ? `.matrix/types/matrix-runtime-${options.scope}.d.ts`
-    : '.matrix/types/matrix-runtime.d.ts'
-  const output = path.resolve(options.cwd, options.output ?? defaultOutput)
-  const declarations = [
+  return [
     '/* eslint-disable */',
     '/* prettier-ignore */',
     '// oxfmt-ignore',
@@ -62,6 +65,12 @@ export async function generateMatrixTypes(options: GenerateMatrixTypesOptions): 
     '}',
     '',
   ].join('\n')
+}
+
+/** Generates project-local declarations without writing any environment values. */
+export async function generateMatrixTypes(options: GenerateMatrixTypesOptions): Promise<string> {
+  const output = matrixTypeOutput(options)
+  const declarations = renderMatrixTypes(options)
   await mkdir(path.dirname(output), { recursive: true })
   const existing = await readFile(output, 'utf8').catch(() => undefined)
   if (existing !== declarations) {

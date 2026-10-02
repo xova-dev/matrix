@@ -97,7 +97,12 @@ const targetOverride = v.union([command, v.object({
   artifacts: v.optional(artifactConfig),
   dependsOn: v.optional(v.array(dependency)),
 })])
-const project = v.object({ root: v.optional(v.string()), prepare: v.optional(command), targets: v.record(v.string(), target) })
+const project = v.object({
+  root: v.optional(v.string()),
+  configFile: v.optional(v.pipe(v.string(), v.check(value => value.trim().length > 0, 'configFile must not be empty'))),
+  prepare: v.optional(command),
+  targets: v.record(v.string(), target),
+})
 const environment = v.object({ env })
 const variant = v.union([v.string(), v.object({
   project: v.string(),

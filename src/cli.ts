@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import type { GenerateMatrixTypesOptions } from './typegen.js'
 import type { EnvMap } from './types.js'
 import path from 'node:path'
 import process from 'node:process'
@@ -8,8 +9,11 @@ import { resolveSelection, selectionCommand, selectionSummary } from './cli-sele
 import { loadMatrixConfig } from './config.js'
 import { MATRIX_DEFAULTS } from './defaults.js'
 import { diagnoseWorkspace } from './doctor.js'
+import { MATRIX_ENV_SCHEMA_KEY, resolveSchemaEnv, serializeEnvSchema } from './env-schema.js'
 import { runExecutionPlan } from './exec.js'
 import { createPreparationPlan } from './plan.js'
+import { findTypeHost, mergePreparedTypes, resolveHostTypes, TypePreparationCancelled } from './prepare-types.js'
+import { resolveProductContext } from './product-context.js'
 import { generateMatrixTypes, matrixTypeEnvKeys } from './typegen.js'
 
 type Products = Awaited<ReturnType<typeof loadMatrixConfig>>['products']
@@ -29,16 +33,53 @@ async function generateProjectTypes(loaded: LoadedConfig, products: Product[]): 
     }
   }
 
-  const outputs: string[] = []
+  const batches: GenerateMatrixTypesOptions[][] = []
   for (const [projectName, linkedProducts] of projectProducts) {
     const project = loaded.projects[projectName]!
+    const cwd = path.resolve(loaded.cwd, project.root ?? MATRIX_DEFAULTS.projectRoot)
+    const host = await findTypeHost(cwd, project.configFile)
     const envs: Array<EnvMap | undefined> = [loaded.config.env, loaded.externalEnv, ...linkedProducts.map(product => product.env)]
-    outputs.push(await generateMatrixTypes({
-      cwd: path.resolve(loaded.cwd, project.root ?? MATRIX_DEFAULTS.projectRoot),
+    const genericTypes: GenerateMatrixTypesOptions[] = [{
+      cwd,
       env: matrixTypeEnvKeys(...envs),
       ...(loaded.config.envSchema ? { envSchema: loaded.config.envSchema } : {}),
-    }))
+    }]
+    if (host) {
+      let expectedScopes: string | undefined
+      for (const product of linkedProducts) {
+        for (const variant of Object.values(product.variants).filter(variant => variant.project === projectName)) {
+          const effectiveEnv = resolveSchemaEnv({
+            ...loaded.config.env,
+            ...product.env,
+            ...loaded.externalEnv,
+          }, loaded.config.envSchema)
+          const identity = resolveProductContext({ config: loaded.config, product, variant, envName: loaded.envName, env: effectiveEnv, projectRoot: cwd })
+          const env = {
+            ...effectiveEnv,
+            ...identity.env,
+            NODE_ENV: 'development',
+            MATRIX_NODE_ENV: 'development',
+            MATRIX_ENV_NAME: loaded.envName,
+            MATRIX_PROJECT: projectName,
+            MATRIX_VARIANT: variant.id,
+            MATRIX_TARGET: 'prepare',
+            [MATRIX_ENV_SCHEMA_KEY]: serializeEnvSchema(loaded.config.envSchema),
+          }
+          const preparedTypes = await resolveHostTypes(cwd, env, { host, mode: loaded.envName })
+          const scopes = JSON.stringify(preparedTypes?.map(type => [type.cwd, type.scope ?? '']).sort() ?? null)
+          if (expectedScopes !== undefined && scopes !== expectedScopes)
+            throw new Error(`Matrix scopes change between products or variants in ${cwd}; keep the type contract stable.`)
+          expectedScopes = scopes
+          batches.push(preparedTypes ?? genericTypes)
+        }
+      }
+      continue
+    }
+    batches.push(genericTypes)
   }
+  const outputs: string[] = []
+  for (const options of mergePreparedTypes(batches))
+    outputs.push(await generateMatrixTypes(options))
   return outputs
 }
 
@@ -83,9 +124,15 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
       process.exitCode = result.cancelled === 'SIGINT' ? 130 : 143
       return
     }
-    const outputs = await generateProjectTypes(loaded, products)
-    for (const output of outputs)
-      consola.success(`Types generated: ${output}`)
+    try {
+      const outputs = await generateProjectTypes(loaded, products)
+      for (const output of outputs)
+        consola.success(`Types generated: ${output}`)
+    }
+    catch (error) {
+      if (!(error instanceof TypePreparationCancelled))
+        throw error
+    }
     return
   }
   const selection = await resolveSelection(args)

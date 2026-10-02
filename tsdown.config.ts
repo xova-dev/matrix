@@ -5,6 +5,7 @@ export default defineConfig({
     'index': 'src/index.ts',
     'config': 'src/config.ts',
     'config-worker': 'src/config-worker.ts',
+    'prepare-types-worker': 'src/prepare-types-worker.ts',
     'plan': 'src/plan.ts',
     'cli': 'src/cli.ts',
     'vite': 'src/vite.ts',

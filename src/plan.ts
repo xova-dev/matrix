@@ -1,9 +1,9 @@
-import type { CreateExecutionPlanInput, EnvMap, ExecutionPlan, ExecutionTask, NormalizedProduct, NormalizedVariant, ProjectPreparation, TargetDependency } from './types.js'
+import type { CreateExecutionPlanInput, EnvMap, ExecutionPlan, ExecutionTask, ProjectPreparation, TargetDependency } from './types.js'
 import path from 'node:path'
 import process from 'node:process'
 import { MATRIX_DEFAULTS } from './defaults.js'
 import { resolveSchemaEnv } from './env-schema.js'
-import { readPackageVersion, validateReleaseVersion } from './version.js'
+import { resolveProductContext } from './product-context.js'
 
 function mergeEnv(...maps: Array<EnvMap | undefined>): EnvMap {
   return Object.assign({}, ...maps.filter(Boolean))
@@ -11,36 +11,6 @@ function mergeEnv(...maps: Array<EnvMap | undefined>): EnvMap {
 
 function currentProcessEnv(): EnvMap {
   return Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined))
-}
-
-function applySuffix(value: string | undefined, suffix: string | undefined): string | undefined {
-  return value === undefined || suffix === undefined ? value : `${value}${suffix}`
-}
-
-function envString(env: EnvMap, key: string): string | undefined {
-  const value = env[key]
-  return value === undefined ? undefined : String(value)
-}
-
-function mergeSuffixes(...sources: Array<Record<string, { name?: string, slug?: string, appId?: string }> | undefined>): Record<string, { name?: string, slug?: string, appId?: string }> {
-  const result: Record<string, { name?: string, slug?: string, appId?: string }> = {}
-  for (const source of sources) {
-    for (const [env, value] of Object.entries(source ?? {})) result[env] = { ...result[env], ...value }
-  }
-  return result
-}
-
-function resolvedVariant(product: NormalizedProduct, variant: NormalizedVariant, envName: string, env: EnvMap): { id: string, name: string, slug: string, appId: string | undefined } {
-  const suffix = { ...(product.suffixes?.[envName] ?? {}), ...(variant.suffixes?.[envName] ?? {}) }
-  const name = envString(env, 'MATRIX_PRODUCT_NAME') ?? variant.name ?? product.name
-  const slug = envString(env, 'MATRIX_PRODUCT_SLUG') ?? variant.slug ?? product.slug
-  const appId = envString(env, 'MATRIX_PRODUCT_APP_ID') ?? variant.appId ?? product.appId
-  return {
-    id: product.id,
-    name: applySuffix(name, suffix.name)!,
-    slug: applySuffix(slug, suffix.slug)!,
-    appId: applySuffix(appId, suffix.appId),
-  }
 }
 
 export function dependencyCondition(dependency: TargetDependency, target: { continuous: boolean }): 'completed' | 'ready' {
@@ -179,9 +149,7 @@ export function createExecutionPlan(input: CreateExecutionPlanInput): ExecutionP
       }
 
       const effectiveEnv = resolveSchemaEnv(mergeEnv(input.config.env, product.env, input.externalEnv ?? currentProcessEnv()), input.config.envSchema)
-      const identity = resolvedVariant({ ...product, suffixes: mergeSuffixes(input.config.suffixes, product.suffixes) }, variant, input.envName, effectiveEnv)
       const projectRoot = path.resolve(input.cwd, project.root ?? MATRIX_DEFAULTS.projectRoot)
-      const configuredVersion = effectiveEnv.MATRIX_PRODUCT_VERSION ?? variant.version ?? product.version
       context.kind = 'version'
       context.path = effectiveEnv.MATRIX_PRODUCT_VERSION !== undefined
         ? 'MATRIX_PRODUCT_VERSION'
@@ -190,9 +158,17 @@ export function createExecutionPlan(input: CreateExecutionPlanInput): ExecutionP
           : product.version !== undefined
             ? `products.${productName}.version`
             : `${path.join(projectRoot, 'package.json')}#version`
-      const version = configuredVersion === undefined
-        ? readPackageVersion(projectRoot, !target.continuous && !!target.artifacts)
-        : validateReleaseVersion(configuredVersion, `${id} release version (MATRIX_PRODUCT_VERSION / variant.version / product.version)`)
+      const identity = resolveProductContext({
+        config: input.config,
+        product,
+        variant,
+        envName: input.envName,
+        env: effectiveEnv,
+        projectRoot,
+        requiredVersion: !target.continuous && !!target.artifacts,
+        targetName,
+      })
+      const { version } = identity
       const task: ExecutionTask = {
         id,
         product: productName,
@@ -209,18 +185,11 @@ export function createExecutionPlan(input: CreateExecutionPlanInput): ExecutionP
         env: mergeEnv(effectiveEnv, {
           MATRIX_ENV_NAME: input.envName,
           MATRIX_TARGET: targetName,
-          MATRIX_PRODUCT_KEY: productName,
-          MATRIX_PRODUCT_ID: identity.id,
-          MATRIX_PRODUCT_NAME: identity.name,
-          MATRIX_PRODUCT_SLUG: identity.slug,
-          ...(version === undefined ? {} : { MATRIX_PRODUCT_VERSION: version }),
+          ...identity.env,
           MATRIX_VARIANT: variantName,
           MATRIX_PROJECT: variant.project,
           MATRIX_NODE_ENV: target.nodeEnv,
           NODE_ENV: target.nodeEnv,
-          ...(identity.appId
-            ? { MATRIX_PRODUCT_APP_ID: identity.appId }
-            : {}),
         }),
         continuous: target.continuous,
         ...(target.artifacts ? { artifacts: target.artifacts } : {}),

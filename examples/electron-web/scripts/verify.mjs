@@ -104,8 +104,15 @@ try {
   let prepared = await preparationCount()
   await run(process.execPath, [cli, 'prepare'])
   assert.equal(await preparationCount(), ++prepared, 'Shared Desktop must prepare once across both products')
-  for (const project of ['web-alpha', 'web-beta', 'desktop'])
+  for (const project of ['web-alpha', 'web-beta'])
     await access(path.join(root, 'apps', project, '.matrix/types/matrix-runtime.d.ts'))
+  for (const scope of ['main', 'preload'])
+    await access(path.join(root, 'apps/desktop/.matrix/types', `matrix-runtime-${scope}.d.ts`))
+  await assert.rejects(access(path.join(root, 'apps/desktop/.matrix/types/matrix-runtime.d.ts')), { code: 'ENOENT' })
+  await run(process.execPath, ['scripts/check-types.mjs'])
+  for (const project of ['web-alpha', 'web-beta', 'desktop'])
+    await assert.rejects(access(path.join(root, 'apps', project, 'dist')), { code: 'ENOENT' })
+  console.log('Preparation verified: scoped types compile before any development server or build.')
 
   for (const product of ['alpha', 'beta']) {
     const runDirectory = await mkdtemp(path.join(reports, 'dev-'))

@@ -288,7 +288,15 @@ export default defineConfig({
 
 分别使用 `virtual:matrix/runtime/main` 和 `virtual:matrix/runtime/preload`。对应类型文件会生成到 `.matrix/types/matrix-runtime-main.d.ts` 和 `.matrix/types/matrix-runtime-preload.d.ts`。
 
-运行一次 `matrix prepare` 会在所选 product 引用的每个 project 目录下生成 `.matrix/types/matrix-runtime.d.ts`。如果多个 product 复用同一个 project，该 project 的声明会合并这些 product 的公开环境变量键。它会根据 `VITE_*`（以及配置的其他公开前缀）生成 `ImportMetaEnv` 和 `matrix.config` 的键类型，不会写入环境变量的实际值。构建插件默认也会在解析最终 `envPrefix` 后生成对应类型；但在 Vitest 环境中默认不会覆盖已有类型，可通过 `types: true` 或 `types: { output: '...' }` 显式开启，也可通过 `types: false` 始终关闭。将每个 project 下的 `.matrix/types` 加入对应 `tsconfig.json` 的 `include` 即可获得类型提示：
+启动开发前运行 `matrix prepare`，即可为所选 product 生成 runtime 声明。scope 仍放在构建插件配置中，不需要在 `matrix.config` 重复声明。
+
+- 默认仅检查 project root 中的文件，按 `electron.vite.config.*` → `vite.config.*` 的优先级匹配，不扫描子目录，也不向父目录查找。同一条选中规则匹配多个文件时需要显式选择。prepare 使用项目本地安装的宿主解析真实配置，包括配置钩子、`root`、`envDir`、`envPrefix`、`scope` 和 `types` 选项。Electron main/preload 分别生成声明，不启动 Electron、开发服务器或打包。
+- 可直接设置 `projects.desktop.configFile`，例如 `'config/electron.vite.config.ts'`，路径相对于该 project root，优先于自动发现。文件名仍需符合内置规则（`electron.vite.config.*` 或 `vite.config.*`，使用 JS/TS 模块扩展名）。显式文件不存在、文件名不支持或解析失败时直接报错，不回退。`configFile` 仅控制 prepare，不修改 target 命令；无需额外配置 host。
+- prepare 解析开发态配置（`serve`；Electron main/preload 按开发时实际流程执行 `build` 配置钩子），`NODE_ENV=development`，`mode` 为 Matrix `--env` 选择。每个 product/variant 在独立进程中解析，传入 `MATRIX_TARGET=prepare` 及 product key、project、variant。产品身份（ID/name/slug/appId，含后缀和覆盖）及版本复用执行计划的解析规则；未配置版本时允许 package version 缺失。这不是生产构建上下文；scope 和类型契约应与所选产品及 target 无关。
+- 共享项目合并所选产品的公开字段名；schema 声明的字段不要求提供运行时值。重复 scope、输出/前缀冲突、scope 集合变化或配置解析失败时，Matrix 会在写入声明前报错。prepare 除执行已有项目准备命令外，还会执行配置代码和配置钩子，并不是无副作用的静态扫描。每次宿主解析限时 30 秒。
+- 未显式指定配置且 project root 没有匹配文件时，保留原有通用生成方式，从 Matrix 配置和公开环境变量键生成 `.matrix/types/matrix-runtime.d.ts`。暂不支持其他宿主或任意配置文件名。宿主配置成功解析但未启用 Matrix 插件时，也沿用该通用方式（使用 Matrix 设置，不采用宿主特定前缀或 scope）；启用插件并设置 `types: false` 时不生成。不会自动删除旧声明文件。
+
+prepare 和构建插件生成 `ImportMetaEnv`、`matrix.config` 类型时均不写入环境变量实际值。构建插件仍按当前构建最终配置生成声明；在 Vitest 环境默认不自动生成，可用 `types: true` 或 `types: { output: '...' }` 显式开启。显式运行 `matrix prepare` 不受 Vitest 默认值限制，但遵循 `types: false`。将生成目录加入各项目对应 `tsconfig.json`：
 
 ```json
 {

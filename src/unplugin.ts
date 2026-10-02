@@ -1,11 +1,13 @@
 import type { UnpluginFactory } from 'unplugin'
 import type { EnvPrefix } from './env.js'
 import type { MatrixRuntime } from './runtime.js'
+import type { GenerateMatrixTypesOptions } from './typegen.js'
 import type { EnvSchema } from './types.js'
 import process from 'node:process'
 import { createUnplugin } from 'unplugin'
 import { MATRIX_ENV_SCHEMA_KEY, readEnvSchema } from './env-schema.js'
 import { createPublicConfig, ensureMatrixEnvPrefix, normalizeEnvPrefix } from './env.js'
+import { collectPreparedTypes } from './type-preparation.js'
 import { generateMatrixTypes, matrixRuntimeModuleId } from './typegen.js'
 
 export const MATRIX_RUNTIME_ID = 'virtual:matrix/runtime'
@@ -18,7 +20,7 @@ export interface MatrixUnpluginOptions {
   envPrefix?: EnvPrefix
   /** Build scope used to isolate Electron main/preload/renderer runtime modules and types. */
   scope?: string
-  /** Generate project-local declarations during the build. Defaults to true. */
+  /** Generate project-local declarations during prepare and builds. Defaults to true. */
   types?: boolean | { output?: string }
 }
 
@@ -70,17 +72,21 @@ export const matrixUnpluginFactory: UnpluginFactory<MatrixUnpluginOptions | unde
   const runtimeId = matrixRuntimeModuleId(options.scope)
   const resolvedRuntimeId = `\0${runtimeId}`
 
-  async function generateTypes(cwd: string): Promise<void> {
-    if (options.types === false || (options.types === undefined && isVitest()) || typesGenerated)
-      return
-    await generateMatrixTypes({
+  function typeOptions(cwd: string): GenerateMatrixTypesOptions {
+    return {
       cwd,
       env,
       envPrefix,
       envSchema,
       ...(options.scope ? { scope: options.scope } : {}),
       ...(typeof options.types === 'object' && options.types.output ? { output: options.types.output } : {}),
-    })
+    }
+  }
+
+  async function generateTypes(cwd: string): Promise<void> {
+    if (options.types === false || (options.types === undefined && isVitest()) || typesGenerated)
+      return
+    await generateMatrixTypes(typeOptions(cwd))
     typesGenerated = true
   }
 
@@ -100,6 +106,9 @@ export const matrixUnpluginFactory: UnpluginFactory<MatrixUnpluginOptions | unde
         delete config.env[MATRIX_ENV_SCHEMA_KEY]
         envPrefix = ensureMatrixEnvPrefix(config.envPrefix)
         env = config.env
+        // Preparation needs the schema, not credentials or values for a runnable build.
+        if (collectPreparedTypes(options.types === false ? undefined : typeOptions(config.root)))
+          return
         createPublicConfig(env, envPrefix, envSchema)
         await generateTypes(config.root)
       },
