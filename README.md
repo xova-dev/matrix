@@ -343,7 +343,7 @@ export default {
 - `target.prepare: false` skips preparation only for that target; later eligible targets still trigger it. Failure or cancellation stops execution before subsequent targets start.
 - Commands run in the project root with global configuration, selected dotenv, and Shell values, without merging product env or injecting product/variant identity. They do not inherit a target's default NODE_ENV; global/external values are preserved. Matrix injects `MATRIX_PROJECT`, `MATRIX_ENV_NAME`, and `MATRIX_TARGET=prepare`.
 - `matrix prepare [product]` explicitly prepares projects referenced by the selected product (all products if omitted), then generates runtime types without running business targets. Build-plugin type generation is unchanged.
-- `matrix plan` lists preparation commands, working directories, environments, and `beforeTask` in its JSON `preparations` field. `doctor` only validates configuration and dependencies. Neither executes preparation.
+- `matrix plan` lists preparation commands, working directories, environments, and `beforeTask` in its JSON `preparations` field. `doctor` performs static preflight checks. Neither executes preparation.
 
 `project.prepare` is separate from an ordinary target named `prepare`. Preparation never recursively prepares itself and does not support dependencies, continuous services, or artifact settings.
 
@@ -374,6 +374,16 @@ matrix doctor
 matrix prepare [product] [--env <environment>]
 matrix <custom-target> [product] [--env <environment>]
 ```
+
+### Static preflight
+
+`matrix doctor [--env <environment>]` checks all configured products, variants, and targets in the selected environment without running target/preparation commands, probing ports, generating types, or cleaning output. Configuration loading still evaluates the configuration file as usual.
+
+- Errors include missing/non-directory project roots, cleanup of a project root or ancestor, and planning errors such as invalid dependencies or unavailable artifact versions. Version precedence and cleanup safety use the same rules as execution.
+- Warnings identify `completed` dependencies on continuous tasks and `ready` dependencies without `readyWhen`; starting a process alone does not establish service readiness.
+- Dependency planning failures retain their original task and configuration source. The same failure is reported once, with affected downstream tasks listed as `Blocked` rather than counted as additional errors.
+- Diagnostics identify the project/task and configuration path and suggest a correction, without printing environment values. Independent checks are aggregated after configuration loads successfully; invalid configuration that cannot be loaded still fails immediately. Errors exit nonzero; warnings alone exit successfully.
+- Missing pre-build output directories and shared serial output directories are allowed. Doctor does not infer application environment requirements or automatically fix files.
 
 ## Development
 

@@ -343,7 +343,7 @@ export default {
 - `target.prepare: false` 只跳过当前目标，不影响后续其他目标的准备需求。准备失败或取消会停止本次执行，不启动后续目标。
 - 准备命令在 project 根目录执行，使用全局配置、当前 dotenv 和 Shell 环境，不合并产品级 env 或注入产品／变体身份。不继承某个目标的默认 NODE_ENV，保留全局／外部环境中的值；注入 `MATRIX_PROJECT`、`MATRIX_ENV_NAME` 和 `MATRIX_TARGET=prepare`。
 - `matrix prepare [product]` 显式准备所选产品引用的项目（省略产品则处理所有产品），成功后生成现有 runtime 类型，不运行业务 target。构建插件的自动类型生成功能保持不变。
-- `matrix plan` 只展示准备步骤：JSON 的 `preparations` 包含命令、工作目录、环境和 `beforeTask`；`doctor` 只校验配置和依赖，两者均不执行准备命令。
+- `matrix plan` 只展示准备步骤：JSON 的 `preparations` 包含命令、工作目录、环境和 `beforeTask`；`doctor` 执行静态预检，两者均不执行准备命令。
 
 `project.prepare` 与名为 `prepare` 的普通 target 是不同概念。准备阶段本身不会递归触发准备，也不支持依赖、持续服务或产物交付选项。
 
@@ -374,6 +374,16 @@ matrix doctor
 matrix prepare [product] [--env <environment>]
 matrix <custom-target> [product] [--env <environment>]
 ```
+
+### 静态预检
+
+`matrix doctor [--env <environment>]` 检查所选环境中的全部产品、变体和目标，不运行目标或准备命令、不探测端口、不生成类型，也不清理输出。配置加载仍会按原有方式执行配置文件。
+
+- 错误包括不存在或不是目录的项目根路径、会删除项目根目录或祖先目录的清理配置，以及依赖错误、产物版本不可用等计划错误。版本优先级与清理安全规则和执行时保持一致。
+- 对指向持续任务的 `completed` 依赖，以及缺少 `readyWhen` 的 `ready` 依赖报告警告；进程启动并不代表服务已就绪。
+- 依赖计划错误保留原始任务及配置来源。同一根因只报告一次，受影响的下游任务列为 `Blocked`，不重复计为独立错误。
+- 诊断标明项目或任务、配置路径和修正建议，不打印环境变量值。成功加载配置后尽量聚合独立检查；无法加载的无效配置仍立即失败。有错误时退出码非零，仅有警告时正常退出。
+- 构建前尚未生成的输出目录、串行任务共用的输出目录均允许。Doctor 不推断应用环境要求，也不自动修复文件。
 
 ## 开发
 

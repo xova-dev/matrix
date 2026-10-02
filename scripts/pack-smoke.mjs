@@ -273,11 +273,48 @@ try {
     || !existsSync(path.join(consumerRoot, 'dev-root/.matrix/types/matrix-runtime.d.ts'))) {
     throw new Error('Packaged CLI did not complete automatic and explicit preparation')
   }
+  const doctorRoot = path.join(consumerRoot, 'doctor')
+  mkdirSync(doctorRoot)
+  const doctorConfigPath = path.join(doctorRoot, 'matrix.config.mjs')
+  const command = 'node -e "require(\'node:fs\').writeFileSync(\'executed\', \'bad\')"'
+  const doctorConfig = {
+    projects: { app: { prepare: command, targets: { dev: command } } },
+    products: { app: { variants: {
+      service: 'app',
+      consumer: { project: 'app', targets: { dev: { dependsOn: ['service', { variant: 'service', condition: 'completed' }] } } },
+    } } },
+  }
+  writeFileSync(doctorConfigPath, `export default ${JSON.stringify(doctorConfig)}`)
+  const doctor = () => execaSync(process.execPath, [path.join(consumerRoot, cli), 'doctor'], {
+    cwd: doctorRoot,
+    encoding: 'utf8',
+    timeout: 10_000,
+    reject: false,
+    env: { MATRIX_PRODUCT_VERSION: undefined },
+  })
+  const warningResult = doctor()
+  const warningOutput = warningResult.stdout + warningResult.stderr
+  if (warningResult.exitCode !== 0 || !warningOutput.includes('no readiness probe') || !warningOutput.includes('continuous task'))
+    throw new Error('Packaged doctor did not report warnings with a successful exit')
+  writeFileSync(doctorConfigPath, `export default ${JSON.stringify({
+    projects: {
+      missing: { root: 'missing', targets: {} },
+      app: { prepare: command, targets: { build: { command, outputDir: '.', artifacts: {} } } },
+    },
+    products: { app: { variants: { desktop: 'app' } } },
+  })}`)
+  const errorResult = doctor()
+  const errorOutput = errorResult.stdout + errorResult.stderr
+  if (errorResult.exitCode !== 1 || !errorOutput.includes('projects.missing.root') || !errorOutput.includes('projects.app.targets.build.outputDir') || !errorOutput.includes('package version'))
+    throw new Error('Packaged doctor did not aggregate static errors with a nonzero exit')
+  if (readdirSync(doctorRoot).join(',') !== 'matrix.config.mjs')
+    throw new Error('Packaged doctor executed commands or wrote workspace files')
+
   const shutdownVerified = await verifyShutdown(path.join(consumerRoot, cli), path.join(consumerRoot, 'shutdown'))
   if (shutdownVerified !== null) {
     console.log(shutdownVerified
-      ? 'Package smoke passed: exports, config isolation, preparation, and POSIX shutdown.'
-      : 'Package smoke passed: exports, config isolation, and preparation. POSIX shutdown skipped on Windows.')
+      ? 'Package smoke passed: exports, config isolation, preparation, doctor, and POSIX shutdown.'
+      : 'Package smoke passed: exports, config isolation, preparation, and doctor. POSIX shutdown skipped on Windows.')
   }
 }
 finally {

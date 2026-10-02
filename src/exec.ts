@@ -7,6 +7,7 @@ import consola from 'consola'
 import { execa } from 'execa'
 import { materializeArtifact } from './artifact.js'
 import { MATRIX_ENV_SCHEMA_KEY, serializeEnvSchema } from './env-schema.js'
+import { assertSafeOutputDirectory } from './output.js'
 import { stopProcessTrees } from './process-tree.js'
 
 type Child = ReturnType<typeof execa>
@@ -57,10 +58,8 @@ async function waitReady(child: Child, task: ExecutionTask, interruptions: Set<P
 }
 
 async function cleanOutputDirectory(projectRoot: string, outputDir: string): Promise<void> {
-  const projectPath = path.resolve(projectRoot)
+  assertSafeOutputDirectory(projectRoot, outputDir)
   const outputPath = path.resolve(outputDir)
-  if (outputPath === projectPath || projectPath.startsWith(`${outputPath}${path.sep}`))
-    throw new Error(`Refusing to clean an unsafe output directory: ${outputDir}`)
   await rm(outputPath, { recursive: true, force: true })
   await mkdir(outputPath, { recursive: true })
 }

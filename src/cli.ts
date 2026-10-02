@@ -7,8 +7,9 @@ import { CLI_COMMANDS, cliHelp, parseArgs, validateCliArgs } from './cli-args.js
 import { resolveSelection, selectionCommand, selectionSummary } from './cli-selection.js'
 import { loadMatrixConfig } from './config.js'
 import { MATRIX_DEFAULTS } from './defaults.js'
+import { diagnoseWorkspace } from './doctor.js'
 import { runExecutionPlan } from './exec.js'
-import { createPreparationPlan, validateExecutionGraph } from './plan.js'
+import { createPreparationPlan } from './plan.js'
 import { generateMatrixTypes, matrixTypeEnvKeys } from './typegen.js'
 
 type Products = Awaited<ReturnType<typeof loadMatrixConfig>>['products']
@@ -50,7 +51,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
   }
   if (args.command === CLI_COMMANDS.doctor) {
     const loaded = await loadMatrixConfig({ ...(args.env ? { envName: args.env } : {}) })
-    validateExecutionGraph({
+    const diagnostics = await diagnoseWorkspace({
       config: loaded.config,
       projects: loaded.projects,
       products: loaded.products,
@@ -58,6 +59,16 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
       cwd: loaded.cwd,
       envName: loaded.envName,
     })
+    for (const diagnostic of diagnostics) {
+      const message = [diagnostic.subject, `(${diagnostic.path}):`, diagnostic.message, 'Fix:', diagnostic.suggestion, ...(diagnostic.blockedTasks?.length ? [`Blocked: ${diagnostic.blockedTasks.join(', ')}`] : [])].join(' ')
+      if (diagnostic.severity === 'error')
+        consola.error(message)
+      else
+        consola.warn(message)
+    }
+    const errors = diagnostics.filter(diagnostic => diagnostic.severity === 'error').length
+    if (errors)
+      throw new Error(`Doctor found ${errors} error(s).`)
     consola.success(`Configuration is valid: ${loaded.configFile ?? 'matrix.config.ts'}`)
     return
   }

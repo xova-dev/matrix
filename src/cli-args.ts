@@ -37,7 +37,7 @@ export async function cliHelp(): Promise<string> {
     await renderUsage(command),
     'COMMANDS',
     '  plan       Print an execution plan with resolved project environment values (may contain secrets)',
-    '  doctor     Validate configuration and dependency graphs; accepts --env',
+    '  doctor     Run static configuration and workspace checks; accepts --env',
     '  prepare    Run project preparation and generate runtime types for all or one product',
     '  <target>   Run any target defined in matrix.config.ts',
     '',

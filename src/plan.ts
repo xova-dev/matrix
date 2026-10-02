@@ -43,11 +43,28 @@ function resolvedVariant(product: NormalizedProduct, variant: NormalizedVariant,
   }
 }
 
-function dependencyCondition(dependency: TargetDependency, target: { continuous: boolean }): 'completed' | 'ready' {
+export function dependencyCondition(dependency: TargetDependency, target: { continuous: boolean }): 'completed' | 'ready' {
   return dependency.condition ?? (target.continuous ? 'ready' : 'completed')
 }
 
 type PreparationPlanInput = Omit<CreateExecutionPlanInput, 'target' | 'variantNames'>
+
+interface PlanErrorContext {
+  product: string
+  variant: string
+  target: string
+  kind: 'dependency' | 'environment' | 'version'
+  dependencyIndex?: number
+  path?: string
+  cycle?: string[]
+}
+
+/** Preserve the failing task through recursive dependency planning without exposing values. */
+export class ExecutionPlanError extends Error {
+  constructor(error: unknown, readonly context: PlanErrorContext) {
+    super(error instanceof Error ? error.message : 'Unable to create execution plan.', { cause: error })
+  }
+}
 
 function projectPreparation(input: PreparationPlanInput, projectName: string): ProjectPreparation | undefined {
   const project = input.projects[projectName]
@@ -110,90 +127,116 @@ export function createExecutionPlan(input: CreateExecutionPlanInput): ExecutionP
   const ordered: ExecutionTask[] = []
 
   const addTask = (productName: string, variantName: string, targetName: string): ExecutionTask => {
-    const id = `${productName}:${variantName}:${targetName}`
-    const existing = tasks.get(id)
-    if (existing)
-      return existing
-    if (visiting.has(id))
-      throw new Error(`Dependency cycle detected at ${id}`)
+    const context: PlanErrorContext = { product: productName, variant: variantName, target: targetName, kind: 'dependency' }
+    try {
+      const id = `${productName}:${variantName}:${targetName}`
+      const existing = tasks.get(id)
+      if (existing)
+        return existing
+      if (visiting.has(id)) {
+        const stack = [...visiting]
+        const cycle = stack.slice(stack.indexOf(id))
+        // Rotate, rather than sort, to preserve directed edges and distinguish overlapping cycles.
+        const first = cycle.indexOf([...cycle].sort()[0]!)
+        context.cycle = [...cycle.slice(first), ...cycle.slice(0, first)]
+        throw new Error(`Dependency cycle detected at ${id}`)
+      }
 
-    const product = input.products[productName]
-    if (!product)
-      throw new Error(`Unknown product: ${productName}`)
-    const variant = product.variants[variantName]
-    if (!variant)
-      throw new Error(`Unknown variant ${variantName} for product ${productName}`)
-    const project = input.projects[variant.project]
-    if (!project)
-      throw new Error(`Variant ${productName}/${variantName} references unknown project ${variant.project}`)
-    const target = variant.targets[targetName]
-    if (!target)
-      throw new Error(`Variant ${productName}/${variantName} has no target ${targetName}`)
+      const product = input.products[productName]
+      if (!product)
+        throw new Error(`Unknown product: ${productName}`)
+      const variant = product.variants[variantName]
+      if (!variant)
+        throw new Error(`Unknown variant ${variantName} for product ${productName}`)
+      const project = input.projects[variant.project]
+      if (!project)
+        throw new Error(`Variant ${productName}/${variantName} references unknown project ${variant.project}`)
+      const target = variant.targets[targetName]
+      if (!target)
+        throw new Error(`Variant ${productName}/${variantName} has no target ${targetName}`)
 
-    visiting.add(id)
-    const dependencyTasks = target.dependsOn.map((dependency) => {
-      const dependencyTargetName = dependency.target ?? targetName
-      const dependencyVariant = product.variants[dependency.variant]
-      if (!dependencyVariant)
-        throw new Error(`Unknown dependency variant ${productName}/${dependency.variant}`)
-      const dependencyTarget = dependencyVariant.targets[dependencyTargetName]
-      if (!dependencyTarget)
-        throw new Error(`Variant ${productName}/${dependency.variant} has no target ${dependencyTargetName}`)
-      const dependencyTask = addTask(productName, dependency.variant, dependencyTargetName)
-      return { id: dependencyTask.id, condition: dependencyCondition(dependency, dependencyTarget) }
-    })
-    visiting.delete(id)
-    if (target.prepare !== false && !preparations.has(variant.project)) {
-      const preparation = projectPreparation(input, variant.project)
-      if (preparation)
-        preparations.set(variant.project, { ...preparation, beforeTask: id })
+      visiting.add(id)
+      const dependencyTasks = target.dependsOn.map((dependency, index) => {
+        context.dependencyIndex = index
+        const dependencyTargetName = dependency.target ?? targetName
+        const dependencyVariant = product.variants[dependency.variant]
+        if (!dependencyVariant)
+          throw new Error(`Unknown dependency variant ${productName}/${dependency.variant}`)
+        const dependencyTarget = dependencyVariant.targets[dependencyTargetName]
+        if (!dependencyTarget)
+          throw new Error(`Variant ${productName}/${dependency.variant} has no target ${dependencyTargetName}`)
+        const dependencyTask = addTask(productName, dependency.variant, dependencyTargetName)
+        return { id: dependencyTask.id, condition: dependencyCondition(dependency, dependencyTarget) }
+      })
+      visiting.delete(id)
+      delete context.dependencyIndex
+      context.kind = 'environment'
+      context.path = 'envSchema'
+      if (target.prepare !== false && !preparations.has(variant.project)) {
+        const preparation = projectPreparation(input, variant.project)
+        if (preparation)
+          preparations.set(variant.project, { ...preparation, beforeTask: id })
+      }
+
+      const effectiveEnv = resolveSchemaEnv(mergeEnv(input.config.env, product.env, input.externalEnv ?? currentProcessEnv()), input.config.envSchema)
+      const identity = resolvedVariant({ ...product, suffixes: mergeSuffixes(input.config.suffixes, product.suffixes) }, variant, input.envName, effectiveEnv)
+      const projectRoot = path.resolve(input.cwd, project.root ?? MATRIX_DEFAULTS.projectRoot)
+      const configuredVersion = effectiveEnv.MATRIX_PRODUCT_VERSION ?? variant.version ?? product.version
+      context.kind = 'version'
+      context.path = effectiveEnv.MATRIX_PRODUCT_VERSION !== undefined
+        ? 'MATRIX_PRODUCT_VERSION'
+        : variant.version !== undefined
+          ? `products.${productName}.variants.${variantName}.version`
+          : product.version !== undefined
+            ? `products.${productName}.version`
+            : `${path.join(projectRoot, 'package.json')}#version`
+      const version = configuredVersion === undefined
+        ? readPackageVersion(projectRoot, !target.continuous && !!target.artifacts)
+        : validateReleaseVersion(configuredVersion, `${id} release version (MATRIX_PRODUCT_VERSION / variant.version / product.version)`)
+      const task: ExecutionTask = {
+        id,
+        product: productName,
+        variant: variantName,
+        project: variant.project,
+        projectRoot,
+        target: targetName,
+        name: identity.name,
+        slug: identity.slug,
+        ...(identity.appId ? { appId: identity.appId } : {}),
+        ...(version === undefined ? {} : { version }),
+        command: target.command,
+        cwd: projectRoot,
+        env: mergeEnv(effectiveEnv, {
+          MATRIX_ENV_NAME: input.envName,
+          MATRIX_TARGET: targetName,
+          MATRIX_PRODUCT_KEY: productName,
+          MATRIX_PRODUCT_ID: identity.id,
+          MATRIX_PRODUCT_NAME: identity.name,
+          MATRIX_PRODUCT_SLUG: identity.slug,
+          ...(version === undefined ? {} : { MATRIX_PRODUCT_VERSION: version }),
+          MATRIX_VARIANT: variantName,
+          MATRIX_PROJECT: variant.project,
+          MATRIX_NODE_ENV: target.nodeEnv,
+          NODE_ENV: target.nodeEnv,
+          ...(identity.appId
+            ? { MATRIX_PRODUCT_APP_ID: identity.appId }
+            : {}),
+        }),
+        continuous: target.continuous,
+        ...(target.artifacts ? { artifacts: target.artifacts } : {}),
+        ...(target.readyWhen ? { readyWhen: target.readyWhen } : {}),
+        outputDir: path.resolve(projectRoot, target.outputDir),
+        dependsOn: dependencyTasks,
+      }
+      tasks.set(id, task)
+      ordered.push(task)
+      return task
     }
-
-    const effectiveEnv = resolveSchemaEnv(mergeEnv(input.config.env, product.env, input.externalEnv ?? currentProcessEnv()), input.config.envSchema)
-    const identity = resolvedVariant({ ...product, suffixes: mergeSuffixes(input.config.suffixes, product.suffixes) }, variant, input.envName, effectiveEnv)
-    const projectRoot = path.resolve(input.cwd, project.root ?? MATRIX_DEFAULTS.projectRoot)
-    const configuredVersion = effectiveEnv.MATRIX_PRODUCT_VERSION ?? variant.version ?? product.version
-    const version = configuredVersion === undefined
-      ? readPackageVersion(projectRoot, !target.continuous && !!target.artifacts)
-      : validateReleaseVersion(configuredVersion, `${id} release version (MATRIX_PRODUCT_VERSION / variant.version / product.version)`)
-    const task: ExecutionTask = {
-      id,
-      product: productName,
-      variant: variantName,
-      project: variant.project,
-      projectRoot,
-      target: targetName,
-      name: identity.name,
-      slug: identity.slug,
-      ...(identity.appId ? { appId: identity.appId } : {}),
-      ...(version === undefined ? {} : { version }),
-      command: target.command,
-      cwd: projectRoot,
-      env: mergeEnv(effectiveEnv, {
-        MATRIX_ENV_NAME: input.envName,
-        MATRIX_TARGET: targetName,
-        MATRIX_PRODUCT_KEY: productName,
-        MATRIX_PRODUCT_ID: identity.id,
-        MATRIX_PRODUCT_NAME: identity.name,
-        MATRIX_PRODUCT_SLUG: identity.slug,
-        ...(version === undefined ? {} : { MATRIX_PRODUCT_VERSION: version }),
-        MATRIX_VARIANT: variantName,
-        MATRIX_PROJECT: variant.project,
-        MATRIX_NODE_ENV: target.nodeEnv,
-        NODE_ENV: target.nodeEnv,
-        ...(identity.appId
-          ? { MATRIX_PRODUCT_APP_ID: identity.appId }
-          : {}),
-      }),
-      continuous: target.continuous,
-      ...(target.artifacts ? { artifacts: target.artifacts } : {}),
-      ...(target.readyWhen ? { readyWhen: target.readyWhen } : {}),
-      outputDir: path.resolve(projectRoot, target.outputDir),
-      dependsOn: dependencyTasks,
+    catch (error) {
+      if (error instanceof ExecutionPlanError)
+        throw error
+      throw new ExecutionPlanError(error, context)
     }
-    tasks.set(id, task)
-    ordered.push(task)
-    return task
   }
 
   for (const productName of input.productNames) {
