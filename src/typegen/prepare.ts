@@ -5,6 +5,7 @@ import { readdir, stat } from 'node:fs/promises'
 import process from 'node:process'
 import path from 'pathe'
 import { ensureMatrixEnvPrefix } from '../runtime/public-env.js'
+import { resolveFilesystemPath } from '../utils/path.js'
 import { matrixRuntimeModuleId, matrixTypeEnvKeys, matrixTypeOutput, renderMatrixTypes } from './generate.js'
 
 export interface TypeHost {
@@ -29,7 +30,7 @@ export class TypePreparationCancelled extends Error {}
 /** Inspect only project-root files unless the user explicitly selects another path. */
 export async function findTypeHost(cwd: string, configFile?: string): Promise<TypeHost | undefined> {
   if (configFile !== undefined) {
-    const selected = path.resolve(cwd, configFile)
+    const selected = resolveFilesystemPath(cwd, configFile)
     const rule = typeHostRules.find(rule => rule.pattern.test(path.basename(selected)))
     if (!rule)
       throw new Error(`Unsupported host config filename: ${selected}. Use electron.vite.config.* or vite.config.*.`)
@@ -117,7 +118,7 @@ export function mergePreparedTypes(batches: GenerateMatrixTypesOptions[][]): Gen
     for (const options of batch) {
       const output = matrixTypeOutput(options)
       const moduleId = matrixRuntimeModuleId(options.scope)
-      const identity = JSON.stringify([path.resolve(options.cwd), moduleId])
+      const identity = JSON.stringify([resolveFilesystemPath(options.cwd), moduleId])
       if (seen.has(identity))
         throw new Error(`Duplicate Matrix scope ${moduleId} in ${options.cwd}; give each build context a distinct scope.`)
       seen.add(identity)

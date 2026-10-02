@@ -31,7 +31,7 @@ describe('materializeArtifact', () => {
     })
 
     expect(result).toBe(path.join(project.artifacts, 'english-speaking', 'staging', 'web-0.1.8-20260921-153012.zip'))
-    await expect(fs.stat(result)).resolves.toMatchObject({ isFile: expect.any(Function) })
+    expect((await fs.stat(result)).isFile()).toBe(true)
     await expect(fs.readFile(path.join(project.output, 'index.html'), 'utf8')).resolves.toBe('matrix')
   })
 
@@ -73,7 +73,7 @@ describe('materializeArtifact', () => {
     })
 
     await expect(fs.readFile(path.join(result, 'index.html'), 'utf8')).resolves.toBe('matrix')
-    await expect(fs.stat(path.join(result, 'desktop-0.1.8-20260921-153012.zip'))).resolves.toMatchObject({ isFile: expect.any(Function) })
+    expect((await fs.stat(path.join(result, 'desktop-0.1.8-20260921-153012.zip'))).isFile()).toBe(true)
     await expect(fs.stat(project.output)).rejects.toMatchObject({ code: 'ENOENT' })
   })
 

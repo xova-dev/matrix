@@ -3,6 +3,7 @@ import { Buffer } from 'node:buffer'
 import { spawnSync } from 'node:child_process'
 import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
+import { normalize as normalizeNativePath } from 'node:path'
 import process from 'node:process'
 import { runInNewContext } from 'node:vm'
 import { build } from 'esbuild'
@@ -57,7 +58,9 @@ it.each(['none', 'base64', 'percent', 'external', 'trailing-text', 'ambiguous'])
   const executed = spawnSync(process.execPath, ['--enable-source-maps', outfile], { encoding: 'utf8' })
   expect(executed.status).toBe(1)
   expect(executed.stderr).toContain('MAP_SENTINEL')
-  expect(executed.stderr).toContain(`${['none', 'ambiguous'].includes(encoding) ? entry : path.join(root, 'sources/original.ts')}:${encoding === 'ambiguous' ? 7 : 5}:`)
+  const originalFile = ['none', 'ambiguous'].includes(encoding) ? entry : path.join(root, 'sources/original.ts')
+  // Node renders filesystem stack frames using the host's native separators.
+  expect(executed.stderr).toContain(`${normalizeNativePath(originalFile)}:${encoding === 'ambiguous' ? 7 : 5}:`)
   const outputMap = JSON.parse(await readFile(`${outfile}.map`, 'utf8'))
   expect(outputMap.sourcesContent).toContain(encoding === 'ambiguous' ? input : source)
 })
@@ -90,7 +93,7 @@ it.each(['jsx', 'tsx'] as const)('preserves upstream maps when .js uses the %s l
   const executed = spawnSync(process.execPath, ['--enable-source-maps', outfile], { encoding: 'utf8' })
   expect(executed.status).toBe(1)
   expect(executed.stderr).toContain('LOADER_MAP_SENTINEL')
-  expect(executed.stderr).toContain(`${path.join(root, `original.${loader}`)}:6:7`)
+  expect(executed.stderr).toContain(`${normalizeNativePath(path.join(root, `original.${loader}`))}:6:7`)
   const outputMap = JSON.parse(await readFile(`${outfile}.map`, 'utf8'))
   expect(outputMap.sourcesContent).toContain(source)
 })

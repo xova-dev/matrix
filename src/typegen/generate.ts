@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import path from 'pathe'
 import { ensureMatrixEnvPrefix, publicConfigFields, publicEnvKeys } from '../runtime/public-env.js'
+import { resolveFilesystemPath } from '../utils/path.js'
 
 export interface GenerateMatrixTypesOptions {
   cwd: string
@@ -24,7 +25,7 @@ export function matrixRuntimeModuleId(scope?: string): string {
 
 export function matrixTypeOutput(options: Pick<GenerateMatrixTypesOptions, 'cwd' | 'scope' | 'output'>): string {
   matrixRuntimeModuleId(options.scope)
-  return path.resolve(options.cwd, options.output ?? (options.scope
+  return resolveFilesystemPath(options.cwd, options.output ?? (options.scope
     ? `.matrix/types/matrix-runtime-${options.scope}.d.ts`
     : '.matrix/types/matrix-runtime.d.ts'))
 }

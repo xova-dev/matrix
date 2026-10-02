@@ -4,6 +4,7 @@ import { MATRIX_DEFAULTS } from '../config/defaults.js'
 import { resolveSchemaEnv } from '../config/env-schema.js'
 import { resolveProductContext } from '../product/context.js'
 import { currentProcessEnv, mergeEnv } from '../utils/env.js'
+import { resolveFilesystemPath } from '../utils/path.js'
 
 export function dependencyCondition(dependency: TargetDependency, target: { continuous: boolean }): 'completed' | 'ready' {
   return dependency.condition ?? (target.continuous ? 'ready' : 'completed')
@@ -38,7 +39,7 @@ function projectPreparation(input: PreparationPlanInput, projectName: string): P
     id: `prepare:${projectName}`,
     project: projectName,
     command: project.prepare,
-    cwd: path.resolve(input.cwd, project.root ?? MATRIX_DEFAULTS.projectRoot),
+    cwd: resolveFilesystemPath(input.cwd, project.root ?? MATRIX_DEFAULTS.projectRoot),
     env: resolveSchemaEnv(mergeEnv(input.config.env, input.externalEnv ?? currentProcessEnv(), {
       MATRIX_ENV_NAME: input.envName,
       MATRIX_PROJECT: projectName,
@@ -53,7 +54,7 @@ function executionPlan(input: PreparationPlanInput, tasks: ExecutionTask[], prep
     envName: input.envName,
     tasks,
     ...(preparations.length ? { preparations } : {}),
-    artifactsRoot: path.resolve(input.cwd, input.config.artifacts?.root ?? MATRIX_DEFAULTS.artifactsRoot),
+    artifactsRoot: resolveFilesystemPath(input.cwd, input.config.artifacts?.root ?? MATRIX_DEFAULTS.artifactsRoot),
     artifactRetention: input.config.artifacts?.retention?.keep ?? MATRIX_DEFAULTS.artifacts.retention,
   }
 }
@@ -141,7 +142,7 @@ export function createExecutionPlan(input: CreateExecutionPlanInput): ExecutionP
       }
 
       const effectiveEnv = resolveSchemaEnv(mergeEnv(input.config.env, product.env, input.externalEnv ?? currentProcessEnv()), input.config.envSchema)
-      const projectRoot = path.resolve(input.cwd, project.root ?? MATRIX_DEFAULTS.projectRoot)
+      const projectRoot = resolveFilesystemPath(input.cwd, project.root ?? MATRIX_DEFAULTS.projectRoot)
       context.kind = 'version'
       context.path = effectiveEnv.MATRIX_PRODUCT_VERSION !== undefined
         ? 'MATRIX_PRODUCT_VERSION'
@@ -186,7 +187,7 @@ export function createExecutionPlan(input: CreateExecutionPlanInput): ExecutionP
         continuous: target.continuous,
         ...(target.artifacts ? { artifacts: target.artifacts } : {}),
         ...(target.readyWhen ? { readyWhen: target.readyWhen } : {}),
-        outputDir: path.resolve(projectRoot, target.outputDir),
+        outputDir: resolveFilesystemPath(projectRoot, target.outputDir),
         dependsOn: dependencyTasks,
       }
       tasks.set(id, task)

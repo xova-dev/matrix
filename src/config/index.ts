@@ -1,8 +1,8 @@
 import type { CommandTarget, EnvMap, MatrixConfig, MatrixConfigConstraints, NormalizedProduct, NormalizedProject, NormalizedTarget, NormalizedVariant, TargetConfig, TargetOverride } from '../types.js'
 import process from 'node:process'
-import path from 'pathe'
 import { MATRIX_ENVIRONMENTS } from '../types.js'
 import { mergeEnv } from '../utils/env.js'
+import { resolveFilesystemPath } from '../utils/path.js'
 import { MATRIX_DEFAULTS } from './defaults.js'
 import { evaluateConfig } from './loader.js'
 
@@ -41,7 +41,7 @@ export function defineMatrixEnv<const T extends Record<string, EnvMap>>(environm
 export async function listMatrixEnvironments(options: { cwd?: string, configFile?: string, productName?: string, envName?: string, signal?: AbortSignal } = {}): Promise<string[]> {
   const declared = await evaluateConfig({
     ...options,
-    cwd: path.resolve(options.cwd ?? process.cwd()),
+    cwd: resolveFilesystemPath(options.cwd ?? process.cwd()),
     envName: options.envName ?? MATRIX_DEFAULTS.environment,
     discover: true,
   })
@@ -172,7 +172,7 @@ type LoadedMatrixConfig = ReturnType<typeof normalizeMatrixConfig> & {
  * `.env.local`, `.env.<environment>`, and `.env.<environment>.local`.
  */
 export async function loadMatrixConfig(options: { cwd?: string, envName?: string, configFile?: string, signal?: AbortSignal } = {}): Promise<LoadedMatrixConfig> {
-  const cwd = path.resolve(options.cwd ?? process.cwd())
+  const cwd = resolveFilesystemPath(options.cwd ?? process.cwd())
   const envName = options.envName ?? MATRIX_DEFAULTS.environment
   const loaded = await evaluateConfig({ ...options, cwd, envName })
   const config = resolveProductEnvironments(loaded.config, envName)

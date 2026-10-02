@@ -4,9 +4,9 @@ import net from 'node:net'
 import process from 'node:process'
 import consola from 'consola'
 import { execa } from 'execa'
-import path from 'pathe'
 import { MATRIX_ENV_SCHEMA_KEY, serializeEnvSchema } from '../config/env-schema.js'
 import { assertSafeOutputDirectory } from '../utils/output.js'
+import { resolveFilesystemPath } from '../utils/path.js'
 import { materializeArtifact } from './artifact.js'
 import { stopProcessTrees } from './process-tree.js'
 
@@ -59,7 +59,7 @@ async function waitReady(child: Child, task: ExecutionTask, interruptions: Set<P
 
 async function cleanOutputDirectory(projectRoot: string, outputDir: string): Promise<void> {
   assertSafeOutputDirectory(projectRoot, outputDir)
-  const outputPath = path.resolve(outputDir)
+  const outputPath = resolveFilesystemPath(outputDir)
   await rm(outputPath, { recursive: true, force: true })
   await mkdir(outputPath, { recursive: true })
 }

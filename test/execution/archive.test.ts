@@ -5,6 +5,19 @@ import { describe, expect, it } from 'vitest'
 import { archiveDirectory } from '../../src/execution/archive.js'
 
 describe('archiveDirectory', () => {
+  it.each(['inside.zip', '..hidden/archive.zip'])('rejects an archive inside the source at %s', async (relativeDestination) => {
+    const source = await fs.mkdtemp(path.join(os.tmpdir(), 'matrix-archive-'))
+    try {
+      await fs.writeFile(path.join(source, 'keep'), 'original')
+      await expect(archiveDirectory(source, path.join(source, relativeDestination), 'zip')).rejects.toThrow('outside source directory')
+      expect(await fs.readdir(source)).toEqual(['keep'])
+      expect(await fs.readFile(path.join(source, 'keep'), 'utf8')).toBe('original')
+    }
+    finally {
+      await fs.rm(source, { recursive: true, force: true })
+    }
+  })
+
   it('fails when the source directory does not exist', async () => {
     const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'matrix-archive-'))
     const destination = path.join(cwd, 'artifact.zip')

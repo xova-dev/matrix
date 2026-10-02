@@ -5,6 +5,8 @@ import { createRequire, SourceMap } from 'node:module'
 import os from 'node:os'
 import { win32 } from 'node:path'
 import process from 'node:process'
+import { runInNewContext } from 'node:vm'
+import { build } from 'esbuild'
 import MagicString from 'magic-string'
 import path from 'pathe'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -18,6 +20,7 @@ const directories: string[] = []
 const require = createRequire(import.meta.url)
 
 it('composes upstream maps for a Windows loader resource on every platform', async () => {
+  vi.stubEnv('NODE_ENV', 'production')
   const resourcePath = win32.join('C:/workspace/app', 'entry.js')
   const source = 'import { matrix } from "virtual:matrix/runtime";\nglobalThis.result = matrix.isProduction;'
   const upstream = new MagicString(source).prepend('// upstream\n// upstream\n')
@@ -37,8 +40,20 @@ it('composes upstream maps for a Windows loader resource on every platform', asy
     } as unknown as ThisParameterType<typeof transform>
     void transform.call(context, upstream.toString(), inputMap, undefined).catch(reject)
   })
-  expect(output.code).toContain('globalThis.result = (true)')
-  const prefix = output.code.slice(0, output.code.indexOf('globalThis.result')).split('\n')
+  // Execute the returned module through a real host without another inline pass.
+  const bundled = await build({
+    stdin: { contents: output.code },
+    bundle: true,
+    write: false,
+    format: 'cjs',
+    plugins: [MatrixUnplugin.esbuild({ types: false, inline: false })],
+  })
+  const context: Record<string, unknown> = {}
+  runInNewContext(bundled.outputFiles[0]!.text, context)
+  expect(context.result).toBe(true)
+  const offset = output.code.indexOf('globalThis.result')
+  expect(offset).toBeGreaterThanOrEqual(0)
+  const prefix = output.code.slice(0, offset).split('\n')
   expect(new SourceMap(output.map).findEntry(prefix.length - 1, prefix.at(-1)!.length)).toMatchObject({
     originalSource: 'C:/workspace/app/entry.js',
     originalLine: 1,

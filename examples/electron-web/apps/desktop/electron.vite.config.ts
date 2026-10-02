@@ -1,6 +1,6 @@
+import { resolve } from 'node:path'
 import matrix from '@xova/matrix/vite'
 import { defineConfig } from 'electron-vite'
-import { resolve } from 'pathe'
 
 // The renderer is a separate Matrix project with its own Vite build.
 export default defineConfig({

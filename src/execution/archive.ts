@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { createWriteStream } from 'node:fs'
 import { mkdir, rename, stat, unlink } from 'node:fs/promises'
+import nativePath from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import { TarArchive, ZipArchive } from 'archiver'
 import path from 'pathe'
@@ -20,8 +21,9 @@ export async function archiveDirectory(sourceDir: string, destination: string, f
   if (!sourceStats.isDirectory())
     throw new Error(`Archive source must be a directory: ${sourceDir}`)
 
-  const relativeDestination = path.relative(path.resolve(sourceDir), path.resolve(destination))
-  if (!relativeDestination || (!relativeDestination.startsWith('..') && !path.isAbsolute(relativeDestination)))
+  // Containment is a filesystem decision: preserve drive, UNC and casing rules.
+  const relativeDestination = nativePath.relative(nativePath.resolve(sourceDir), nativePath.resolve(destination))
+  if (!relativeDestination || (!nativePath.isAbsolute(relativeDestination) && relativeDestination !== '..' && !relativeDestination.startsWith(`..${nativePath.sep}`)))
     throw new Error(`Archive destination must be outside source directory: ${destination}`)
 
   const destinationDirectory = path.dirname(destination)

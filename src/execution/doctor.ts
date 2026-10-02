@@ -1,8 +1,8 @@
 import type { CreateExecutionPlanInput, MatrixConfig } from '../types.js'
 import { stat } from 'node:fs/promises'
-import path from 'pathe'
 import { MATRIX_DEFAULTS } from '../config/defaults.js'
 import { assertSafeOutputDirectory } from '../utils/output.js'
+import { resolveFilesystemPath } from '../utils/path.js'
 import { createExecutionPlan, dependencyCondition, ExecutionPlanError } from './plan.js'
 
 interface Diagnostic {
@@ -32,7 +32,7 @@ export async function diagnoseWorkspace(input: DoctorInput): Promise<Diagnostic[
   const diagnostics: Diagnostic[] = []
   const planErrors = new Map<string, Diagnostic>()
   for (const [name, project] of Object.entries(input.projects)) {
-    const root = path.resolve(input.cwd, project.root ?? MATRIX_DEFAULTS.projectRoot)
+    const root = resolveFilesystemPath(input.cwd, project.root ?? MATRIX_DEFAULTS.projectRoot)
     try {
       if ((await stat(root)).isDirectory())
         continue
@@ -62,9 +62,9 @@ export async function diagnoseWorkspace(input: DoctorInput): Promise<Diagnostic[
         const fieldPath = (field: string): string => targetFieldPath(input, productName, variantName, targetName, field)
         const project = input.projects[variant.project]
         if (project && !target.continuous && target.artifacts?.clean) {
-          const root = path.resolve(input.cwd, project.root ?? MATRIX_DEFAULTS.projectRoot)
+          const root = resolveFilesystemPath(input.cwd, project.root ?? MATRIX_DEFAULTS.projectRoot)
           try {
-            assertSafeOutputDirectory(root, path.resolve(root, target.outputDir))
+            assertSafeOutputDirectory(root, resolveFilesystemPath(root, target.outputDir))
           }
           catch {
             diagnostics.push({
