@@ -14,7 +14,7 @@ packages:
 
 allowBuilds:
   electron: false
-
+  electron-winstaller: false
   esbuild: true
 
 catalog:
