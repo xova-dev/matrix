@@ -1,11 +1,42 @@
 import { execFileSync, spawn } from 'node:child_process'
 import { once } from 'node:events'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { setTimeout as delay } from 'node:timers/promises'
+import { pathToFileURL } from 'node:url'
 import { execaSync } from 'execa'
+import webpack from 'webpack'
+
+async function verifyPackagedWebpack(directory) {
+  const root = realpathSync(directory)
+  const { default: matrix } = await import(pathToFileURL(path.join(root, 'node_modules/@xova/matrix/dist/webpack.js')).href)
+  writeFileSync(path.join(root, 'webpack-entry.js'), [
+    'import { matrix } from "virtual:matrix/runtime";',
+    'export default matrix.product.name;',
+  ].join('\n'))
+  const compiler = webpack({
+    mode: 'production',
+    context: root,
+    entry: './webpack-entry.js',
+    target: 'node',
+    output: { path: path.join(root, 'webpack-out'), filename: 'entry.js', library: { type: 'commonjs2' } },
+    plugins: [matrix({ types: false })],
+  })
+  await new Promise((resolve, reject) => {
+    compiler.run((error, stats) => {
+      compiler.close((closeError) => {
+        if (error || closeError || stats?.hasErrors())
+          reject(error ?? closeError ?? new Error(stats.toString({ all: false, errors: true })))
+        else resolve()
+      })
+    })
+  })
+  const output = execFileSync(process.execPath, ['-e', 'process.stdout.write(JSON.stringify(require("./webpack-out/entry.js").default))'], { cwd: root, encoding: 'utf8' })
+  if (JSON.parse(output) !== (process.env.MATRIX_PRODUCT_NAME ?? ''))
+    throw new Error('Packaged Webpack loader returned an incorrect snapshot')
+}
 
 async function withTimeout(promise, milliseconds, message) {
   let timeout
@@ -242,6 +273,8 @@ try {
     timeout: 10_000,
   })
 
+  await verifyPackagedWebpack(consumerRoot)
+
   for (const root of ['dev-root', 'stage-root']) {
     const projectRoot = path.join(consumerRoot, root)
     mkdirSync(projectRoot)
@@ -256,6 +289,7 @@ try {
       'const { matrix: runtime } = await import("data:text/javascript;base64," + Buffer.from(code).toString("base64"));',
       'if (runtime.config.enabled !== false || runtime.config.limit !== 3 || runtime.config.mode !== "remote") throw new Error("Typed runtime mismatch");',
       'if ("required" in runtime.config) throw new Error("Main-only field exposed to Web");',
+      'if (!Object.isFrozen(runtime) || !Object.isFrozen(runtime.product) || !Object.isFrozen(runtime.config)) throw new Error("Runtime snapshot is mutable");',
       'writeFileSync("built", "done");',
     ].join('\n'))
   }

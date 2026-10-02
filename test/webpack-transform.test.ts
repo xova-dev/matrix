@@ -1,0 +1,80 @@
+import { Buffer } from 'node:buffer'
+import { spawnSync } from 'node:child_process'
+import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
+import { createRequire } from 'node:module'
+import os from 'node:os'
+import path from 'node:path'
+import process from 'node:process'
+import { afterEach, expect, it, vi } from 'vitest'
+import { MatrixUnplugin } from '../src/unplugin.js'
+import { compileWebpack } from './helpers/webpack.js'
+
+const directories: string[] = []
+const require = createRequire(import.meta.url)
+afterEach(async () => {
+  vi.unstubAllEnvs()
+  await Promise.all(directories.splice(0).map(directory => rm(directory, { recursive: true, force: true })))
+})
+
+async function fixture() {
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'matrix-webpack-transform-')))
+  directories.push(root)
+  return root
+}
+
+it('preserves asset/resource bytes even with a script extension and no Matrix import', async () => {
+  const root = await fixture()
+  const bytes = Buffer.from([0, 255, 254, 128, 65])
+  await writeFile(path.join(root, 'binary.js'), bytes)
+  await writeFile(path.join(root, 'entry.js'), 'import asset from "./binary.js"; globalThis.result = asset;')
+  await compileWebpack({
+    mode: 'production',
+    context: root,
+    entry: './entry.js',
+    target: 'node',
+    output: { path: path.join(root, 'out'), filename: 'entry.cjs', assetModuleFilename: 'payload.bin' },
+    module: { rules: [{ test: /binary\.js$/, type: 'asset/resource' }] },
+    plugins: [MatrixUnplugin.webpack({ types: false })],
+  })
+  expect(await readFile(path.join(root, 'out/payload.bin'))).toEqual(bytes)
+})
+
+it.each([false, true])('preserves original error positions with upstream sourcemap: %s', async (upstream) => {
+  vi.stubEnv('NODE_ENV', 'production')
+  const root = await fixture()
+  const source = [
+    'import { matrix } from "virtual:matrix/runtime";',
+    'const flag = matrix',
+    '  .isProduction;',
+    'globalThis.result = flag;',
+    '  if (matrix.isProduction) throw new Error("MAP_SENTINEL");',
+  ].join('\n')
+  await writeFile(path.join(root, 'entry.js'), source)
+  // A real upstream loader adds two lines and preserves exact input columns.
+  await writeFile(path.join(root, 'upstream.cjs'), [
+    `const { default: MagicString } = require(${JSON.stringify(require.resolve('magic-string'))});`,
+    'module.exports = function(source) {',
+    'const output = new MagicString(source).prepend("// generated\\n// generated\\n");',
+    'this.callback(null, output.toString(), JSON.parse(output.generateMap({',
+    'source: this.resourcePath, includeContent: true, hires: true',
+    '}).toString())); };',
+  ].join('\n'))
+  await compileWebpack({
+    mode: 'production',
+    context: root,
+    entry: './entry.js',
+    target: 'node',
+    devtool: 'source-map',
+    optimization: { minimize: false },
+    output: { path: path.join(root, 'out'), filename: 'entry.cjs' },
+    module: { rules: upstream ? [{ test: /entry\.js$/, use: [path.join(root, 'upstream.cjs')] }] : [] },
+    plugins: [MatrixUnplugin.webpack({ types: false })],
+  })
+  const executed = spawnSync(process.execPath, ['--enable-source-maps', path.join(root, 'out/entry.cjs')], { encoding: 'utf8' })
+  expect(executed.status).toBe(1)
+  expect(executed.stderr).toContain('MAP_SENTINEL')
+  const originalColumn = source.split('\n')[4]!.indexOf('new Error') + 1
+  expect(executed.stderr).toContain(`entry.js:5:${originalColumn})`)
+  const map = JSON.parse(await readFile(path.join(root, 'out/entry.cjs.map'), 'utf8'))
+  expect(map.sourcesContent).toContain(source)
+})

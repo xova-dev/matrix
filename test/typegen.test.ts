@@ -64,6 +64,14 @@ describe('matrix type generation', () => {
       'const numeric: number = renderer.config.windowTitle;',
       '// @ts-expect-error Scope-specific types must not merge or become any.',
       'const wrong: string = renderer.config.windowTitle;',
+      '// @ts-expect-error The snapshot root cannot be changed.',
+      'main.isDevelopment = true;',
+      '// @ts-expect-error Product identity is immutable.',
+      'main.product.name = "changed";',
+      '// @ts-expect-error Public configuration is immutable.',
+      'main.config.windowTitle = "changed";',
+      '// @ts-expect-error Nested objects cannot be replaced.',
+      'main.config = { windowTitle: "changed" };',
     ].join('\n'))
     const program = ts.createProgram([output, renderer, consumer], {
       target: ts.ScriptTarget.ES2022,

@@ -21,6 +21,7 @@ describe('matrix unplugin', () => {
       const handler = typeof configResolved === 'function' ? configResolved : configResolved.handler
       await handler.call({} as never, {
         root: project,
+        plugins: [],
         env: { MAIN_VITE_WINDOW_TITLE: 'Matrix' },
         envPrefix: ['MAIN_VITE_', 'MATRIX_', 'NODE_'],
       } as never)
@@ -29,15 +30,16 @@ describe('matrix unplugin', () => {
     await expect(readFile(path.join(project, '.matrix/types/matrix-runtime.d.ts'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
-  it('allows explicitly generating types from a Vitest config', async () => {
+  it.each([true, false])('allows explicitly generating types with inline=%s', async (inline) => {
     const project = await mkdtemp(path.join(os.tmpdir(), 'matrix-vitest-types-'))
     temporaryDirectories.push(project)
-    const plugin = MatrixUnplugin.vite({ types: true })
+    const plugin = MatrixUnplugin.vite({ types: true, inline })
     const configResolved = (Array.isArray(plugin) ? plugin : [plugin]).find(plugin => plugin.configResolved)?.configResolved
     if (configResolved) {
       const handler = typeof configResolved === 'function' ? configResolved : configResolved.handler
       await handler.call({} as never, {
         root: project,
+        plugins: [],
         env: { MAIN_VITE_WINDOW_TITLE: 'Matrix' },
         envPrefix: ['MAIN_VITE_', 'MATRIX_', 'NODE_'],
       } as never)

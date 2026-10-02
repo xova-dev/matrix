@@ -80,11 +80,15 @@
   },
   "dependencies": {
     "@clack/prompts": "catalog:",
+    "@jridgewell/remapping": "catalog:",
     "archiver": "catalog:",
     "c12": "catalog:",
     "citty": "catalog:",
     "consola": "catalog:",
     "execa": "catalog:",
+    "magic-string": "catalog:",
+    "oxc-parser": "catalog:",
+    "oxc-walker": "catalog:",
     "scule": "catalog:",
     "unplugin": "catalog:",
     "valibot": "catalog:"
@@ -93,7 +97,9 @@
     "@antfu/eslint-config": "catalog:",
     "@types/archiver": "catalog:",
     "@types/node": "catalog:",
+    "@vitejs/plugin-vue": "catalog:",
     "changelogen": "catalog:",
+    "esbuild": "catalog:",
     "eslint": "catalog:",
     "eslint-plugin-format": "catalog:",
     "prettier": "catalog:",
@@ -102,6 +108,8 @@
     "tsdown": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:",
-    "vitest": "catalog:"
+    "vitest": "catalog:",
+    "vue": "catalog:",
+    "webpack": "catalog:"
   }
 }

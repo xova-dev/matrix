@@ -5,6 +5,9 @@ import process from 'node:process'
 import { app, BrowserWindow } from 'electron'
 import { matrix } from 'virtual:matrix/runtime/main'
 
+if (matrix.isDevelopment)
+  void import('../../../../shared/dev-only')
+
 const output = process.env.EXAMPLE_SMOKE_OUTPUT
 const metadata = {
   product: matrix.product.key,

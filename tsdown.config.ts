@@ -11,6 +11,7 @@ export default defineConfig({
     'vite': 'src/vite.ts',
     'rollup': 'src/rollup.ts',
     'webpack': 'src/webpack.ts',
+    'webpack-loader': 'src/webpack-loader.ts',
     'esbuild': 'src/esbuild.ts',
     'runtime': 'src/runtime.ts',
   },

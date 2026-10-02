@@ -99,6 +99,17 @@ async function executable(directory, product) {
   }
 }
 
+async function verifyProductionModules(directory) {
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const file = path.join(directory, entry.name)
+    assert.ok(!entry.name.includes('dev-only'), `Development chunk must not be emitted: ${file}`)
+    if (entry.isDirectory())
+      await verifyProductionModules(file)
+    else if (/\.[cm]?js$/.test(entry.name))
+      assert.ok(!(await readFile(file, 'utf8')).includes('MATRIX_DEV_ONLY_SENTINEL'), `Development module must not be bundled: ${file}`)
+  }
+}
+
 const reports = await mkdtemp(path.join(root, '.matrix-acceptance-'))
 try {
   let prepared = await preparationCount()
@@ -141,6 +152,7 @@ try {
     const destination = path.join(root, 'artifacts', product, environment)
     const before = await readdir(destination).catch(error => error.code === 'ENOENT' ? [] : Promise.reject(error))
     await run(process.execPath, [cli, 'build', product, '-v', 'desktop', '-e', environment])
+    await verifyProductionModules(path.join(root, 'apps/desktop/dist/app'))
     await run(process.execPath, ['scripts/check-types.mjs'])
     const created = (await readdir(destination)).filter(name => !before.includes(name))
     assert.equal(created.length, 1, 'Exactly one new Desktop artifact must be delivered')
