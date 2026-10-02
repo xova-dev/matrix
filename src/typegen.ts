@@ -1,13 +1,15 @@
 import type { EnvPrefix } from './env.js'
+import type { EnvField, EnvSchema } from './types.js'
 import { randomUUID } from 'node:crypto'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import path from 'node:path'
-import { ensureMatrixEnvPrefix, publicEnvConfigName, publicEnvKeys } from './env.js'
+import { ensureMatrixEnvPrefix, publicConfigFields, publicEnvKeys } from './env.js'
 
 export interface GenerateMatrixTypesOptions {
   cwd: string
   env: Record<string, unknown>
   envPrefix?: EnvPrefix
+  envSchema?: EnvSchema
   scope?: string
   output?: string
 }
@@ -23,11 +25,18 @@ export function matrixRuntimeModuleId(scope?: string): string {
 /** Generates project-local declarations without writing any environment values. */
 export async function generateMatrixTypes(options: GenerateMatrixTypesOptions): Promise<string> {
   const prefixes = ensureMatrixEnvPrefix(options.envPrefix)
-  const keys = publicEnvKeys(options.env, prefixes)
-  const configNames = keys
-    .map(key => publicEnvConfigName(key, prefixes))
-    .filter(Boolean)
-  const uniqueConfigNames = [...new Set(configNames)].sort()
+  const schema = options.envSchema ?? {}
+  const keys = publicEnvKeys({ ...schema, ...options.env }, prefixes)
+  const fields = publicConfigFields(keys, prefixes, schema)
+  const configNames = [...fields.keys()].filter(Boolean).sort()
+  const field = (key: string): EnvField | undefined => Object.hasOwn(schema, key) ? schema[key] : undefined
+  const optional = (key: string): string => field(key)?.optional && field(key)?.default === undefined ? '?' : ''
+  const configType = (key: string): string => {
+    const declaration = field(key)
+    return declaration?.type === 'enum'
+      ? [...new Set(declaration.values)].map(value => JSON.stringify(value)).join(' | ')
+      : declaration?.type ?? 'string'
+  }
   const moduleId = matrixRuntimeModuleId(options.scope)
   const defaultOutput = options.scope
     ? `.matrix/types/matrix-runtime-${options.scope}.d.ts`
@@ -41,12 +50,12 @@ export async function generateMatrixTypes(options: GenerateMatrixTypesOptions): 
     'import type { MatrixRuntime } from \'@xova/matrix/runtime\'',
     '',
     'interface MatrixConfig {',
-    ...uniqueConfigNames.map(name => `  readonly ${name}: string`),
+    ...configNames.map(name => `  readonly ${name}${optional(fields.get(name)!)}: ${configType(fields.get(name)!)}`),
     '}',
     '',
     'declare global {',
     '  interface ImportMetaEnv {',
-    ...keys.map(key => `    readonly ${key}: string`),
+    ...keys.map(key => `    readonly ${key}${optional(key)}: string`),
     '  }',
     '}',
     '',

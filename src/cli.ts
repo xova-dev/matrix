@@ -35,6 +35,7 @@ async function generateProjectTypes(loaded: LoadedConfig, products: Product[]): 
     outputs.push(await generateMatrixTypes({
       cwd: path.resolve(loaded.cwd, project.root ?? MATRIX_DEFAULTS.projectRoot),
       env: matrixTypeEnvKeys(...envs),
+      ...(loaded.config.envSchema ? { envSchema: loaded.config.envSchema } : {}),
     }))
   }
   return outputs
@@ -81,10 +82,11 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
     return
   if (args.command === CLI_COMMANDS.plan) {
     const { plan } = selection
+    const { envSchema: _envSchema, ...visiblePlan } = plan
     const declaredEnvKeys = new Set(selection.declaredEnvKeys)
     const visibleEnv = (env: EnvMap): EnvMap => Object.fromEntries(Object.entries(env).filter(([key]) => declaredEnvKeys.has(key) || key.startsWith('MATRIX_') || key === 'NODE_ENV'))
     console.log(JSON.stringify({
-      ...plan,
+      ...visiblePlan,
       ...(plan.preparations ? { preparations: plan.preparations.map(step => ({ ...step, env: visibleEnv(step.env) })) } : {}),
       tasks: plan.tasks.map(({ env, ...task }) => ({
         ...task,

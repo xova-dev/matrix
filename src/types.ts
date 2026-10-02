@@ -7,6 +7,32 @@ export type NodeEnvironment = 'development' | 'production' | 'test'
 /** A flat environment variable map. */
 export type EnvMap = Record<string, Scalar>
 
+/** One root-level environment contract. Defaults use the declared native type. */
+export type EnvField = { optional?: boolean } & (
+  | { type: 'string', default?: string }
+  | { type: 'number', default?: number }
+  | { type: 'boolean', default?: boolean }
+  | { type: 'enum', values: readonly [string, ...string[]], default?: string }
+)
+
+export type EnvSchema = Record<string, EnvField>
+
+type EnvInput<Field extends EnvField> = Field extends { type: 'enum', values: readonly string[] }
+  ? Field['values'][number]
+  : Field extends { type: 'boolean' } ? boolean | 'true' | 'false'
+    : Field extends { type: 'number' } ? number | `${number}` : string
+
+type ConstrainedEnv<Schema extends EnvSchema> = EnvMap & { [Key in keyof Schema]?: EnvInput<Schema[Key]> }
+interface ConstrainedEnvironment<Schema extends EnvSchema> { env?: ConstrainedEnv<Schema>, $env?: Record<string, { env?: ConstrainedEnv<Schema> }> }
+
+/** Apply root declarations to configuration inputs without inferring types from overrides. */
+export type MatrixConfigConstraints<Config extends MatrixConfig> = Config extends { envSchema: infer Schema extends EnvSchema }
+  ? ConstrainedEnvironment<Schema> & {
+    envSchema: { [Key in keyof Schema]: Schema[Key] extends { type: 'enum', values: readonly string[] } ? Schema[Key] & { default?: Schema[Key]['values'][number] } : Schema[Key] }
+    products: { [Key in keyof Config['products']]: ConstrainedEnvironment<Schema> }
+  }
+  : unknown
+
 /** Configuration for a project command such as `dev`, `build`, or `preview`. */
 export interface CommandTarget {
   /** Command to execute from the project's root directory. */
@@ -134,6 +160,8 @@ export interface EnvironmentConfig {
 
 /** Root Matrix configuration. */
 export interface MatrixConfig {
+  /** Flat environment contracts shared by all products; prefixes still control exposure. */
+  envSchema?: EnvSchema
   /** Global environment-specific identity suffixes. */
   suffixes?: Record<string, SuffixConfig>
   /** Base environment variables shared by all products. */
@@ -219,6 +247,8 @@ export interface ProjectPreparation {
 
 /** Ordered executable tasks and their shared artifact destination. */
 export interface ExecutionPlan {
+  /** Internal contract passed to child build adapters; omitted from CLI plan JSON. */
+  envSchema?: EnvSchema
   /** Environment selected for this plan. */
   envName: string
   /** Tasks in dependency-safe execution order. */
@@ -233,7 +263,7 @@ export interface ExecutionPlan {
 /** Input accepted by {@link createExecutionPlan}. */
 export interface CreateExecutionPlanInput {
   /** Resolved root-level configuration values used by planning. */
-  config: { artifacts?: { root?: string, retention?: { keep?: number } }, env?: EnvMap, suffixes?: Record<string, SuffixConfig> }
+  config: { artifacts?: { root?: string, retention?: { keep?: number } }, env?: EnvMap, envSchema?: EnvSchema, suffixes?: Record<string, SuffixConfig> }
   /** Normalized projects keyed by project name. */
   projects: Record<string, Pick<ProjectConfig, 'root' | 'prepare'>>
   /** Normalized products keyed by product name. */

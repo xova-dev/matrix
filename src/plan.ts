@@ -2,6 +2,7 @@ import type { CreateExecutionPlanInput, EnvMap, ExecutionPlan, ExecutionTask, No
 import path from 'node:path'
 import process from 'node:process'
 import { MATRIX_DEFAULTS } from './defaults.js'
+import { resolveSchemaEnv } from './env-schema.js'
 import { readPackageVersion, validateReleaseVersion } from './version.js'
 
 function mergeEnv(...maps: Array<EnvMap | undefined>): EnvMap {
@@ -59,16 +60,17 @@ function projectPreparation(input: PreparationPlanInput, projectName: string): P
     project: projectName,
     command: project.prepare,
     cwd: path.resolve(input.cwd, project.root ?? MATRIX_DEFAULTS.projectRoot),
-    env: mergeEnv(input.config.env, input.externalEnv ?? currentProcessEnv(), {
+    env: resolveSchemaEnv(mergeEnv(input.config.env, input.externalEnv ?? currentProcessEnv(), {
       MATRIX_ENV_NAME: input.envName,
       MATRIX_PROJECT: projectName,
       MATRIX_TARGET: 'prepare',
-    }),
+    }), input.config.envSchema),
   }
 }
 
 function executionPlan(input: PreparationPlanInput, tasks: ExecutionTask[], preparations: ProjectPreparation[]): ExecutionPlan {
   return {
+    ...(input.config.envSchema ? { envSchema: input.config.envSchema } : {}),
     envName: input.envName,
     tasks,
     ...(preparations.length ? { preparations } : {}),
@@ -147,7 +149,7 @@ export function createExecutionPlan(input: CreateExecutionPlanInput): ExecutionP
         preparations.set(variant.project, { ...preparation, beforeTask: id })
     }
 
-    const effectiveEnv = mergeEnv(input.config.env, product.env, input.externalEnv ?? currentProcessEnv())
+    const effectiveEnv = resolveSchemaEnv(mergeEnv(input.config.env, product.env, input.externalEnv ?? currentProcessEnv()), input.config.envSchema)
     const identity = resolvedVariant({ ...product, suffixes: mergeSuffixes(input.config.suffixes, product.suffixes) }, variant, input.envName, effectiveEnv)
     const projectRoot = path.resolve(input.cwd, project.root ?? MATRIX_DEFAULTS.projectRoot)
     const configuredVersion = effectiveEnv.MATRIX_PRODUCT_VERSION ?? variant.version ?? product.version

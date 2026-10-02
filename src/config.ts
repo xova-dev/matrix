@@ -1,4 +1,4 @@
-import type { CommandTarget, EnvMap, MatrixConfig, NormalizedProduct, NormalizedProject, NormalizedTarget, NormalizedVariant, TargetConfig, TargetOverride } from './types.js'
+import type { CommandTarget, EnvMap, MatrixConfig, MatrixConfigConstraints, NormalizedProduct, NormalizedProject, NormalizedTarget, NormalizedVariant, TargetConfig, TargetOverride } from './types.js'
 import path from 'node:path'
 import process from 'node:process'
 import { evaluateConfig } from './config-loader.js'
@@ -18,7 +18,7 @@ export { defaultEnvironmentForTarget, MATRIX_DEFAULTS } from './defaults.js'
  * })
  * ```
  */
-export function defineMatrixConfig<T extends MatrixConfig>(config: T): T {
+export function defineMatrixConfig<const T extends MatrixConfig>(config: T & MatrixConfigConstraints<T>): T {
   return config
 }
 
@@ -32,7 +32,7 @@ export function defineMatrixConfig<T extends MatrixConfig>(config: T): T {
  * })
  * ```
  */
-export function defineMatrixEnv<T extends Record<string, EnvMap>>(environments: T): { [K in keyof T]: { env: T[K] } } {
+export function defineMatrixEnv<const T extends Record<string, EnvMap>>(environments: T): { [K in keyof T]: { env: T[K] } } {
   return Object.fromEntries(Object.entries(environments).map(([name, env]) => [name, { env }])) as { [K in keyof T]: { env: T[K] } }
 }
 

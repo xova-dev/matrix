@@ -189,8 +189,14 @@ try {
     import { root } from './settings.mjs';
     setInterval(() => {}, 1000);
     export default {
+      envSchema: {
+        VITE_ENABLED: { type: 'boolean', default: true },
+        VITE_LIMIT: { type: 'number', default: 3 },
+        VITE_MODE: { type: 'enum', values: ['remote', 'bundled'], default: 'remote' },
+        MAIN_VITE_REQUIRED: { type: 'string' },
+      },
       projects: { web: { root, prepare: ['node prepare.mjs'], targets: { build: 'node build.mjs' } } },
-      products: { app: { variants: { web: 'web' } } },
+      products: { app: { env: { VITE_ENABLED: 'false' }, variants: { web: 'web' } } },
     };
   `)
 
@@ -240,12 +246,25 @@ try {
     const projectRoot = path.join(consumerRoot, root)
     mkdirSync(projectRoot)
     writeFileSync(path.join(projectRoot, 'prepare.mjs'), 'import { appendFileSync } from "node:fs"; appendFileSync("prepared", "done;");')
-    writeFileSync(path.join(projectRoot, 'build.mjs'), 'import { readFileSync, writeFileSync } from "node:fs"; if (readFileSync("prepared", "utf8") !== "done;") throw new Error("Preparation did not run once"); writeFileSync("built", "done");')
+    writeFileSync(path.join(projectRoot, 'build.mjs'), [
+      'import { readFileSync, writeFileSync } from "node:fs";',
+      'import matrix from "@xova/matrix/vite";',
+      'if (readFileSync("prepared", "utf8") !== "done;") throw new Error("Preparation did not run once");',
+      'if (process.env.VITE_ENABLED !== "false" || process.env.VITE_LIMIT !== "3") throw new Error("Raw env types changed");',
+      'const plugin = matrix({ types: false });',
+      'const code = await plugin.load("\\0virtual:matrix/runtime");',
+      'const { matrix: runtime } = await import("data:text/javascript;base64," + Buffer.from(code).toString("base64"));',
+      'if (runtime.config.enabled !== false || runtime.config.limit !== 3 || runtime.config.mode !== "remote") throw new Error("Typed runtime mismatch");',
+      'if ("required" in runtime.config) throw new Error("Main-only field exposed to Web");',
+      'writeFileSync("built", "done");',
+    ].join('\n'))
   }
   const cli = 'node_modules/@xova/matrix/bin/matrix.mjs'
   const planned = JSON.parse(execFileSync(process.execPath, [cli, 'plan', 'app', '-t', 'build', '-e', 'staging'], { cwd: consumerRoot, encoding: 'utf8', timeout: 10_000 }))
   if (planned.preparations?.[0]?.beforeTask !== 'app:web:build' || existsSync(path.join(consumerRoot, 'stage-root/prepared')))
     throw new Error('Packaged CLI did not plan preparation without executing it')
+  if ('envSchema' in planned || planned.tasks[0].env.VITE_ENABLED !== 'false' || planned.tasks[0].env.VITE_LIMIT !== '3')
+    throw new Error('Packaged plan lost defaults or exposed internal schema metadata')
   for (const args of [['build', 'app', '-e', 'staging'], ['prepare', 'app', '-e', 'development']]) {
     execFileSync(process.execPath, [cli, ...args], { cwd: consumerRoot, encoding: 'utf8', timeout: 10_000 })
   }

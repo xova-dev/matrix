@@ -1,4 +1,4 @@
-export interface MatrixRuntime<Config extends object = Record<string, string>> {
+export interface MatrixRuntime<Config extends object = Record<string, string | number | boolean | undefined>> {
   environment: string
   target: string
   nodeEnv: 'development' | 'production' | 'test' | string

@@ -98,8 +98,10 @@
     "eslint-plugin-format": "catalog:",
     "prettier": "catalog:",
     "publint": "catalog:",
+    "rollup": "catalog:",
     "tsdown": "catalog:",
     "typescript": "catalog:",
+    "vite": "catalog:",
     "vitest": "catalog:"
   }
 }

@@ -1,4 +1,59 @@
+import type { EnvField, EnvSchema, Scalar } from './types.js'
 import * as v from 'valibot'
+
+/** Parse a value without including it (or enum choices) in diagnostic messages. */
+export function parseEnvValue(key: string, field: EnvField, value: unknown): Scalar {
+  if (field.type === 'string' && typeof value === 'string')
+    return value
+  if (field.type === 'enum' && typeof value === 'string' && field.values.includes(value))
+    return value
+  if (field.type === 'boolean') {
+    if (typeof value === 'boolean')
+      return value
+    if (value === 'true' || value === 'false')
+      return value === 'true'
+  }
+  if (field.type === 'number') {
+    if (typeof value === 'number' && Number.isFinite(value))
+      return value
+    if (typeof value === 'string' && /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(value) && value === value.trim() && Number.isFinite(Number(value)))
+      return Number(value)
+  }
+  throw new Error(`Invalid environment field ${key}: expected ${field.type}`)
+}
+
+/** Kept dependency-free apart from types so the isolated config worker can load this module. */
+export function assertEnvSchema(value: unknown): EnvSchema {
+  if (!value || typeof value !== 'object' || Array.isArray(value))
+    throw new Error('Invalid envSchema: expected a flat field map')
+  for (const [key, declaration] of Object.entries(value)) {
+    if (!/^[a-z_]\w*$/i.test(key) || key !== key.trim() || key.startsWith('MATRIX_') || key.startsWith('__MATRIX_') || ['NODE_ENV', '__proto__', 'constructor', 'prototype'].includes(key))
+      throw new Error('Invalid or reserved envSchema field name')
+    const invalid = (): never => {
+      throw new Error(`Invalid envSchema declaration for ${key}`)
+    }
+    if (!declaration || typeof declaration !== 'object' || Array.isArray(declaration))
+      invalid()
+    const field = declaration as Record<string, unknown>
+    if (!['string', 'number', 'boolean', 'enum'].includes(String(field.type)))
+      invalid()
+    if (Object.keys(field).some(key => !['type', 'optional', 'default', ...(field.type === 'enum' ? ['values'] : [])].includes(key)))
+      invalid()
+    if (field.optional !== undefined && typeof field.optional !== 'boolean')
+      invalid()
+    if (field.type === 'enum' && (!Array.isArray(field.values) || !field.values.length || field.values.some(value => typeof value !== 'string')))
+      invalid()
+    if (field.default !== undefined) {
+      if ((field.type === 'boolean' && typeof field.default !== 'boolean')
+        || (field.type === 'number' && typeof field.default !== 'number')
+        || ((field.type === 'enum' || field.type === 'string') && typeof field.default !== 'string')) {
+        invalid()
+      }
+      parseEnvValue(key, field as EnvField, field.default)
+    }
+  }
+  return value as EnvSchema
+}
 
 /** SemVer without prefixes, whitespace, or numeric prerelease leading zeroes. */
 export function isReleaseVersion(value: unknown): value is string {
@@ -66,6 +121,7 @@ const product = v.object({
 })
 /** Runtime schema used to validate a loaded Matrix configuration. */
 export const matrixConfigSchema = v.object({
+  envSchema: v.optional(v.pipe(v.unknown(), v.transform(assertEnvSchema))),
   suffixes: v.optional(v.record(v.string(), suffix)),
   env,
   $env: v.optional(v.record(v.string(), environment)),

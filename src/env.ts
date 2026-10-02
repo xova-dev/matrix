@@ -1,4 +1,7 @@
+import type { EnvSchema, Scalar } from './types.js'
 import { camelCase } from 'scule'
+import { MATRIX_ENV_SCHEMA_KEY } from './env-schema.js'
+import { parseEnvValue } from './schema.js'
 
 export type EnvPrefix = string | string[]
 
@@ -28,7 +31,7 @@ export function ensureMatrixEnvPrefix(prefix: EnvPrefix | undefined): string[] {
 export function publicEnvKeys(env: Record<string, unknown>, prefix: EnvPrefix | undefined = ['VITE_', 'MATRIX_']): string[] {
   const prefixes = normalizeEnvPrefix(prefix)
   return Object.keys(env).filter((key) => {
-    if (key.startsWith('MATRIX_') || matrixKeys.has(key))
+    if (key.startsWith('MATRIX_') || key === MATRIX_ENV_SCHEMA_KEY || matrixKeys.has(key))
       return false
     return prefixes.some(candidate => key.startsWith(candidate))
   }).sort()
@@ -39,13 +42,34 @@ export function publicEnvConfigName(key: string, prefixes: string[]): string {
   return prefix ? camelCase(key.slice(prefix.length).toLowerCase()) : ''
 }
 
-export function createPublicConfig(env: Record<string, string>, prefix: EnvPrefix | undefined = ['VITE_', 'MATRIX_']): Record<string, string> {
-  const prefixes = normalizeEnvPrefix(prefix)
-  const config: Record<string, string> = {}
-  for (const key of publicEnvKeys(env, prefixes)) {
+/** Typed fields must have an unambiguous public property; legacy collisions keep their order. */
+export function publicConfigFields(keys: string[], prefixes: string[], schema: EnvSchema): Map<string, string> {
+  const fields = new Map<string, string>()
+  for (const key of keys) {
     const name = publicEnvConfigName(key, prefixes)
-    if (name)
-      config[name] = env[key]!
+    if (!name)
+      continue
+    const previous = fields.get(name)
+    if (previous && (Object.hasOwn(schema, previous) || Object.hasOwn(schema, key)))
+      throw new Error(`Ambiguous environment fields ${previous} and ${key}: both map to matrix.config.${name}`)
+    fields.set(name, key)
+  }
+  return fields
+}
+
+export function createPublicConfig(env: Record<string, string>, prefix: EnvPrefix | undefined = ['VITE_', 'MATRIX_'], schema: EnvSchema = {}): Record<string, Scalar> {
+  const prefixes = normalizeEnvPrefix(prefix)
+  const config: Record<string, Scalar> = {}
+  const fields = publicConfigFields(publicEnvKeys({ ...schema, ...env }, prefixes), prefixes, schema)
+  for (const [name, key] of fields) {
+    const field = Object.hasOwn(schema, key) ? schema[key] : undefined
+    const value = Object.hasOwn(env, key) ? env[key] : field?.default
+    if (value === undefined) {
+      if (field && !field.optional)
+        throw new Error(`Missing required environment field ${key}`)
+      continue
+    }
+    config[name] = field ? parseEnvValue(key, field, value) : value
   }
   return config
 }

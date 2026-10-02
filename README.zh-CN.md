@@ -189,6 +189,38 @@ dotenv 文件按 `.env`、`.env.local`、`.env.<environment>` 和 `.env.<environ
 
 配置文件求值期间可以通过 `process.env` 读取本次 dotenv，继承的 Shell 变量保持更高优先级。每次配置加载或环境列表读取都在短生命周期 Worker 中执行，拥有独立环境和完整的 ESM/CommonJS 模块缓存；本地配置依赖随本次加载一起求值，不修改宿主环境或宿主模块缓存。结果返回后 Worker 会被销毁，因此配置文件应生成数据，不应启动持久服务。执行计划保留独立环境快照；返回的 `layers` 是 JSON 诊断快照，不携带可执行对象。
 
+### 环境变量 schema
+
+在根级 `envSchema` 集中声明类型、默认值和可选性；产品仍通过 `env` / `$env` 覆盖值，不声明自己的 schema，也不从覆盖值推断类型：
+
+```ts
+export default defineMatrixConfig({
+  envSchema: {
+    VITE_RENDERER_MODE: { type: 'enum', values: ['remote', 'bundled'], default: 'remote' },
+    VITE_CLOUD_SUBMISSION_ENABLED: { type: 'boolean', default: false },
+    VITE_RETRY_COUNT: { type: 'number', default: 3 },
+    VITE_LABEL: { type: 'string', optional: true },
+  },
+  projects: { web: { targets: { build: 'vite build' } } },
+  products: {
+    app: {
+      env: { VITE_RENDERER_MODE: 'bundled' },
+      variants: { web: 'web' },
+    },
+  },
+})
+```
+
+`defineMatrixConfig()` 按根级声明约束全局、产品及其 `$env` 的输入，enum 默认值也必须属于 `values`。默认值使用原生类型；boolean 的覆盖值接受布尔值或精确的 `'true'` / `'false'`，number 接受有限数字或十进制／科学计数法字符串，不接受空白、空字符串、十六进制、NaN 或 Infinity。string 不做隐式转换，enum 按字符串精确匹配。
+
+覆盖顺序保持为 `schema default < global env/$env < product env/$env < dotenv < process.env`。默认值只补缺失字段；最终覆盖值非法会报错，不回退默认值，错误只标明字段和期望类型，不输出值。未声明字段保持原有行为。
+
+通过 Matrix 启动构建后，`matrix.config.cloudSubmissionEnabled` 为 boolean、`retryCount` 为 number、`rendererMode` 为 enum 字面量联合类型。原始 `process.env` 和生成的 `ImportMetaEnv` 字段仍为 string。`optional: true` 且无默认值的缺失字段不出现在 runtime 对象中，生成的属性带 `?`；有默认值则生成必有属性。`matrix prepare` 和构建插件均使用同一份声明生成类型，不把实际值或非公开字段写入类型文件。
+
+required 的检查范围是当前构建插件消费的公开前缀：例如 Web 使用 `VITE_` 时，不要求缺失的 `MAIN_VITE_*`。计划中的任务和准备命令会校验各自最终环境中的已有值并应用默认值，不全局要求所有字段都存在；类型生成本身不要求字段有值。Vite 在最终配置解析完成时校验当前 `envPrefix` 的字段，其他适配器在构建启动时校验；不依赖应用导入 runtime 模块，关闭类型生成也不会跳过校验。同一前缀内的 required 声明适用于所有消费该前缀的项目，项目专属字段应使用独立前缀或标记 optional。非公开字段的已有值也会校验，但缺失检查由应用负责。`scope` 继续隔离模块与类型文件，公开范围仍由 `envPrefix` 决定，schema 不扩大它。不同字段若映射到同一个公开属性且涉及 schema，直接报错，避免类型与值不一致。
+
+schema 通过 Matrix 的内部子进程上下文传给适配器，不会进入 `matrix.config`；没有通过 Matrix 启动的独立构建保持原有字符串行为。`MATRIX_*`、`__MATRIX_*` 和 `NODE_ENV` 为保留字段，不能声明在 schema 中。plan 输出仍可能包含已声明变量的实际值，不应公开粘贴。
+
 ### 产品发布版本
 
 多个产品复用同一项目时，可以分别声明发布版本；变体也可以覆盖产品版本：

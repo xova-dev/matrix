@@ -1,8 +1,10 @@
 import type { UnpluginFactory } from 'unplugin'
 import type { EnvPrefix } from './env.js'
 import type { MatrixRuntime } from './runtime.js'
+import type { EnvSchema } from './types.js'
 import process from 'node:process'
 import { createUnplugin } from 'unplugin'
+import { MATRIX_ENV_SCHEMA_KEY, readEnvSchema } from './env-schema.js'
 import { createPublicConfig, ensureMatrixEnvPrefix, normalizeEnvPrefix } from './env.js'
 import { generateMatrixTypes, matrixRuntimeModuleId } from './typegen.js'
 
@@ -20,7 +22,7 @@ export interface MatrixUnpluginOptions {
   types?: boolean | { output?: string }
 }
 
-export function createMatrixRuntime(env: Record<string, string>, envPrefix: EnvPrefix | undefined = ['VITE_', 'MATRIX_']): MatrixRuntime {
+export function createMatrixRuntime(env: Record<string, string>, envPrefix: EnvPrefix | undefined = ['VITE_', 'MATRIX_'], envSchema: EnvSchema = readEnvSchema(env)): MatrixRuntime {
   const prefixes = normalizeEnvPrefix(envPrefix)
   // Vite's config.env only contains prefixed variables, so keep a Matrix-prefixed
   // snapshot as a fallback while preserving NODE_ENV for the child process.
@@ -43,7 +45,7 @@ export function createMatrixRuntime(env: Record<string, string>, envPrefix: EnvP
       ...(env.MATRIX_PRODUCT_APP_ID ? { appId: env.MATRIX_PRODUCT_APP_ID } : {}),
       ...(env.MATRIX_PRODUCT_VERSION ? { version: env.MATRIX_PRODUCT_VERSION } : {}),
     },
-    config: createPublicConfig(env, prefixes),
+    config: createPublicConfig(env, prefixes, envSchema),
   }
 }
 
@@ -63,6 +65,7 @@ function isVitest(): boolean {
 export const matrixUnpluginFactory: UnpluginFactory<MatrixUnpluginOptions | undefined> = (options = {}) => {
   let envPrefix = ensureMatrixEnvPrefix(options.envPrefix)
   let env = currentProcessEnv()
+  const envSchema = readEnvSchema(env)
   let typesGenerated = false
   const runtimeId = matrixRuntimeModuleId(options.scope)
   const resolvedRuntimeId = `\0${runtimeId}`
@@ -74,6 +77,7 @@ export const matrixUnpluginFactory: UnpluginFactory<MatrixUnpluginOptions | unde
       cwd,
       env,
       envPrefix,
+      envSchema,
       ...(options.scope ? { scope: options.scope } : {}),
       ...(typeof options.types === 'object' && options.types.output ? { output: options.types.output } : {}),
     })
@@ -85,15 +89,23 @@ export const matrixUnpluginFactory: UnpluginFactory<MatrixUnpluginOptions | unde
     vite: {
       config(config) {
         const configuredPrefix = options.envPrefix ?? config.envPrefix
-        return { envPrefix: ensureMatrixEnvPrefix(configuredPrefix) }
+        return {
+          envPrefix: ensureMatrixEnvPrefix(configuredPrefix),
+          // Vite snapshots env before configResolved; mask both direct reads and its env object.
+          define: { [`import.meta.env.${MATRIX_ENV_SCHEMA_KEY}`]: 'undefined' },
+        }
       },
       async configResolved(config) {
+        // Even a custom broad prefix must not make internal metadata public.
+        delete config.env[MATRIX_ENV_SCHEMA_KEY]
         envPrefix = ensureMatrixEnvPrefix(config.envPrefix)
         env = config.env
+        createPublicConfig(env, envPrefix, envSchema)
         await generateTypes(config.root)
       },
     },
     async buildStart() {
+      createPublicConfig(env, envPrefix, envSchema)
       await generateTypes(process.cwd())
     },
     resolveId(id) {
@@ -102,7 +114,7 @@ export const matrixUnpluginFactory: UnpluginFactory<MatrixUnpluginOptions | unde
     load(id) {
       if (id !== resolvedRuntimeId)
         return undefined
-      return runtimeModule(createMatrixRuntime(env, envPrefix))
+      return runtimeModule(createMatrixRuntime(env, envPrefix, envSchema))
     },
   }
 }

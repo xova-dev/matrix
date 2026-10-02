@@ -189,6 +189,38 @@ Dotenv files are loaded as `.env`, `.env.local`, `.env.<environment>`, and `.env
 
 Configuration files can read the selected dotenv values through `process.env` during evaluation, with inherited Shell values taking precedence. Each configuration load or environment discovery runs in a short-lived Worker with its own environment and complete ESM/CommonJS module cache. Local configuration imports are evaluated together for that load; the host's environment and module caches are not modified. The Worker is terminated after returning the result, so configuration files should produce data rather than start persistent services. Execution plans retain a separate environment snapshot; returned `layers` are JSON diagnostic snapshots, not executable objects.
 
+### Environment schema
+
+Declare types, defaults, and optionality once in root-level `envSchema`. Products still override values through `env` / `$env`; they do not declare separate schemas or infer types from overrides:
+
+```ts
+export default defineMatrixConfig({
+  envSchema: {
+    VITE_RENDERER_MODE: { type: 'enum', values: ['remote', 'bundled'], default: 'remote' },
+    VITE_CLOUD_SUBMISSION_ENABLED: { type: 'boolean', default: false },
+    VITE_RETRY_COUNT: { type: 'number', default: 3 },
+    VITE_LABEL: { type: 'string', optional: true },
+  },
+  projects: { web: { targets: { build: 'vite build' } } },
+  products: {
+    app: {
+      env: { VITE_RENDERER_MODE: 'bundled' },
+      variants: { web: 'web' },
+    },
+  },
+})
+```
+
+`defineMatrixConfig()` constrains global, product, and `$env` inputs from the root declaration, including enum defaults. Defaults use native types. Boolean overrides accept booleans or exactly `'true'` / `'false'`; numbers accept finite numbers or decimal/scientific-notation strings, not whitespace, empty strings, hexadecimal, NaN, or Infinity. Strings are not implicitly coerced; enums match strings exactly.
+
+Precedence remains `schema default < global env/$env < product env/$env < dotenv < process.env`. Defaults only fill missing fields. Invalid final overrides fail without falling back; errors identify the field and expected type, not its value. Undeclared fields retain their existing behavior.
+
+For builds launched through Matrix, `matrix.config.cloudSubmissionEnabled` is a boolean, `retryCount` is a number, and `rendererMode` has an enum literal-union type. Raw `process.env` and generated `ImportMetaEnv` fields remain strings. An absent `optional: true` field without a default is omitted from the runtime object and gets a `?` property; defaulted fields are non-optional. Both `matrix prepare` and build adapters generate types from the declaration, without writing actual values or non-public fields into type files.
+
+Required-field checks apply to the consuming adapter's public prefixes: a Web build using `VITE_` does not require missing `MAIN_VITE_*` fields. Planned tasks and preparation commands validate present values in their own final environments and apply defaults, without globally requiring every field. Type generation itself does not require values. Vite validates fields within the final `envPrefix` when configuration is resolved; other adapters validate at build startup. Validation does not depend on importing the runtime module and still runs with type generation disabled. Required declarations apply to all projects consuming the same prefix; use distinct prefixes or optional declarations for project-specific fields. Present non-public values are validated too, but applications own their missing-value checks. `scope` still isolates module and declaration files; `envPrefix` still controls exposure, and schemas never expand it. Ambiguous public property mappings involving schema fields are rejected to avoid mismatched types and values.
+
+Matrix passes the schema to adapters through internal child-process context, never through `matrix.config`. Standalone builds not launched by Matrix keep the existing string behavior. `MATRIX_*`, `__MATRIX_*`, and `NODE_ENV` are reserved and cannot be declared in a schema. Plan output may still contain actual declared environment values and should not be posted publicly.
+
 ### Product release versions
 
 Products sharing a project can declare independent release versions, with optional variant overrides:

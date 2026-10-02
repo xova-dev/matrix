@@ -37,6 +37,11 @@ describe('cli entry', () => {
       }
       await writeFile(path.join(cwd, 'matrix.config.mjs'), `export default {
         env: { VITE_SHARED: 'shared' },
+        envSchema: {
+          VITE_ENABLED: { type: 'boolean', default: false },
+          VITE_MODE: { type: 'enum', values: ['remote', 'bundled'] },
+          MAIN_VITE_SECRET: { type: 'string' },
+        },
         projects: {
           web: { root: 'apps/web', prepare: 'node prepare.mjs', targets: { dev: 'vite' } },
           desktop: { root: 'apps/desktop', prepare: ['node prepare.mjs'], targets: { dev: 'vite' } },
@@ -56,6 +61,9 @@ describe('cli entry', () => {
       expect(webTypes).toContain('readonly VITE_WEB_ONLY: string')
       expect(webTypes).toContain('readonly VITE_SHARED: string')
       expect(webTypes).toContain('readonly VITE_SECOND_WEB: string')
+      expect(webTypes).toContain('readonly enabled: boolean')
+      expect(webTypes).toContain('readonly mode: "remote" | "bundled"')
+      expect(webTypes).not.toContain('MAIN_VITE_SECRET')
       expect(webTypes).not.toContain('readonly VITE_DESKTOP_ONLY: string')
       expect(desktopTypes).toContain('readonly VITE_DESKTOP_ONLY: string')
       expect(desktopTypes).toContain('readonly VITE_SHARED: string')

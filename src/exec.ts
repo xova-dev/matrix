@@ -6,6 +6,7 @@ import process from 'node:process'
 import consola from 'consola'
 import { execa } from 'execa'
 import { materializeArtifact } from './artifact.js'
+import { MATRIX_ENV_SCHEMA_KEY, serializeEnvSchema } from './env-schema.js'
 import { stopProcessTrees } from './process-tree.js'
 
 type Child = ReturnType<typeof execa>
@@ -109,7 +110,10 @@ export async function runExecutionPlan(plan: ExecutionPlan): Promise<{ children:
       consola.info(`${task.id} [${index + 1}/${commands.length}] → ${command}`)
       const child = execa(command, {
         cwd: task.cwd,
-        env: Object.fromEntries(Object.entries(task.env).map(([key, value]) => [key, String(value)])),
+        env: {
+          ...Object.fromEntries(Object.entries(task.env).map(([key, value]) => [key, String(value)])),
+          [MATRIX_ENV_SCHEMA_KEY]: serializeEnvSchema(plan.envSchema),
+        },
         extendEnv: true,
         forceKillAfterDelay: false,
         shell: true,
