@@ -1,7 +1,7 @@
-import { access, mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } from 'node:fs/promises'
+import { access, mkdir, mkdtemp, readFile, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises'
 import os from 'node:os'
-import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import path from 'pathe'
 import { afterEach, describe, expect, it } from 'vitest'
 import { runCli } from '../../src/cli/index.js'
 import { loadMatrixConfig } from '../../src/config/index.js'
@@ -19,7 +19,7 @@ afterEach(async () => {
 })
 
 async function workspace(config: string, project: { root?: string, configFile?: string } = {}): Promise<string> {
-  const cwd = await mkdtemp(path.join(os.tmpdir(), 'matrix host types-'))
+  const cwd = path.normalize(await realpath(await mkdtemp(path.join(os.tmpdir(), 'matrix host types-'))))
   directories.push(cwd)
   await symlink(fileURLToPath(new URL('../../node_modules', import.meta.url)), path.join(cwd, 'node_modules'), 'junction')
   await writeFile(path.join(cwd, 'package.json'), '{"type":"module"}')
@@ -170,6 +170,18 @@ describe('host-aware type preparation', () => {
     expect(await readFile(existing, 'utf8')).toBe('// existing declaration\n')
     for (const output of outputs.slice(1))
       await expect(access(path.join(cwd, '.matrix', output))).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('merges host roots that refer to the same directory through a filesystem alias', async () => {
+    const cwd = await workspace('export default { root: process.env.MATRIX_PRODUCT_KEY === "alpha" ? "app" : "linked-app", envPrefix: "APP_", plugins: [matrix()] };')
+    await mkdir(path.join(cwd, 'app'))
+    await symlink(path.join(cwd, 'app'), path.join(cwd, 'linked-app'), 'junction')
+
+    await runCli(['prepare'])
+
+    const declaration = await readFile(path.join(cwd, 'app/.matrix/types/matrix-runtime.d.ts'), 'utf8')
+    expect(declaration).toContain('readonly alpha: string')
+    expect(declaration).toContain('readonly beta: string')
   })
 
   it('honors types:false instead of falling back to generic declarations', async () => {

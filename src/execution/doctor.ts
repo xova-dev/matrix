@@ -1,6 +1,6 @@
 import type { CreateExecutionPlanInput, MatrixConfig } from '../types.js'
 import { stat } from 'node:fs/promises'
-import path from 'node:path'
+import path from 'pathe'
 import { MATRIX_DEFAULTS } from '../config/defaults.js'
 import { assertSafeOutputDirectory } from '../utils/output.js'
 import { createExecutionPlan, dependencyCondition, ExecutionPlanError } from './plan.js'

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { mkdir, readdir, rename, rm, stat } from 'node:fs/promises'
-import path from 'node:path'
+import path from 'pathe'
 import { readPackageVersion, validateReleaseVersion } from '../product/version.js'
 import { archiveDirectory } from './archive.js'
 

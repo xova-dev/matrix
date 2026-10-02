@@ -2,10 +2,10 @@
 import assert from 'node:assert/strict'
 import { access, mkdtemp, readdir, readFile, realpath, rm } from 'node:fs/promises'
 import net from 'node:net'
-import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { execa } from 'execa'
+import path from 'pathe'
 
 const root = await realpath(fileURLToPath(new URL('../', import.meta.url)))
 const cli = fileURLToPath(new URL('../bin/matrix.mjs', import.meta.resolve('@xova/matrix')))

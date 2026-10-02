@@ -218,6 +218,9 @@ catalogs:
     oxc-walker:
       specifier: ^1.1.1
       version: 1.1.1
+    pathe:
+      specifier: ^2.0.3
+      version: 2.0.3
     prettier:
       specifier: ^3.9.8
       version: 3.9.8
@@ -292,6 +295,9 @@ importers:
       oxc-walker:
         specifier: 'catalog:'
         version: 1.1.1(@oxc-project/types@0.152.0)(oxc-parser@0.152.0)(rolldown@1.2.9)
+      pathe:
+        specifier: 'catalog:'
+        version: 2.0.3
       scule:
         specifier: 'catalog:'
         version: 1.3.0
@@ -386,6 +392,9 @@ importers:
       execa:
         specifier: 10.0.1
         version: 10.0.1
+      pathe:
+        specifier: 2.0.3
+        version: 2.0.3
       typescript:
         specifier: 6.0.3
         version: 6.0.3

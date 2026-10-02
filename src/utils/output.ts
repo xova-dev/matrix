@@ -1,3 +1,4 @@
+// Cleanup must preserve native filesystem semantics, including Windows casing.
 import path from 'node:path'
 
 /** Shared by static preflight and the executor; no filesystem mutations. */

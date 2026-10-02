@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import path from 'node:path'
+import path from 'pathe'
 import { isReleaseVersion } from '../config/schema.js'
 
 export function validateReleaseVersion(value: unknown, source: string): string {

@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
-import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import path from 'pathe'
 import ts from 'typescript'
 import { afterEach, describe, expect, it } from 'vitest'
 import { generateMatrixTypes, matrixRuntimeModuleId } from '../../src/typegen/generate.js'

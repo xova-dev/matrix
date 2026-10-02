@@ -1,5 +1,5 @@
 import type { CreateExecutionPlanInput, ExecutionPlan, ExecutionTask, ProjectPreparation, TargetDependency } from '../types.js'
-import path from 'node:path'
+import path from 'pathe'
 import { MATRIX_DEFAULTS } from '../config/defaults.js'
 import { resolveSchemaEnv } from '../config/env-schema.js'
 import { resolveProductContext } from '../product/context.js'

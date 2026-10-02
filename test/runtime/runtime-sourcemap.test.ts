@@ -2,9 +2,9 @@ import type { Plugin } from 'rollup'
 import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { SourceMap } from 'node:module'
 import os from 'node:os'
-import path from 'node:path'
 import { runInNewContext } from 'node:vm'
 import MagicString from 'magic-string'
+import path from 'pathe'
 import { rollup } from 'rollup'
 import { build as vite } from 'vite'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -36,7 +36,7 @@ it.each(['vite', 'rollup'] as const)('%s composes upstream and Matrix maps back 
   const upstream: Plugin = {
     name: 'upstream-source-map',
     transform(code, id) {
-      if (id !== entry)
+      if (path.normalize(id) !== entry)
         return
       const output = new MagicString(code)
       output.prepend('// generated upstream line one\n// generated upstream line two\n')
@@ -81,7 +81,7 @@ it.each(['vite', 'rollup'] as const)('%s composes upstream and Matrix maps back 
   expect(() => runInNewContext(chunk.code, context)).toThrow('MAP_SENTINEL')
   expect(context.result).toBe(true)
   // No runtime dependency should remain for this entirely static Matrix read.
-  expect(Object.keys(chunk.modules)).toEqual([entry])
+  expect(Object.keys(chunk.modules).map(id => path.normalize(id))).toEqual([entry])
 
   const map = new SourceMap(JSON.parse(chunk.map.toString()))
   // Check both the first statement after the collapsed multiline read and a

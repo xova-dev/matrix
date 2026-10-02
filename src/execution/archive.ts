@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto'
 import { createWriteStream } from 'node:fs'
 import { mkdir, rename, stat, unlink } from 'node:fs/promises'
-import path from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import { TarArchive, ZipArchive } from 'archiver'
+import path from 'pathe'
 
 /** Archives a directory as a zip or gzip-compressed tar file. */
 export async function archiveDirectory(sourceDir: string, destination: string, format: 'zip' | 'tar.gz'): Promise<void> {

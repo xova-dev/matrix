@@ -4,8 +4,8 @@ import type { Comment } from 'oxc-parser'
 import type { MatrixRuntime } from '../runtime/index.js'
 import { Buffer } from 'node:buffer'
 import { readFile } from 'node:fs/promises'
-import path from 'node:path'
 import remapping from '@jridgewell/remapping'
+import path from 'pathe'
 import { inlineMatrixReads } from '../runtime/transform.js'
 
 // Undefined means no map; null means the owning loader must handle this map.

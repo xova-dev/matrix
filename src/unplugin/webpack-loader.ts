@@ -1,5 +1,6 @@
 import type { LoaderContext } from 'webpack'
 import type { MatrixRuntime } from '../runtime/index.js'
+import { normalize } from 'pathe'
 
 interface Options {
   runtimeId: string
@@ -18,7 +19,10 @@ export default async function transform(this: LoaderContext<Options>, code: stri
       ? await import(new URL('../runtime/transform.ts', import.meta.url).href)
       : await import('../runtime/transform.js')) as typeof import('../runtime/transform.js')
     const { runtimeId, runtime } = this.getOptions()
-    const result = inlineMatrixReads(code, this.resourcePath, runtimeId, runtime)
+    // MagicString uses forward slashes in map sources, including on Windows.
+    // Webpack must receive the same identity to compose an upstream map.
+    const sourceId = normalize(this.resourcePath)
+    const result = inlineMatrixReads(code, sourceId, runtimeId, runtime)
     if (!result) {
       callback(null, code, inputMap, meta)
       return
@@ -27,7 +31,7 @@ export default async function transform(this: LoaderContext<Options>, code: stri
     // Always forward a new map, even without an upstream map. Compose existing
     // maps with Webpack's own implementation instead of adding a dependency.
     const combined = inputMap
-      ? new this._compiler!.webpack.sources.SourceMapSource(result.code, this.resourcePath, map, code, inputMap, true).map()
+      ? new this._compiler!.webpack.sources.SourceMapSource(result.code, sourceId, map, code, inputMap, true).map()
       : map
     // Upstream AST metadata describes the old source and must not be reused.
     callback(null, result.code, combined)

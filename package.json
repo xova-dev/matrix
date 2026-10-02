@@ -91,6 +91,7 @@
     "magic-string": "catalog:",
     "oxc-parser": "catalog:",
     "oxc-walker": "catalog:",
+    "pathe": "catalog:",
     "scule": "catalog:",
     "unplugin": "catalog:",
     "valibot": "catalog:"

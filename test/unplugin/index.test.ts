@@ -1,6 +1,6 @@
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import os from 'node:os'
-import path from 'node:path'
+import path from 'pathe'
 import { afterEach, describe, expect, it } from 'vitest'
 import { MatrixUnplugin } from '../../src/unplugin/index.js'
 

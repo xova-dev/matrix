@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
-import path from 'node:path'
 import { runInNewContext } from 'node:vm'
+import path from 'pathe'
 import { rollup } from 'rollup'
 import { build as vite } from 'vite'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -65,7 +65,7 @@ it.each((['vite', 'rollup', 'webpack'] as const).flatMap(host => (host === 'vite
           return path.join(root, id)
       },
       async load(id: string) {
-        if (id === path.join(root, 'opaque.js'))
+        if (!id.startsWith('\0') && !/[?#]/.test(id) && path.normalize(id) === path.join(root, 'opaque.js'))
           return `export default ${JSON.stringify(await readFile(id, 'utf8'))};`
         if (id === '\0foreign-module')
           return 'export const matrix = { isProduction: 7 };'

@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
-import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import path from 'pathe'
 import ts from 'typescript'
 
-const desktop = fileURLToPath(new URL('../apps/desktop/', import.meta.url))
+const desktop = path.normalize(fileURLToPath(new URL('../apps/desktop/', import.meta.url)))
 
 function check(scope, virtualFiles = {}) {
   const configPath = path.join(desktop, `tsconfig.${scope}.json`)
@@ -14,8 +14,8 @@ function check(scope, virtualFiles = {}) {
   const host = ts.createCompilerHost(parsed.options)
   const readFile = host.readFile.bind(host)
   const fileExists = host.fileExists.bind(host)
-  host.readFile = file => virtualFiles[file] ?? readFile(file)
-  host.fileExists = file => Object.hasOwn(virtualFiles, file) || fileExists(file)
+  host.readFile = file => virtualFiles[path.normalize(file)] ?? readFile(file)
+  host.fileExists = file => Object.hasOwn(virtualFiles, path.normalize(file)) || fileExists(file)
   const program = ts.createProgram([...parsed.fileNames, ...Object.keys(virtualFiles)], parsed.options, host)
   return ts.getPreEmitDiagnostics(program)
 }

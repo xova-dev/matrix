@@ -2,7 +2,7 @@ import type { EnvPrefix } from '../runtime/public-env.js'
 import type { EnvField, EnvSchema } from '../types.js'
 import { randomUUID } from 'node:crypto'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
-import path from 'node:path'
+import path from 'pathe'
 import { ensureMatrixEnvPrefix, publicConfigFields, publicEnvKeys } from '../runtime/public-env.js'
 
 export interface GenerateMatrixTypesOptions {

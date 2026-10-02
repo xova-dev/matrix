@@ -1,7 +1,7 @@
 import { realpath, writeFile } from 'node:fs/promises'
-import path from 'node:path'
 import process from 'node:process'
 import matrix from '@xova/matrix/vite'
+import path from 'pathe'
 import { build, createServer } from 'vite'
 
 const config = {

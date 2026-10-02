@@ -1,12 +1,13 @@
 import type { EnvMap, MatrixConfig } from '../../src/types.js'
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
-import path from 'node:path'
+import path from 'pathe'
 import { afterEach, describe, expect, it } from 'vitest'
 import { normalizeMatrixConfig } from '../../src/config/index.js'
 import { diagnoseWorkspace } from '../../src/execution/doctor.js'
 import { runExecutionPlan } from '../../src/execution/exec.js'
 import { createExecutionPlan } from '../../src/execution/plan.js'
+import { assertSafeOutputDirectory } from '../../src/utils/output.js'
 
 const directories: string[] = []
 afterEach(async () => {
@@ -25,6 +26,14 @@ function input(raw: MatrixConfig, cwd: string, externalEnv: EnvMap = {}) {
 }
 
 describe('static doctor', () => {
+  it.skipIf(process.platform !== 'win32')('preserves Windows casing and drive semantics in cleanup guards', () => {
+    for (const output of ['c:/work/app', 'C:/WORK', 'c:/'])
+      expect(() => assertSafeOutputDirectory('C:/Work/App', output)).toThrow('unsafe output directory')
+    for (const output of ['C:/Work/App/dist', 'C:/Work/App-other', 'D:/artifacts'])
+      expect(() => assertSafeOutputDirectory('C:/Work/App', output)).not.toThrow()
+    expect(() => assertSafeOutputDirectory('//server/share/App', '//SERVER/share')).toThrow('unsafe output directory')
+  })
+
   it('aggregates project and cleanup errors without changing files', async () => {
     const cwd = await workspace()
     await writeFile(path.join(cwd, 'not-a-directory'), 'keep')

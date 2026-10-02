@@ -1,6 +1,6 @@
 import type { CommandTarget, EnvMap, MatrixConfig, MatrixConfigConstraints, NormalizedProduct, NormalizedProject, NormalizedTarget, NormalizedVariant, TargetConfig, TargetOverride } from '../types.js'
-import path from 'node:path'
 import process from 'node:process'
+import path from 'pathe'
 import { MATRIX_ENVIRONMENTS } from '../types.js'
 import { mergeEnv } from '../utils/env.js'
 import { MATRIX_DEFAULTS } from './defaults.js'

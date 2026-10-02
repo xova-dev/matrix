@@ -1,16 +1,52 @@
 import { Buffer } from 'node:buffer'
 import { spawnSync } from 'node:child_process'
 import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
-import { createRequire } from 'node:module'
+import { createRequire, SourceMap } from 'node:module'
 import os from 'node:os'
-import path from 'node:path'
+import { win32 } from 'node:path'
 import process from 'node:process'
+import MagicString from 'magic-string'
+import path from 'pathe'
 import { afterEach, expect, it, vi } from 'vitest'
+import webpack from 'webpack'
+import { createMatrixRuntime } from '../../src/runtime/snapshot.js'
 import { MatrixUnplugin } from '../../src/unplugin/index.js'
+import transform from '../../src/unplugin/webpack-loader.js'
 import { compileWebpack } from '../helpers/webpack.js'
 
 const directories: string[] = []
 const require = createRequire(import.meta.url)
+
+it('composes upstream maps for a Windows loader resource on every platform', async () => {
+  const resourcePath = win32.join('C:/workspace/app', 'entry.js')
+  const source = 'import { matrix } from "virtual:matrix/runtime";\nglobalThis.result = matrix.isProduction;'
+  const upstream = new MagicString(source).prepend('// upstream\n// upstream\n')
+  const inputMap = JSON.parse(upstream.generateMap({ source: resourcePath, includeContent: true, hires: true }).toString())
+  // Only the host callback/options boundary is supplied here; both transforms
+  // and Webpack's source-map composition use their real implementations.
+  const output = await new Promise<{ code: string, map: ConstructorParameters<typeof SourceMap>[0] }>((resolve, reject) => {
+    const context = {
+      resourcePath,
+      getOptions: () => ({ runtimeId: 'virtual:matrix/runtime', runtime: createMatrixRuntime({ NODE_ENV: 'production' }) }),
+      _compiler: { webpack },
+      async: () => (error: Error | null, code: string, map: ConstructorParameters<typeof SourceMap>[0]) => {
+        if (error)
+          reject(error)
+        else resolve({ code, map })
+      },
+    } as unknown as ThisParameterType<typeof transform>
+    void transform.call(context, upstream.toString(), inputMap, undefined).catch(reject)
+  })
+  expect(output.code).toContain('globalThis.result = (true)')
+  const prefix = output.code.slice(0, output.code.indexOf('globalThis.result')).split('\n')
+  expect(new SourceMap(output.map).findEntry(prefix.length - 1, prefix.at(-1)!.length)).toMatchObject({
+    originalSource: 'C:/workspace/app/entry.js',
+    originalLine: 1,
+    originalColumn: 0,
+  })
+  expect(output.map.sourcesContent).toContain(source)
+})
+
 afterEach(async () => {
   vi.unstubAllEnvs()
   await Promise.all(directories.splice(0).map(directory => rm(directory, { recursive: true, force: true })))

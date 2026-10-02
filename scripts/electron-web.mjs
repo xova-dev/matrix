@@ -2,10 +2,10 @@ import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { cp, mkdtemp, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
-import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { execa } from 'execa'
+import path from 'pathe'
 import { parse, parseAllDocuments, stringify } from 'yaml'
 
 const repository = await realpath(fileURLToPath(new URL('../', import.meta.url)))
@@ -73,7 +73,7 @@ try {
     throw new Error('Matrix package was not generated')
   await prepareLockedConsumer(tarball)
   await run('pnpm', ['install', '--frozen-lockfile', '--ignore-scripts'], consumer)
-  const installed = await realpath(path.join(consumer, 'node_modules/@xova/matrix'))
+  const installed = path.normalize(await realpath(path.join(consumer, 'node_modules/@xova/matrix')))
   assert.ok(installed.startsWith(`${consumer}${path.sep}`), 'Acceptance must use the installed tarball, not the repository')
   await run(process.execPath, ['acceptance/verify.mjs'], consumer)
 }

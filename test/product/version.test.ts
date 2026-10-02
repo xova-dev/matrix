@@ -1,7 +1,7 @@
 import type { MatrixConfig } from '../../src/types.js'
 import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
-import path from 'node:path'
+import path from 'pathe'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { loadMatrixConfig, normalizeMatrixConfig } from '../../src/config/index.js'
 import { assertMatrixConfig } from '../../src/config/schema.js'

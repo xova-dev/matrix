@@ -1,10 +1,11 @@
 import type { loadMatrixConfig } from '../config/index.js'
 import type { EnvMap } from '../types.js'
 import type { GenerateMatrixTypesOptions } from './generate.js'
-import path from 'node:path'
+import path from 'pathe'
 import { MATRIX_DEFAULTS } from '../config/defaults.js'
 import { MATRIX_ENV_SCHEMA_KEY, resolveSchemaEnv, serializeEnvSchema } from '../config/env-schema.js'
 import { resolveProductContext } from '../product/context.js'
+import { resolveExistingPath } from '../utils/path.js'
 import { generateMatrixTypes, matrixTypeEnvKeys } from './generate.js'
 import { findTypeHost, mergePreparedTypes, resolveHostTypes } from './prepare.js'
 
@@ -28,8 +29,12 @@ export async function generateProjectTypes(loaded: LoadedConfig, products: Produ
   const batches: GenerateMatrixTypesOptions[][] = []
   for (const [projectName, linkedProducts] of projectProducts) {
     const project = loaded.projects[projectName]!
-    const cwd = path.resolve(loaded.cwd, project.root ?? MATRIX_DEFAULTS.projectRoot)
+    let cwd = path.resolve(loaded.cwd, project.root ?? MATRIX_DEFAULTS.projectRoot)
     const host = await findTypeHost(cwd, project.configFile)
+    if (host) {
+      cwd = await resolveExistingPath(cwd)
+      host.configFile = await resolveExistingPath(host.configFile)
+    }
     const envs: Array<EnvMap | undefined> = [loaded.config.env, loaded.externalEnv, ...linkedProducts.map(product => product.env)]
     const genericTypes: GenerateMatrixTypesOptions[] = [{
       cwd,

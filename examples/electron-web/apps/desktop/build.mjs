@@ -1,10 +1,10 @@
 /* eslint-disable antfu/no-top-level-await -- Executable example entrypoint, not a library module. */
 import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
-import path from 'node:path'
 import process from 'node:process'
 import { build, Platform } from 'electron-builder'
 import { build as buildElectron } from 'electron-vite'
+import path from 'pathe'
 
 const require = createRequire(import.meta.url)
 const metadata = {

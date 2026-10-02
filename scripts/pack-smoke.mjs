@@ -2,11 +2,11 @@ import { execFileSync, spawn } from 'node:child_process'
 import { once } from 'node:events'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
-import path from 'node:path'
 import process from 'node:process'
 import { setTimeout as delay } from 'node:timers/promises'
 import { pathToFileURL } from 'node:url'
 import { execaSync } from 'execa'
+import path from 'pathe'
 import webpack from 'webpack'
 
 async function verifyPackagedWebpack(directory) {

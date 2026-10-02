@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises'
 import os from 'node:os'
-import path from 'node:path'
+import path from 'pathe'
 import { describe, expect, it } from 'vitest'
 import { materializeArtifact } from '../../src/execution/artifact.js'
 

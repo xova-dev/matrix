@@ -1,4 +1,4 @@
-import path from 'node:path'
+import path from 'pathe'
 
 /** Only the main Vue module and its known script-block requests are eligible. */
 export function isVueScriptRequest(id: string): boolean {
