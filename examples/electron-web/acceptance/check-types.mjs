@@ -28,7 +28,7 @@ function assertValid(diagnostics) {
   }))
 }
 
-// Use the actual generated virtual-module types, not hand-written substitutes.
+// Acceptance-only probes use the actual generated declarations.
 for (const [scope, own, other, valueType] of [
   ['main', 'mainOnly', 'preloadOnly', 'string'],
   ['preload', 'preloadOnly', 'mainOnly', 'number'],

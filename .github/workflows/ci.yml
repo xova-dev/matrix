@@ -28,6 +28,11 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
       - run: pnpm typecheck
+      - run: pnpm build
+      - run: pnpm check:examples
+      - run: pnpm --filter matrix-basic-example run doctor
+      - run: pnpm --filter matrix-basic-example run test
+      - run: pnpm --filter matrix-basic-example run build
 
   compatibility:
     name: ${{ matrix.os }} / Node ${{ matrix.node }}

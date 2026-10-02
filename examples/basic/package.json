@@ -4,12 +4,17 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "matrix": "node ../../bin/matrix.mjs",
-    "build": "node ../../bin/matrix.mjs build app --env staging",
-    "dev": "node ../../bin/matrix.mjs dev app",
-    "doctor": "node ../../bin/matrix.mjs doctor",
-    "plan": "node ../../bin/matrix.mjs plan app --target build --env staging",
-    "preview": "node ../../bin/matrix.mjs preview app --env production",
-    "test": "node ../../bin/matrix.mjs test app --env development"
+    "matrix": "matrix",
+    "build": "matrix build app --env staging",
+    "dev": "matrix dev app",
+    "doctor": "matrix doctor",
+    "plan": "matrix plan app --target build --env staging",
+    "preview": "matrix preview app --variant web --env staging",
+    "test": "matrix test app --env development",
+    "check:types": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@xova/matrix": "workspace:*",
+    "typescript": "catalog:"
   }
 }

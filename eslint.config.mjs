@@ -18,7 +18,6 @@ export default antfu(
       'examples/**/.matrix/**',
       'examples/**/.prepared/**',
       'examples/**/.matrix-acceptance-*/**',
-      'examples/electron-web/package-lock.json',
     ],
   },
   {
@@ -27,7 +26,7 @@ export default antfu(
     },
   },
   {
-    // An independently installed consumer: npm cannot resolve the repository's catalog.
+    // Keep framework versions independent from the core integration-test toolchain.
     files: ['examples/electron-web/package.json'],
     rules: { 'pnpm/json-enforce-catalog': 'off' },
   },

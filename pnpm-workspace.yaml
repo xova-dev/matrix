@@ -1,8 +1,20 @@
 minimumReleaseAgeExcludePrune: true
+
 trustPolicy: no-downgrade
+# Approved migration exception: already pinned in the former Electron npm lockfile.
+trustPolicyExclude:
+  - semver@5.7.2
+  - semver@6.3.1
+
 shellEmulator: true
 
+packages:
+  - examples/basic
+  - examples/electron-web
+
 allowBuilds:
+  electron: false
+
   esbuild: true
 
 catalog:
@@ -36,3 +48,4 @@ catalog:
   vitest: ^5.0.1
   vue: ^3.5.43
   webpack: ^5.111.1
+  yaml: ^2.9.1

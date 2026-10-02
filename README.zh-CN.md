@@ -429,7 +429,7 @@ matrix <custom-target> [product] [--env <environment>]
 
 ## 开发
 
-示例分为轻量的 `examples/basic` 和真实的 [双 Web / 共享 Electron 示例](examples/electron-web/README.md)。后者验证 Alpha/Beta 两产品的开发依赖、准备、打包和应用启动；运行 `pnpm test:electron-web` 可在临时项目中消费本次 tarball，运行 `pnpm example:electron-web` 可初始化本地可操作示例。
+示例分为轻量的 `examples/basic` 和真实的 [双 Web / 共享 Electron 示例](examples/electron-web/README.md)，统一加入 pnpm workspace；安装方式和验证边界见 [示例导航](examples/README.md)。根目录执行 `pnpm install --frozen-lockfile`、`pnpm build` 后，可用 `pnpm example:basic` 打开入门向导，或用 `pnpm example:electron-web` 准备 Electron 项目。`pnpm check:examples` 检查两个 Matrix 配置；`pnpm test:electron-web` 则在仓库外、依赖锁定的临时项目中独立安装本次 tarball，验收开发、构建和真实应用启动。
 
 独立 CI 在 PR、main push 和手动触发时运行。质量检查使用 Node 24；兼容性矩阵覆盖 Ubuntu、macOS、Windows 与精确的 Node 22.18.0 / 24.x。每组验证核心行为和安装包，Node 24 额外执行真实 Electron/Web 验收。平台特有的 POSIX 信号断言明确跳过 Windows，通用取消与执行行为仍验证。
 

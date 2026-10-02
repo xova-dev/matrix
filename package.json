@@ -70,13 +70,15 @@
     "release:prepare": "changelogen --clean --release --push",
     "release:github": "changelogen gh release",
     "test:pack": "node scripts/pack-smoke.mjs",
-    "example:electron-web": "node scripts/electron-web.mjs --setup",
+    "example:basic": "pnpm --filter matrix-basic-example run matrix",
+    "example:electron-web": "pnpm --filter matrix-electron-web-example run prepare:projects",
+    "check:examples": "pnpm --filter matrix-basic-example run check:types && pnpm --filter matrix-electron-web-example run check:config",
     "test:electron-web": "node scripts/electron-web.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build"
+    "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm check:examples"
   },
   "dependencies": {
     "@clack/prompts": "catalog:",
@@ -110,6 +112,7 @@
     "vite": "catalog:",
     "vitest": "catalog:",
     "vue": "catalog:",
-    "webpack": "catalog:"
+    "webpack": "catalog:",
+    "yaml": "catalog:"
   }
 }

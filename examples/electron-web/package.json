@@ -9,11 +9,13 @@
     "build:alpha": "matrix build alpha -v desktop -e staging",
     "build:beta": "matrix build beta -v desktop -e production",
     "prepare:projects": "matrix prepare",
-    "check:types": "node scripts/check-types.mjs",
-    "verify": "node scripts/verify.mjs"
+    "check:config": "tsc -p tsconfig.json",
+    "check:types": "pnpm run check:config && tsc -p apps/desktop/tsconfig.main.json && tsc -p apps/desktop/tsconfig.preload.json",
+    "verify": "node acceptance/verify.mjs"
   },
   "devDependencies": {
     "@types/node": "24.19.0",
+    "@xova/matrix": "workspace:*",
     "electron": "44.4.5",
     "electron-builder": "26.15.3",
     "electron-vite": "5.0.0",

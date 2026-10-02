@@ -1,4 +1,4 @@
-import { defineMatrixConfig, defineMatrixEnv } from '../../src/config/index.ts'
+import { defineMatrixConfig, defineMatrixEnv } from '@xova/matrix'
 
 export default defineMatrixConfig({
   projects: {
@@ -16,14 +16,12 @@ export default defineMatrixConfig({
       targets: {
         dev: { command: 'node dev.mjs', readyWhen: { type: 'port', port: 5320 } },
         build: { command: ['node build.mjs', 'node test.mjs'], artifacts: { mode: 'move' } },
-        preview: { command: 'node preview.mjs', readyWhen: { type: 'port', port: 5321 } },
         test: 'node test.mjs',
       },
     },
   },
   products: {
     app: {
-      id: 'app',
       name: 'Matrix App',
       slug: 'matrix-app',
       appId: 'com.example.matrix',

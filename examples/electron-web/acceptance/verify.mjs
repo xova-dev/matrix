@@ -1,3 +1,4 @@
+/* eslint-disable antfu/no-top-level-await -- Executable acceptance entrypoint, not a library module. */
 import assert from 'node:assert/strict'
 import { access, mkdtemp, readdir, readFile, realpath, rm } from 'node:fs/promises'
 import net from 'node:net'
@@ -120,7 +121,8 @@ try {
   for (const scope of ['main', 'preload'])
     await access(path.join(root, 'apps/desktop/.matrix/types', `matrix-runtime-${scope}.d.ts`))
   await assert.rejects(access(path.join(root, 'apps/desktop/.matrix/types/matrix-runtime.d.ts')), { code: 'ENOENT' })
-  await run(process.execPath, ['scripts/check-types.mjs'])
+  await run('pnpm', ['run', 'check:types'])
+  await run(process.execPath, ['acceptance/check-types.mjs'])
   for (const project of ['web-alpha', 'web-beta', 'desktop'])
     await assert.rejects(access(path.join(root, 'apps', project, 'dist')), { code: 'ENOENT' })
   console.log('Preparation verified: scoped types compile before any development server or build.')
@@ -139,7 +141,8 @@ try {
       EXAMPLE_RUN_DIR: runDirectory,
     })
     verifyReport(JSON.parse(await readFile(output, 'utf8')), product, 'development', false)
-    await run(process.execPath, ['scripts/check-types.mjs'])
+    await run('pnpm', ['run', 'check:types'])
+    await run(process.execPath, ['acceptance/check-types.mjs'])
     const webPid = Number(await readFile(path.join(runDirectory, `web-${product}.started`), 'utf8'))
     assert.throws(() => process.kill(webPid, 0), 'Web process must stop when the Desktop self-check finishes')
     await assert.rejects(access(path.join(runDirectory, `web-${product === 'alpha' ? 'beta' : 'alpha'}.started`)), { code: 'ENOENT' })
@@ -153,7 +156,8 @@ try {
     const before = await readdir(destination).catch(error => error.code === 'ENOENT' ? [] : Promise.reject(error))
     await run(process.execPath, [cli, 'build', product, '-v', 'desktop', '-e', environment])
     await verifyProductionModules(path.join(root, 'apps/desktop/dist/app'))
-    await run(process.execPath, ['scripts/check-types.mjs'])
+    await run('pnpm', ['run', 'check:types'])
+    await run(process.execPath, ['acceptance/check-types.mjs'])
     const created = (await readdir(destination)).filter(name => !before.includes(name))
     assert.equal(created.length, 1, 'Exactly one new Desktop artifact must be delivered')
     const binary = await executable(path.join(destination, created[0]), product)
