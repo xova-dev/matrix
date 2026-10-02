@@ -16,7 +16,7 @@ const env = { ...process.env }
 delete env.ELECTRON_RUN_AS_NODE
 // Isolate fixture configuration, while preserving PATH, proxies, and download caches.
 for (const key of Object.keys(env)) {
-  if (key.startsWith('MATRIX_') || key.startsWith('EXAMPLE_') || key.startsWith('WEB_') || key === 'VITE_API_BASE' || key === 'VITE_PRODUCT_LABEL')
+  if (/^(?:MATRIX_|EXAMPLE_|WEB_|VITE_|MAIN_VITE_|PRELOAD_VITE_|RENDERER_VITE_)/.test(key) || key === '__MATRIX_ENV_SCHEMA')
     delete env[key]
 }
 
@@ -61,6 +61,24 @@ function verifyReport(report, product, environment, packaged) {
   assert.equal(report.runtime.environment, environment)
   const suffix = environment === 'production' ? '' : environment === 'development' ? '-dev' : '-staging'
   assert.equal(report.runtime.config.apiBase, `https://${product}${suffix}.example.test`)
+  for (const [scope, snapshot] of [['main', report.main], ['preload', report.preload], ['renderer', report.runtime]]) {
+    assert.ok(snapshot, `${scope} must execute in the real Electron application`)
+    assert.equal(snapshot.product.key, product)
+    assert.equal(snapshot.environment, environment)
+    assert.equal(snapshot.isDevelopment, !packaged)
+    assert.equal(snapshot.config.enabled, false)
+    assert.equal(snapshot.config.retryCount, product === 'alpha' ? 2 : 3)
+    assert.equal(snapshot.config.apiBase, report.runtime.config.apiBase)
+    assert.equal(Object.hasOwn(snapshot.config, 'mainOnly'), scope === 'main')
+    assert.equal(Object.hasOwn(snapshot.config, 'preloadOnly'), scope === 'preload')
+    if (scope !== 'renderer') {
+      const scopeValue = scope === 'main' ? `${product}-main` : product === 'alpha' ? 101 : 202
+      assert.equal(snapshot.config.scopeValue, scopeValue)
+    }
+    else {
+      assert.equal(Object.hasOwn(snapshot.config, 'scopeValue'), false)
+    }
+  }
 }
 
 async function executable(directory, product) {
@@ -103,6 +121,7 @@ try {
       EXAMPLE_RUN_DIR: runDirectory,
     })
     verifyReport(JSON.parse(await readFile(output, 'utf8')), product, 'development', false)
+    await run(process.execPath, ['scripts/check-types.mjs'])
     const webPid = Number(await readFile(path.join(runDirectory, `web-${product}.started`), 'utf8'))
     assert.throws(() => process.kill(webPid, 0), 'Web process must stop when the Desktop self-check finishes')
     await assert.rejects(access(path.join(runDirectory, `web-${product === 'alpha' ? 'beta' : 'alpha'}.started`)), { code: 'ENOENT' })
@@ -115,13 +134,14 @@ try {
     const destination = path.join(root, 'artifacts', product, environment)
     const before = await readdir(destination).catch(error => error.code === 'ENOENT' ? [] : Promise.reject(error))
     await run(process.execPath, [cli, 'build', product, '-v', 'desktop', '-e', environment])
+    await run(process.execPath, ['scripts/check-types.mjs'])
     const created = (await readdir(destination)).filter(name => !before.includes(name))
     assert.equal(created.length, 1, 'Exactly one new Desktop artifact must be delivered')
     const binary = await executable(path.join(destination, created[0]), product)
     assert.ok(binary, 'Unpacked application executable is missing')
     const output = path.join(reports, `${product}-${environment}.json`)
     // Deliberately pass conflicting host values: packaged resources must remain authoritative.
-    await run(binary, ['--no-sandbox'], { EXAMPLE_SMOKE_OUTPUT: output, MATRIX_PRODUCT_KEY: 'wrong-product', VITE_API_BASE: 'wrong-api' })
+    await run(binary, ['--no-sandbox'], { EXAMPLE_SMOKE_OUTPUT: output, MATRIX_PRODUCT_KEY: 'wrong-product', VITE_API_BASE: 'wrong-api', MAIN_VITE_SCOPE_VALUE: 'wrong-main', PRELOAD_VITE_SCOPE_VALUE: '999' })
     verifyReport(JSON.parse(await readFile(output, 'utf8')), product, environment, true)
     assert.equal(await preparationCount(), ++prepared)
     console.log(`Packaged application verified: ${product} / ${environment}.`)

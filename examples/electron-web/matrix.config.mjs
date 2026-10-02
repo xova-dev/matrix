@@ -28,6 +28,14 @@ function product(name, label) {
       WEB_DIST_DIR: `../web-${name}/dist`,
       VITE_PRODUCT_LABEL: label,
       VITE_API_BASE: `https://${name}-dev.example.test`,
+      VITE_ENABLED: false,
+      VITE_RETRY_COUNT: name === 'alpha' ? 2 : 3,
+      MAIN_VITE_RENDERER_URL: `http://127.0.0.1:${ports[name]}`,
+      MAIN_VITE_PAGE: name,
+      MAIN_VITE_SCOPE_VALUE: `${name}-main`,
+      MAIN_VITE_MAIN_ONLY: `main-only-${name}`,
+      PRELOAD_VITE_SCOPE_VALUE: name === 'alpha' ? 101 : 202,
+      PRELOAD_VITE_PRELOAD_ONLY: `preload-only-${name}`,
     },
     $env: defineMatrixEnv({
       staging: { VITE_API_BASE: `https://${name}-staging.example.test` },
@@ -41,6 +49,12 @@ function product(name, label) {
 }
 
 export default defineMatrixConfig({
+  envSchema: {
+    VITE_ENABLED: { type: 'boolean' },
+    VITE_RETRY_COUNT: { type: 'number' },
+    MAIN_VITE_SCOPE_VALUE: { type: 'string' },
+    PRELOAD_VITE_SCOPE_VALUE: { type: 'number' },
+  },
   projects: {
     'web-alpha': webProject('alpha'),
     'web-beta': webProject('beta'),

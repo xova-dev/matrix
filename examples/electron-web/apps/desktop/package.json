@@ -5,5 +5,5 @@
   "description": "Shared Electron shell for the Matrix multi-product example",
   "author": "Matrix contributors",
   "license": "MIT",
-  "main": "main.cjs"
+  "main": "dist/main/index.js"
 }

@@ -1,0 +1,4 @@
+{
+  "extends": "./tsconfig.json",
+  "include": ["src/preload/**/*.ts", ".matrix/types/**/*.d.ts"]
+}

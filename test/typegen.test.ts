@@ -1,6 +1,8 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+import ts from 'typescript'
 import { afterEach, describe, expect, it } from 'vitest'
 import { generateMatrixTypes, matrixRuntimeModuleId } from '../src/typegen.js'
 
@@ -35,7 +37,7 @@ describe('matrix type generation', () => {
     expect(declaration).not.toContain('API_SECRET')
   })
 
-  it('isolates declarations and virtual modules by scope', async () => {
+  it('typechecks coexisting scopes without module-resolution overrides or skipped declaration checks', async () => {
     const project = await mkdtemp(path.join(os.tmpdir(), 'matrix-types-'))
     temporaryDirectories.push(project)
     const output = await generateMatrixTypes({
@@ -48,5 +50,32 @@ describe('matrix type generation', () => {
     expect(output).toBe(path.join(project, '.matrix/types/matrix-runtime-main.d.ts'))
     expect(declaration).toContain('declare module \'virtual:matrix/runtime/main\'')
     expect(matrixRuntimeModuleId('renderer')).toBe('virtual:matrix/runtime/renderer')
+    const renderer = await generateMatrixTypes({
+      cwd: project,
+      scope: 'renderer',
+      env: { VITE_WINDOW_TITLE: '123' },
+      envSchema: { VITE_WINDOW_TITLE: { type: 'number' } },
+    })
+    const consumer = path.join(project, 'consumer.ts')
+    await writeFile(consumer, [
+      'import { matrix as main } from "virtual:matrix/runtime/main";',
+      'import { matrix as renderer } from "virtual:matrix/runtime/renderer";',
+      'const title: string = main.config.windowTitle;',
+      'const numeric: number = renderer.config.windowTitle;',
+      '// @ts-expect-error Scope-specific types must not merge or become any.',
+      'const wrong: string = renderer.config.windowTitle;',
+    ].join('\n'))
+    const program = ts.createProgram([output, renderer, consumer], {
+      target: ts.ScriptTarget.ES2022,
+      module: ts.ModuleKind.ESNext,
+      moduleResolution: ts.ModuleResolutionKind.Bundler,
+      strict: true,
+      noEmit: true,
+      skipLibCheck: false,
+      types: [],
+      // Resolve the package's own public type entry before the build step.
+      paths: { '@xova/matrix/runtime': [fileURLToPath(new URL('../src/runtime.ts', import.meta.url))] },
+    })
+    expect(ts.getPreEmitDiagnostics(program).map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'))).toEqual([])
   })
 })

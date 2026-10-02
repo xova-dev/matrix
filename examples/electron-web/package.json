@@ -9,12 +9,16 @@
     "build:alpha": "matrix build alpha -v desktop -e staging",
     "build:beta": "matrix build beta -v desktop -e production",
     "prepare:projects": "matrix prepare",
+    "check:types": "node scripts/check-types.mjs",
     "verify": "node scripts/verify.mjs"
   },
   "devDependencies": {
+    "@types/node": "24.19.0",
     "electron": "44.4.5",
     "electron-builder": "26.15.3",
+    "electron-vite": "5.0.0",
     "execa": "10.0.1",
-    "vite": "8.3.1"
+    "typescript": "6.0.3",
+    "vite": "7.3.6"
   }
 }
