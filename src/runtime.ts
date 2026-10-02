@@ -13,6 +13,7 @@ export interface MatrixRuntime<Config extends object = Record<string, string>> {
     name: string
     slug: string
     appId?: string
+    version?: string
   }
   config: Config
 }

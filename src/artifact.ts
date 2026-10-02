@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto'
-import { mkdir, readdir, readFile, rename, rm, stat } from 'node:fs/promises'
+import { mkdir, readdir, rename, rm, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { archiveDirectory } from './archive.js'
+import { readPackageVersion, validateReleaseVersion } from './version.js'
 
 export interface MaterializeArtifactOptions {
   sourceDir: string
@@ -10,6 +11,7 @@ export interface MaterializeArtifactOptions {
   environment: string
   variant: string
   projectRoot: string
+  version?: string
   mode: 'move' | 'archive' | 'both'
   format: 'zip' | 'tar.gz'
   retention: number
@@ -23,20 +25,6 @@ function archiveExtension(format: 'zip' | 'tar.gz'): string {
 function timestamp(value: Date): string {
   const pad = (part: number): string => String(part).padStart(2, '0')
   return `${String(value.getFullYear()) + pad(value.getMonth() + 1) + pad(value.getDate())}-${pad(value.getHours())}${pad(value.getMinutes())}${pad(value.getSeconds())}`
-}
-
-async function readPackageVersion(projectRoot: string): Promise<string> {
-  const packagePath = path.join(projectRoot, 'package.json')
-  let packageJson: unknown
-  try {
-    packageJson = JSON.parse(await readFile(packagePath, 'utf8'))
-  }
-  catch (error) {
-    throw new Error(`Unable to read package version from ${packagePath}`, { cause: error })
-  }
-  if (!packageJson || typeof packageJson !== 'object' || typeof (packageJson as { version?: unknown }).version !== 'string' || !(packageJson as { version: string }).version.trim())
-    throw new Error(`Package version is required for artifact output: ${packagePath}`)
-  return (packageJson as { version: string }).version.trim()
 }
 
 async function ensureDirectory(sourceDir: string): Promise<void> {
@@ -93,7 +81,9 @@ async function pruneArtifacts(directory: string, variant: string, keep: number):
 
 export async function materializeArtifact(options: MaterializeArtifactOptions): Promise<string> {
   await ensureDirectory(options.sourceDir)
-  const version = await readPackageVersion(options.projectRoot)
+  const version = options.version === undefined
+    ? readPackageVersion(options.projectRoot, true)
+    : validateReleaseVersion(options.version, 'artifact version')
   const now = options.now ?? new Date()
   const stem = `${options.variant}-${version}-${timestamp(now)}`
   const artifactDirectory = path.join(options.artifactsRoot, options.product, options.environment)

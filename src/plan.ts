@@ -2,6 +2,7 @@ import type { CreateExecutionPlanInput, EnvMap, ExecutionPlan, ExecutionTask, No
 import path from 'node:path'
 import process from 'node:process'
 import { MATRIX_DEFAULTS } from './defaults.js'
+import { readPackageVersion, validateReleaseVersion } from './version.js'
 
 function mergeEnv(...maps: Array<EnvMap | undefined>): EnvMap {
   return Object.assign({}, ...maps.filter(Boolean))
@@ -149,6 +150,10 @@ export function createExecutionPlan(input: CreateExecutionPlanInput): ExecutionP
     const effectiveEnv = mergeEnv(input.config.env, product.env, input.externalEnv ?? currentProcessEnv())
     const identity = resolvedVariant({ ...product, suffixes: mergeSuffixes(input.config.suffixes, product.suffixes) }, variant, input.envName, effectiveEnv)
     const projectRoot = path.resolve(input.cwd, project.root ?? MATRIX_DEFAULTS.projectRoot)
+    const configuredVersion = effectiveEnv.MATRIX_PRODUCT_VERSION ?? variant.version ?? product.version
+    const version = configuredVersion === undefined
+      ? readPackageVersion(projectRoot, !target.continuous && !!target.artifacts)
+      : validateReleaseVersion(configuredVersion, `${id} release version (MATRIX_PRODUCT_VERSION / variant.version / product.version)`)
     const task: ExecutionTask = {
       id,
       product: productName,
@@ -159,6 +164,7 @@ export function createExecutionPlan(input: CreateExecutionPlanInput): ExecutionP
       name: identity.name,
       slug: identity.slug,
       ...(identity.appId ? { appId: identity.appId } : {}),
+      ...(version === undefined ? {} : { version }),
       command: target.command,
       cwd: projectRoot,
       env: mergeEnv(effectiveEnv, {
@@ -168,6 +174,7 @@ export function createExecutionPlan(input: CreateExecutionPlanInput): ExecutionP
         MATRIX_PRODUCT_ID: identity.id,
         MATRIX_PRODUCT_NAME: identity.name,
         MATRIX_PRODUCT_SLUG: identity.slug,
+        ...(version === undefined ? {} : { MATRIX_PRODUCT_VERSION: version }),
         MATRIX_VARIANT: variantName,
         MATRIX_PROJECT: variant.project,
         MATRIX_NODE_ENV: target.nodeEnv,

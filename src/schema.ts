@@ -1,7 +1,15 @@
 import * as v from 'valibot'
 
+/** SemVer without prefixes, whitespace, or numeric prerelease leading zeroes. */
+export function isReleaseVersion(value: unknown): value is string {
+  return typeof value === 'string'
+    && value === value.trim()
+    && /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?:0|[1-9]\d*|\d*[a-z-][0-9a-z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-z-][0-9a-z-]*))*)?(?:\+[0-9a-z-]+(?:\.[0-9a-z-]+)*)?$/i.test(value)
+}
+
 const scalar = v.union([v.string(), v.number(), v.boolean()])
 const env = v.optional(v.record(v.string(), scalar))
+const version = v.optional(v.pipe(v.string(), v.check(value => isReleaseVersion(value), 'Expected a SemVer release version')))
 const suffix = v.object({ name: v.optional(v.string()), slug: v.optional(v.string()), appId: v.optional(v.string()) })
 const targetDependency = v.object({ variant: v.string(), target: v.optional(v.string()), condition: v.optional(v.picklist(['completed', 'ready'])) })
 const dependency = v.union([v.string(), targetDependency])
@@ -41,6 +49,7 @@ const variant = v.union([v.string(), v.object({
   name: v.optional(v.string()),
   slug: v.optional(v.string()),
   appId: v.optional(v.string()),
+  version,
   suffixes: v.optional(v.record(v.string(), suffix)),
   targets: v.optional(v.record(v.string(), targetOverride)),
 })])
@@ -49,6 +58,7 @@ const product = v.object({
   name: v.optional(v.string()),
   slug: v.optional(v.string()),
   appId: v.optional(v.string()),
+  version,
   env,
   $env: v.optional(v.record(v.string(), environment)),
   suffixes: v.optional(v.record(v.string(), suffix)),

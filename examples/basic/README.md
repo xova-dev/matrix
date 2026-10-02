@@ -11,6 +11,7 @@ It demonstrates:
 - `dev`, `build`, `preview`, and `test` targets
 - readiness checks for long-running targets
 - product and variant `appId`, `name`, and `slug` values
+- an explicit product release version shared by both variants
 - product-scoped `qa`, `staging`, and `production` environment variables
 - environment-specific identity suffixes
 - a variant dependency shared by `dev` and `build`
@@ -53,3 +54,6 @@ not these example servers. It does not replace acceptance in a real interactive 
 
 The build command cleans both project `dist` directories first, creates a Web ZIP while retaining
 the current Web output, and moves the Desktop output under `examples/basic/artifacts/app/staging/`.
+Both variants inherit `products.app.version` (`0.1.0`) for their runtime context and artifact names.
+Their project directories do not need a `package.json`; the example-root package version is not
+used as a fallback for these nested projects.

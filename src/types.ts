@@ -86,6 +86,8 @@ export type VariantConfig = string | {
   slug?: string
   /** Application identifier used in generated task metadata. */
   appId?: string
+  /** Release version overriding the product version; no identity suffix is applied. */
+  version?: string
   /** Environment-specific identity suffixes for this variant. */
   suffixes?: Record<string, SuffixConfig>
   /** Target overrides or additional targets for this variant. */
@@ -112,6 +114,8 @@ export interface ProductConfig {
   slug?: string
   /** Base application identifier. */
   appId?: string
+  /** Release version, falling back to the selected project's package.json version. */
+  version?: string
   /** Base environment variables for every environment. */
   env?: EnvMap
   /** Product-scoped environment overrides loaded by c12's `$env` mechanism. */
@@ -182,6 +186,8 @@ export interface ExecutionTask {
   slug: string
   /** Resolved application identifier, when configured. */
   appId?: string
+  /** Resolved release version, when available. */
+  version?: string
   /** Command or ordered commands to execute. */
   command: string | string[]
   /** Working directory for the command. */

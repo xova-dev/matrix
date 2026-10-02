@@ -153,6 +153,7 @@ MATRIX_PRODUCT_ID
 MATRIX_PRODUCT_NAME
 MATRIX_PRODUCT_SLUG
 MATRIX_PRODUCT_APP_ID
+MATRIX_PRODUCT_VERSION
 MATRIX_VARIANT
 MATRIX_PROJECT
 MATRIX_NODE_ENV
@@ -187,6 +188,31 @@ matrix plan app --target preview --env qa
 dotenv 文件按 `.env`、`.env.local`、`.env.<environment>` 和 `.env.<environment>.local` 加载。Matrix 会将 `VITE_*`、`NUXT_*` 等变量传递给子进程，应用框架继续负责自己的运行时配置。
 
 配置文件求值期间可以通过 `process.env` 读取本次 dotenv，继承的 Shell 变量保持更高优先级。每次配置加载或环境列表读取都在短生命周期 Worker 中执行，拥有独立环境和完整的 ESM/CommonJS 模块缓存；本地配置依赖随本次加载一起求值，不修改宿主环境或宿主模块缓存。结果返回后 Worker 会被销毁，因此配置文件应生成数据，不应启动持久服务。执行计划保留独立环境快照；返回的 `layers` 是 JSON 诊断快照，不携带可执行对象。
+
+### 产品发布版本
+
+多个产品复用同一项目时，可以分别声明发布版本；变体也可以覆盖产品版本：
+
+```ts
+export default {
+  products: {
+    alpha: {
+      version: '2.0.0',
+      variants: { desktop: 'desktop' },
+    },
+    beta: {
+      version: '3.0.0',
+      variants: { desktop: { project: 'desktop', version: '3.1.0-rc.1' } },
+    },
+  },
+}
+```
+
+解析优先级为 `MATRIX_PRODUCT_VERSION > variant.version > product.version > 项目 package.json 的 version`。环境变量沿用全局／产品 `env`、`$env`、dotenv、Shell 的现有合并顺序。版本使用 SemVer（支持预发布与构建元数据），不拼接环境 identity suffix；无效的显式版本直接报错，不回退。
+
+版本在生成执行计划时确定，同步写入任务 `version`、子进程的 `MATRIX_PRODUCT_VERSION` 和构建期 `matrix.product.version`，产物命名使用同一个值。Matrix 不修改源 `package.json`，也不自动修改应用打包器的版本配置。例如 electron-builder 可以通过 `extraMetadata: { version: process.env.MATRIX_PRODUCT_VERSION }` 使用该版本。
+
+没有显式版本时读取所选项目的 `package.json`（不向父目录查找）。非产物任务允许文件或 `version` 字段缺失，此时不注入版本；启用产物交付的非持续任务必须解析到有效版本。已有显式版本时不要求项目提供 `package.json`。
 
 ### 构建工具接入
 

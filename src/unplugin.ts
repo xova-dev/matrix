@@ -41,6 +41,7 @@ export function createMatrixRuntime(env: Record<string, string>, envPrefix: EnvP
       name: env.MATRIX_PRODUCT_NAME ?? '',
       slug: env.MATRIX_PRODUCT_SLUG ?? '',
       ...(env.MATRIX_PRODUCT_APP_ID ? { appId: env.MATRIX_PRODUCT_APP_ID } : {}),
+      ...(env.MATRIX_PRODUCT_VERSION ? { version: env.MATRIX_PRODUCT_VERSION } : {}),
     },
     config: createPublicConfig(env, prefixes),
   }

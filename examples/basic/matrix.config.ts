@@ -27,6 +27,7 @@ export default defineMatrixConfig({
       name: 'Matrix App',
       slug: 'matrix-app',
       appId: 'com.example.matrix',
+      version: '0.1.0',
       env: { VITE_API_BASE: 'http://localhost:3000' },
       $env: defineMatrixEnv({
         qa: { VITE_API_BASE: 'https://qa-api.example.com' },

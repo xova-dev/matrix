@@ -153,6 +153,7 @@ MATRIX_PRODUCT_ID
 MATRIX_PRODUCT_NAME
 MATRIX_PRODUCT_SLUG
 MATRIX_PRODUCT_APP_ID
+MATRIX_PRODUCT_VERSION
 MATRIX_VARIANT
 MATRIX_PROJECT
 MATRIX_NODE_ENV
@@ -187,6 +188,31 @@ Custom environments are available through `--env`. When running interactively, M
 Dotenv files are loaded as `.env`, `.env.local`, `.env.<environment>`, and `.env.<environment>.local`. Matrix passes variables such as `VITE_*` and `NUXT_*` to child processes; application frameworks keep ownership of their own runtime configuration.
 
 Configuration files can read the selected dotenv values through `process.env` during evaluation, with inherited Shell values taking precedence. Each configuration load or environment discovery runs in a short-lived Worker with its own environment and complete ESM/CommonJS module cache. Local configuration imports are evaluated together for that load; the host's environment and module caches are not modified. The Worker is terminated after returning the result, so configuration files should produce data rather than start persistent services. Execution plans retain a separate environment snapshot; returned `layers` are JSON diagnostic snapshots, not executable objects.
+
+### Product release versions
+
+Products sharing a project can declare independent release versions, with optional variant overrides:
+
+```ts
+export default {
+  products: {
+    alpha: {
+      version: '2.0.0',
+      variants: { desktop: 'desktop' },
+    },
+    beta: {
+      version: '3.0.0',
+      variants: { desktop: { project: 'desktop', version: '3.1.0-rc.1' } },
+    },
+  },
+}
+```
+
+Precedence is `MATRIX_PRODUCT_VERSION > variant.version > product.version > project package.json version`. The environment override follows the existing global/product `env`, `$env`, dotenv, and Shell merge order. Versions use SemVer, including prerelease and build metadata. Identity suffixes are not applied; invalid explicit versions fail without falling back.
+
+The version is resolved when the execution plan is created and shared by task `version`, child-process `MATRIX_PRODUCT_VERSION`, build-time `matrix.product.version`, and artifact names. Matrix does not modify source `package.json` files or automatically configure application packagers. For example, electron-builder can consume it through `extraMetadata: { version: process.env.MATRIX_PRODUCT_VERSION }`.
+
+Without an explicit version, Matrix reads the selected project's `package.json`, without searching parent directories. Non-artifact tasks allow a missing file or `version` field and omit the version in that case. Finite tasks with artifact delivery require a valid resolved version. An explicit version removes the need for a project `package.json`.
 
 ### Build tool integration
 

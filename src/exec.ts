@@ -203,6 +203,7 @@ export async function runExecutionPlan(plan: ExecutionPlan): Promise<{ children:
           environment: plan.envName,
           variant: task.variant,
           projectRoot: task.projectRoot,
+          ...(task.version === undefined ? {} : { version: task.version }),
           mode: task.artifacts.mode,
           format: task.artifacts.format,
           retention: plan.artifactRetention,
