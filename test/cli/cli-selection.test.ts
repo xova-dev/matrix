@@ -2,6 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import process from 'node:process'
 import { CANCEL_SYMBOL, multiselect, note, outro, select, settings } from '@clack/prompts'
+import consola from 'consola'
 import path from 'pathe'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { parseArgs } from '../../src/cli/args.js'
@@ -200,6 +201,7 @@ describe('cli selection and execution plans', () => {
   })
 
   it('shows preparation in plan JSON without executing it in plan or doctor', async () => {
+    const info = vi.spyOn(consola, 'info').mockImplementation(() => {})
     terminal(false)
     const marker = await executableTargets(['build'])
     await writeFile(path.join(cwd, 'matrix.config.json'), JSON.stringify({
@@ -209,6 +211,8 @@ describe('cli selection and execution plans', () => {
     vi.stubEnv('PLAN_PREPARE_UNRELATED', 'shell-only')
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
     await runCli(['plan', 'app', '-t', 'build'])
+    expect(log).toHaveBeenCalledTimes(1)
+    expect(info).not.toHaveBeenCalled()
     const plan = JSON.parse(String(log.mock.calls[0]![0]))
     expect(plan.preparations).toHaveLength(1)
     expect(plan.preparations[0]).toMatchObject({ project: 'web', command: 'node record.mjs', beforeTask: 'app:web:build', env: { MATRIX_TARGET: 'prepare' } })

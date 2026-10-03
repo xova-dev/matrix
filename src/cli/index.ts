@@ -6,8 +6,9 @@ import { loadMatrixConfig } from '../config/index.js'
 import { diagnoseWorkspace } from '../execution/doctor.js'
 import { runExecutionPlan } from '../execution/exec.js'
 import { createPreparationPlan } from '../execution/plan.js'
+import { ExecutionReport } from '../execution/report.js'
 import { TypePreparationCancelled } from '../typegen/prepare.js'
-import { generateProjectTypes } from '../typegen/project.js'
+import { generateProjectTypes, ProjectTypePreparationError } from '../typegen/project.js'
 import { CLI_COMMANDS, cliHelp, parseArgs, validateCliArgs } from './args.js'
 import { resolveSelection, selectionCommand, selectionSummary } from './selection.js'
 
@@ -47,19 +48,48 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
     if (args.product && !selectedProduct)
       throw new Error(`Unknown product: ${args.product}`)
     const products = selectedProduct ? [selectedProduct] : Object.values(loaded.products)
-    const result = await runExecutionPlan(createPreparationPlan({ ...loaded, productNames: products.map(product => product.key) }))
-    if (result.cancelled) {
-      process.exitCode = result.cancelled === 'SIGINT' ? 130 : 143
-      return
+    const plan = createPreparationPlan({ ...loaded, productNames: products.map(product => product.key) })
+    const report = new ExecutionReport(plan)
+    const controller = new AbortController()
+    const cancel = (signal: 'SIGINT' | 'SIGTERM'): void => {
+      if (controller.signal.aborted)
+        return
+      process.exitCode = signal === 'SIGINT' ? 130 : 143
+      report.cancel(signal)
+      controller.abort(new TypePreparationCancelled(`Preparation cancelled (${signal})`))
     }
+    const interrupt = (): void => cancel('SIGINT')
+    const terminate = (): void => cancel('SIGTERM')
+    process.on('SIGINT', interrupt)
+    process.on('SIGTERM', terminate)
+    let generatingTypes = false
     try {
-      const outputs = await generateProjectTypes(loaded, products)
-      for (const output of outputs)
-        consola.success(`Types generated: ${output}`)
+      const result = await runExecutionPlan(plan, { report })
+      if (result.cancelled) {
+        process.exitCode = result.cancelled === 'SIGINT' ? 130 : 143
+        return
+      }
+      generatingTypes = true
+      await generateProjectTypes(loaded, products, { signal: controller.signal, onOutput: output => report.artifact(output) })
     }
     catch (error) {
-      if (!(error instanceof TypePreparationCancelled))
+      if (!generatingTypes)
         throw error
+      if (error instanceof TypePreparationCancelled) {
+        report.cancel(process.exitCode === 143 ? 'SIGTERM' : 'SIGINT')
+      }
+      else {
+        throw report.fail({
+          id: 'prepare:types',
+          phase: 'preparation',
+          ...(error instanceof ProjectTypePreparationError ? { project: error.project, ...(error.task ? { affectedTask: error.task } : {}) } : {}),
+        }, error)
+      }
+    }
+    finally {
+      process.removeListener('SIGINT', interrupt)
+      process.removeListener('SIGTERM', terminate)
+      report.print()
     }
     return
   }

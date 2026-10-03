@@ -28,13 +28,16 @@ export type TypePreparationResult = { types: GenerateMatrixTypesOptions[] | null
 export class TypePreparationCancelled extends Error {}
 
 /** Inspect only project-root files unless the user explicitly selects another path. */
-export async function findTypeHost(cwd: string, configFile?: string): Promise<TypeHost | undefined> {
+export async function findTypeHost(cwd: string, configFile?: string, signal?: AbortSignal): Promise<TypeHost | undefined> {
+  signal?.throwIfAborted()
   if (configFile !== undefined) {
     const selected = resolveFilesystemPath(cwd, configFile)
     const rule = typeHostRules.find(rule => rule.pattern.test(path.basename(selected)))
     if (!rule)
       throw new Error(`Unsupported host config filename: ${selected}. Use electron.vite.config.* or vite.config.*.`)
-    if (!(await stat(selected)).isFile())
+    const info = await stat(selected)
+    signal?.throwIfAborted()
+    if (!info.isFile())
       throw new Error(`Host config is not a file: ${selected}`)
     return { name: rule.name, configFile: selected }
   }
@@ -43,12 +46,15 @@ export async function findTypeHost(cwd: string, configFile?: string): Promise<Ty
       return []
     throw error
   })
+  signal?.throwIfAborted()
   for (const rule of typeHostRules) {
     const candidates: string[] = []
     for (const entry of entries) {
+      signal?.throwIfAborted()
       if (rule.pattern.test(entry.name) && (entry.isFile() || (entry.isSymbolicLink() && (await stat(path.join(cwd, entry.name))).isFile())))
         candidates.push(entry.name)
     }
+    signal?.throwIfAborted()
     if (candidates.length > 1)
       throw new Error(`Ambiguous ${rule.name} configuration in ${cwd}: ${candidates.sort().join(', ')}. Set project.configFile to select one.`)
     const file = candidates[0]
@@ -59,7 +65,8 @@ export async function findTypeHost(cwd: string, configFile?: string): Promise<Ty
 }
 
 /** A fresh process supplies the host's real cwd and isolates config module caches and environment. */
-export async function resolveHostTypes(cwd: string, env: EnvMap, request: TypePreparationRequest): Promise<GenerateMatrixTypesOptions[] | null> {
+export async function resolveHostTypes(cwd: string, env: EnvMap, request: TypePreparationRequest, signal?: AbortSignal): Promise<GenerateMatrixTypesOptions[] | null> {
+  signal?.throwIfAborted()
   const workerUrl = new URL(import.meta.url.endsWith('.ts') ? './worker.ts' : '../prepare-types-worker.js', import.meta.url)
   return new Promise((resolve, reject) => {
     const child = fork(workerUrl, [], {
@@ -83,8 +90,16 @@ export async function resolveHostTypes(cwd: string, env: EnvMap, request: TypePr
       process.exitCode = 143
       finish(new TypePreparationCancelled('Type preparation terminated'))
     }
-    process.once('SIGINT', interrupt)
-    process.once('SIGTERM', terminate)
+    const abort = (): void => {
+      finish(signal?.reason instanceof TypePreparationCancelled ? signal.reason : new TypePreparationCancelled('Type preparation cancelled', { cause: signal?.reason }))
+    }
+    if (signal) {
+      signal.addEventListener('abort', abort, { once: true })
+    }
+    else {
+      process.once('SIGINT', interrupt)
+      process.once('SIGTERM', terminate)
+    }
     const timer = setTimeout(() => finish(new Error(`Host configuration timed out: ${request.host.configFile}`)), 30_000)
     child.once('message', (message: TypePreparationResult) => {
       result = message
@@ -93,8 +108,13 @@ export async function resolveHostTypes(cwd: string, env: EnvMap, request: TypePr
     child.once('error', error => finish(error))
     child.once('close', (code) => {
       clearTimeout(timer)
-      process.removeListener('SIGINT', interrupt)
-      process.removeListener('SIGTERM', terminate)
+      if (signal) {
+        signal.removeEventListener('abort', abort)
+      }
+      else {
+        process.removeListener('SIGINT', interrupt)
+        process.removeListener('SIGTERM', terminate)
+      }
       if (failure)
         reject(failure)
       else if (!result)

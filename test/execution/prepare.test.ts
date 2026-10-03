@@ -1,6 +1,7 @@
 import type { MatrixConfig } from '../../src/types.js'
 import { mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
+import consola from 'consola'
 import path from 'pathe'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { runCli } from '../../src/cli/index.js'
@@ -10,8 +11,13 @@ import { runExecutionPlan } from '../../src/execution/exec.js'
 import { createExecutionPlan } from '../../src/execution/plan.js'
 
 let cwd: string
+let messages: string[]
 
 beforeEach(async () => {
+  messages = []
+  vi.spyOn(consola, 'info').mockImplementation((message) => {
+    messages.push(String(message))
+  })
   cwd = await mkdtemp(path.join(os.tmpdir(), 'matrix-prepare-'))
   await writeFile(path.join(cwd, 'record.mjs'), [
     'import { appendFileSync, writeFileSync } from "node:fs";',
@@ -34,6 +40,7 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
+  vi.restoreAllMocks()
   // Windows may briefly retain directory handles after process termination.
   await rm(cwd, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 })
 })
@@ -144,6 +151,12 @@ describe('project preparation', () => {
     const plan = await execution(preparedProject(['node record.mjs fail', 'node record.mjs never']))
     await expect(runExecutionPlan(plan)).rejects.toThrow('prepare:shared exited with code 7')
     expect((await events()).map(event => event.event)).toEqual(['fail'])
+    const summaries = messages.filter(message => message.startsWith('Execution '))
+    expect(summaries).toHaveLength(1)
+    expect(summaries[0]).toContain('Execution failed')
+    expect(summaries[0]).toContain('prepare:shared: failed')
+    expect(summaries[0]).toContain('app:first:test: not run')
+    expect(summaries[0]).toContain('preparation, project shared, affected task app:first:test, step 1/2')
   })
 
   it.each(['test', 'prepare'])('cancels a later preparation command during %s without continuing execution', async (command) => {
@@ -165,6 +178,11 @@ describe('project preparation', () => {
       // Windows termination does not deliver POSIX cleanup callbacks.
       expect((await events()).map(event => event.event)).toEqual(process.platform === 'win32' ? ['first'] : ['first', 'cleanup'])
       await expect(readFile(path.join(cwd, '.matrix/types/matrix-runtime.d.ts'))).rejects.toMatchObject({ code: 'ENOENT' })
+      const summaries = messages.filter(message => message.startsWith('Execution '))
+      expect(summaries).toHaveLength(1)
+      expect(summaries[0]).toContain('Execution cancelled (SIGTERM)')
+      expect(summaries[0]).toContain('prepare:shared: cancelled')
+      expect(summaries[0]).not.toContain('Failure:')
     }
     finally {
       process.emit('SIGTERM')

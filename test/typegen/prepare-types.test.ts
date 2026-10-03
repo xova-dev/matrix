@@ -1,8 +1,10 @@
-import { access, mkdir, mkdtemp, readFile, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises'
+import fs, { access, mkdir, mkdtemp, readFile, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises'
+import { syncBuiltinESMExports } from 'node:module'
 import os from 'node:os'
 import { fileURLToPath } from 'node:url'
+import consola from 'consola'
 import path from 'pathe'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { runCli } from '../../src/cli/index.js'
 import { loadMatrixConfig } from '../../src/config/index.js'
 import { createExecutionPlan } from '../../src/execution/plan.js'
@@ -11,8 +13,17 @@ import { findTypeHost } from '../../src/typegen/prepare.js'
 const previousCwd = process.cwd()
 const directories: string[] = []
 const plugin = fileURLToPath(new URL('../../src/unplugin/vite.ts', import.meta.url))
+let messages: string[]
+
+beforeEach(() => {
+  messages = []
+  vi.spyOn(consola, 'info').mockImplementation((message) => {
+    messages.push(String(message))
+  })
+})
 
 afterEach(async () => {
+  vi.restoreAllMocks()
   process.chdir(previousCwd)
   for (const directory of directories.splice(0))
     await rm(directory, { recursive: true, force: true })
@@ -45,7 +56,119 @@ async function workspace(config: string, project: { root?: string, configFile?: 
   return cwd
 }
 
+async function genericWorkspace(): Promise<string> {
+  const cwd = await workspace('export default { plugins: [] };')
+  await writeFile(path.join(cwd, 'matrix.config.mjs'), `export default {
+    projects: {
+      frontend: { root: 'apps/web', targets: { test: 'node should-not-run.mjs' } },
+      secondary: { root: 'apps/next', targets: { test: 'node should-not-run.mjs' } },
+    },
+    products: { app: { variants: { web: 'frontend', next: 'secondary' } } },
+  }`)
+  for (const root of ['web', 'next'])
+    await mkdir(path.join(cwd, 'apps', root), { recursive: true })
+  return cwd
+}
+
 describe('host-aware type preparation', () => {
+  it.each([
+    ['readdir', 'SIGINT', 130],
+    ['writeFile', 'SIGTERM', 143],
+  ] as const)('cancels during generic %s without overwriting declarations or starting later projects', async (boundary, signal, exitCode) => {
+    const previousExitCode = process.exitCode
+    const listeners = { SIGINT: process.listenerCount('SIGINT'), SIGTERM: process.listenerCount('SIGTERM') }
+    const cwd = await genericWorkspace()
+    const root = path.join(cwd, 'apps/web')
+    const output = path.join(root, '.matrix/types/matrix-runtime.d.ts')
+    await mkdir(path.dirname(output), { recursive: true })
+    await writeFile(output, '// existing declaration')
+    let interrupted = false
+    const original = fs[boundary]
+    const operation = vi.spyOn(fs, boundary).mockImplementation(async (...args: unknown[]) => {
+      const result = await Reflect.apply(original, fs, args)
+      const location = path.normalize(String(args[0]))
+      const matches = boundary === 'readdir' ? location === root : location.startsWith(`${output}.`)
+      if (!interrupted && matches) {
+        interrupted = true
+        process.emit(signal)
+      }
+      return result
+    })
+    syncBuiltinESMExports()
+    try {
+      await runCli(['prepare', 'app'])
+      expect(interrupted).toBe(true)
+      expect(process.exitCode).toBe(exitCode)
+      const summaries = messages.filter(message => message.startsWith('Execution '))
+      expect(summaries).toHaveLength(1)
+      expect(summaries[0]).toContain(`Execution cancelled (${signal})`)
+      expect(summaries[0]).not.toContain('Failure:')
+      expect(await readFile(output, 'utf8')).toBe('// existing declaration')
+      expect(await fs.readdir(path.dirname(output))).toEqual(['matrix-runtime.d.ts'])
+      await expect(access(path.join(cwd, 'apps/next/.matrix'))).rejects.toMatchObject({ code: 'ENOENT' })
+      expect(process.listenerCount('SIGINT')).toBe(listeners.SIGINT)
+      expect(process.listenerCount('SIGTERM')).toBe(listeners.SIGTERM)
+    }
+    finally {
+      operation.mockRestore()
+      syncBuiltinESMExports()
+      process.exitCode = previousExitCode
+    }
+  })
+
+  it('identifies the project and affected task for declaration write failures while retaining earlier outputs', async () => {
+    const cwd = await genericWorkspace()
+    await writeFile(path.join(cwd, 'apps/next/.matrix'), 'output-blocker')
+    await expect(runCli(['prepare', 'app'])).rejects.toThrow('preparation, project secondary, affected task app:next:prepare')
+    const summaries = messages.filter(message => message.startsWith('Execution '))
+    expect(summaries).toHaveLength(1)
+    expect(summaries[0]).toContain('Execution failed')
+    expect(summaries[0]).toContain('project secondary, affected task app:next:prepare')
+    expect(summaries[0]).toMatch(/ENOTDIR|EEXIST|ENOENT/)
+    const earlier = path.join(cwd, 'apps/web/.matrix/types/matrix-runtime.d.ts')
+    expect(summaries[0]).toContain(`Artifact: ${earlier}`)
+    expect(await readFile(earlier, 'utf8')).toContain('Generated by')
+  })
+
+  it('summarizes SIGINT cancellation only after the type worker has exited', async () => {
+    const previousExitCode = process.exitCode
+    const cwd = await workspace([
+      'import { writeFileSync } from "node:fs";',
+      'export default async () => {',
+      '  setInterval(() => {}, 1000);',
+      '  writeFileSync("ready.pid", String(process.pid));',
+      '  await new Promise(() => {});',
+      '};',
+    ].join(String.fromCharCode(10)))
+    let completed = false
+    const running = runCli(['prepare', 'alpha']).finally(() => {
+      completed = true
+    })
+    void running.catch(() => undefined)
+    try {
+      let pid = 0
+      await vi.waitFor(async () => {
+        pid = Number(await readFile(path.join(cwd, 'ready.pid'), 'utf8'))
+        expect(pid).toBeGreaterThan(0)
+      }, { timeout: 2000 })
+      process.emit('SIGINT')
+      await running
+      expect(process.exitCode).toBe(130)
+      expect(() => process.kill(pid, 0)).toThrow()
+      const summaries = messages.filter(message => message.startsWith('Execution '))
+      expect(summaries).toHaveLength(1)
+      expect(summaries[0]).toContain('Execution cancelled (SIGINT)')
+      expect(summaries[0]).not.toContain('Failure:')
+      await expect(access(path.join(cwd, '.matrix/types/matrix-runtime.d.ts'))).rejects.toMatchObject({ code: 'ENOENT' })
+    }
+    finally {
+      if (!completed)
+        process.emit('SIGINT')
+      await running
+      process.exitCode = previousExitCode
+    }
+  })
+
   it('preserves generic declarations when a project adds Vite without the Matrix plugin', async () => {
     const cwd = await workspace('export default { plugins: [] };')
     await writeFile(path.join(cwd, 'matrix.config.mjs'), `export default ${JSON.stringify({
@@ -167,6 +290,14 @@ describe('host-aware type preparation', () => {
     await mkdir(path.dirname(existing), { recursive: true })
     await writeFile(existing, '// existing declaration\n')
     await expect(runCli(['prepare'])).rejects.toThrow(message)
+    const summaries = messages.filter(message => message.startsWith('Execution '))
+    expect(summaries).toHaveLength(1)
+    expect(summaries[0]).toContain('Execution failed')
+    expect(summaries[0]).toContain('prepare:types [preparation')
+    if (_name === 'late config failure') {
+      expect(summaries[0]).toContain('project web')
+      expect(summaries[0]).toContain('affected task beta:web:prepare')
+    }
     expect(await readFile(existing, 'utf8')).toBe('// existing declaration\n')
     for (const output of outputs.slice(1))
       await expect(access(path.join(cwd, '.matrix', output))).rejects.toMatchObject({ code: 'ENOENT' })

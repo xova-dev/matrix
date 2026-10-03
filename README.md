@@ -358,6 +358,16 @@ The action menu includes variant-specific targets and labels their applicable sc
 
 Any configured target can be invoked from the CLI. `test`, `lint`, and `e2e` are common custom targets.
 
+### Execution summaries and failures
+
+Execution prints one final summary after child-process cleanup on success, failure, or cancellation. It includes the overall outcome and elapsed time, each task and project preparation's outcome, and generated artifact paths. `matrix prepare` waits until type generation finishes and includes generated declaration paths in the same summary.
+
+- Finite tasks are `completed` only after their commands and configured artifact delivery succeed. A failed task is `failed`; tasks and preparations that never started remain `not run`.
+- Interrupted finite work is `cancelled` on user cancellation. Continuous services are `stopped`, not completed, when they exit normally or Matrix shuts them down. Other work interrupted by a background service failure is also `stopped`, not failed.
+- Failures identify the exact `product:variant:target`, phase (`preparation`, `command`, `readiness`, or `artifact handling`), and underlying error or exit code. Ordered commands include the failing step number. Project preparation failures identify the project and affected task when available; cleanup failures are reported separately.
+
+Execution remains serial, with child output and terminal interaction passed through unchanged. Matrix's progress identifies tasks and command steps without echoing configured command strings or dumping environments. Diagnostics retain error messages and paths without guessing sensitive keys or replacing values; Matrix strips terminal control characters from its own diagnostic lines. Error messages, paths, and child-process output may contain secrets: review them before publishing logs. Child-process output is not captured or modified. Existing CLI exit codes remain unchanged: execution failures use `1`, SIGINT uses `130`, and SIGTERM uses `143`. `matrix plan` JSON is unchanged and retains the value-disclosure caveat above.
+
 ### Project preparation
 
 Declare optional `project.prepare` commands using the same string or string-array format as target commands. Arrays run in order; empty commands and full target objects are not supported.

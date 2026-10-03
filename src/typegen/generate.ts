@@ -1,7 +1,7 @@
 import type { EnvPrefix } from '../runtime/public-env.js'
 import type { EnvField, EnvSchema } from '../types.js'
 import { randomUUID } from 'node:crypto'
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import path from 'pathe'
 import { ensureMatrixEnvPrefix, publicConfigFields, publicEnvKeys } from '../runtime/public-env.js'
 import { resolveFilesystemPath } from '../utils/path.js'
@@ -69,15 +69,24 @@ export function renderMatrixTypes(options: GenerateMatrixTypesOptions): string {
 }
 
 /** Generates project-local declarations without writing any environment values. */
-export async function generateMatrixTypes(options: GenerateMatrixTypesOptions): Promise<string> {
+export async function generateMatrixTypes(options: GenerateMatrixTypesOptions, signal?: AbortSignal): Promise<string> {
+  signal?.throwIfAborted()
   const output = matrixTypeOutput(options)
   const declarations = renderMatrixTypes(options)
   await mkdir(path.dirname(output), { recursive: true })
-  const existing = await readFile(output, 'utf8').catch(() => undefined)
+  signal?.throwIfAborted()
+  const existing = await readFile(output, { encoding: 'utf8', signal }).catch(() => undefined)
+  signal?.throwIfAborted()
   if (existing !== declarations) {
     const temporary = `${output}.${randomUUID()}.tmp`
-    await writeFile(temporary, declarations)
-    await rename(temporary, output)
+    try {
+      await writeFile(temporary, declarations, { encoding: 'utf8', signal })
+      signal?.throwIfAborted()
+      await rename(temporary, output)
+    }
+    finally {
+      await rm(temporary, { force: true })
+    }
   }
   return output
 }

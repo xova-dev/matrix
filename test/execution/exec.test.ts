@@ -1,10 +1,12 @@
 import type { ExecutionPlan, ExecutionTask } from '../../src/types.js'
 import { Buffer } from 'node:buffer'
+import { existsSync } from 'node:fs'
 import fs from 'node:fs/promises'
 import net from 'node:net'
 import { fileURLToPath } from 'node:url'
+import consola from 'consola'
 import path from 'pathe'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { runExecutionPlan } from '../../src/execution/exec.js'
 import { temporaryDirectory } from '../helpers/temporary-directory.js'
 
@@ -78,7 +80,94 @@ async function waitForFile(file: string, timeout: number): Promise<void> {
   throw new Error(`Timed out waiting for file: ${file}`)
 }
 
+let messages: string[]
+
+beforeEach(() => {
+  messages = []
+  vi.spyOn(consola, 'info').mockImplementation((message) => {
+    messages.push(String(message))
+  })
+})
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})
+
+function summary(): string {
+  const summaries = messages.filter(message => message.startsWith('Execution '))
+  expect(summaries).toHaveLength(1)
+  return summaries[0]!
+}
+
 describe('runExecutionPlan', () => {
+  it('identifies a failing ordered step without echoing commands or dumping environments', async () => {
+    const cwd = await temporaryDirectory('matrix-exec-steps-')
+    const marker = path.join(cwd, 'steps')
+    const ordered = scriptedTask('app:ordered1:test', [
+      'const fs = require("node:fs")',
+      'fs.appendFileSync(process.env.MATRIX_TEST_MARKER, "step;")',
+      'if (fs.readFileSync(process.env.MATRIX_TEST_MARKER, "utf8") === "step;step;") process.exit(7)',
+    ].join(String.fromCharCode(10)), {
+      env: { MATRIX_TEST_MARKER: marker, TOKEN_REFRESH_ENABLED: '1' },
+    })
+    const command = `${scriptCommand.replace('; exit $?', '')} --token=literal-secret-fixture`
+    ordered.command = [command, command, command]
+    const completed = task('app:echo:test', 'echo')
+    const next = scriptedTask('app:next:test', 'process.exit(0)')
+
+    await expect(runExecutionPlan(plan([completed, ordered, next])))
+      .rejects
+      .toThrow('app:ordered1:test exited with code 7')
+
+    expect(await fs.readFile(marker, 'utf8')).toBe('step;step;')
+    expect(summary()).toContain('app:echo:test: completed')
+    expect(summary()).toContain('app:ordered1:test: failed')
+    expect(summary()).toContain('app:next:test: not run')
+    expect(summary()).toContain('step 2/3')
+    expect(messages.join(' ')).not.toMatch(/literal-secret-fixture|TOKEN_REFRESH_ENABLED|--token/)
+  })
+
+  it('reports native command startup failures without dumping the subprocess error command', async () => {
+    const cwd = await temporaryDirectory('matrix-exec-spawn-')
+    const missing = scriptedTask('app:missing:test', 'process.exit(0)', { cwd: path.join(cwd, 'missing') })
+    missing.command = `${scriptCommand.replace('; exit $?', '')} --password=spawn-secret-fixture`
+
+    await expect(runExecutionPlan(plan([missing]))).rejects.toThrow('ENOENT')
+    expect(summary()).toContain('app:missing:test: failed')
+    expect(summary()).toContain('command, project project, step 1/1')
+    expect(messages.join(' ')).not.toContain('spawn-secret-fixture')
+  })
+
+  it('identifies artifact failures and does not complete a task whose artifact was not delivered', async () => {
+    const cwd = await temporaryDirectory('matrix-exec-missing-artifact-')
+    const missing = scriptedTask('app:web:build', 'process.exit(0)', {
+      cwd,
+      projectRoot: cwd,
+      outputDir: path.join(cwd, 'missing'),
+      artifacts: { mode: 'archive', format: 'zip', clean: false },
+    })
+    await expect(runExecutionPlan(plan([missing, scriptedTask('app:next:test', 'process.exit(0)')])))
+      .rejects
+      .toThrow('Artifact source directory does not exist')
+    expect(summary()).toContain('app:web:build: failed')
+    expect(summary()).toContain('artifact handling, project project')
+    expect(summary()).toContain('app:next:test: not run')
+    expect(summary()).not.toContain('Artifact:')
+    expect(summary()).toContain(missing.outputDir)
+  })
+
+  it('identifies a failed continuous task while waiting only for services', async () => {
+    const cwd = await temporaryDirectory('matrix-exec-service-steps-')
+    const marker = path.join(cwd, 'second-step-started')
+    const service = scriptedTask('app:service:test', 'setTimeout(() => process.exit(9), 50)', { continuous: true, cwd })
+    service.command = [scriptCommand, 'echo started > second-step-started']
+    await expect(runExecutionPlan(plan([service]))).rejects.toThrow('app:service:test exited with code 9')
+    expect(summary()).toContain('app:service:test: failed')
+    expect(summary()).toContain('command, project project, step 1/2')
+    expect(summary().split('Failure:')).toHaveLength(2)
+    await expect(fs.stat(marker)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
   it.skipIf(process.platform === 'win32').each(['target', 'prepare', 'ready', 'service'])('force-stops a stubborn child during %s cancellation (POSIX)', async (phase) => {
     const cwd = await temporaryDirectory('matrix-exec-stubborn-')
     const ready = path.join(cwd, 'ready.pid')
@@ -121,6 +210,7 @@ describe('runExecutionPlan', () => {
       await vi.advanceTimersByTimeAsync(1)
       await vi.waitFor(() => expect(completed).toBe(true), { timeout: 1000 })
       expect((await execution).cancelled).toBe('SIGINT')
+      expect(summary()).toContain('Execution cancelled (SIGINT)')
       // The OS may reap an orphan just after the process group has stopped running.
       await vi.waitFor(() => expect(() => process.kill(pid!, 0)).toThrow())
       await expect(fs.stat(marker)).rejects.toMatchObject({ code: 'ENOENT' })
@@ -163,6 +253,9 @@ describe('runExecutionPlan', () => {
       expect((await execution).cancelled).toBe('SIGINT')
       await vi.waitFor(() => expect(() => process.kill(pid, 0)).toThrow())
       await expect(fs.stat(nextMarker)).rejects.toMatchObject({ code: 'ENOENT' })
+      expect(summary()).toContain('app:running:test: cancelled')
+      expect(summary()).toContain('app:next:test: not run')
+      expect(summary()).not.toContain('Failure:')
     }
     finally {
       if (!completed)
@@ -198,6 +291,9 @@ describe('runExecutionPlan', () => {
       for (const pid of pids)
         expect(() => process.kill(pid, 0)).toThrow()
       expect(process.listenerCount('SIGINT')).toBe(listeners)
+      expect(summary()).toContain('Execution failed (SIGINT)')
+      expect(summary()).toContain('cleanup [cleanup]')
+      expect(summary()).toContain('ENOENT')
     }
     finally {
       if (originalPath === undefined)
@@ -214,6 +310,12 @@ describe('runExecutionPlan', () => {
     const cwd = await temporaryDirectory('matrix-exec-shutdown-')
     const marker = path.join(cwd, 'cleanup-complete')
     const ready = path.join(cwd, 'ready')
+    let reportedAfterCleanup = false
+    vi.mocked(consola.info).mockImplementation((message) => {
+      messages.push(String(message))
+      if (String(message).startsWith('Execution '))
+        reportedAfterCleanup = existsSync(marker)
+    })
     const running = scriptedTask('app:running:test', [
       'const fs = require("node:fs")',
       'process.on("SIGTERM", () => setTimeout(() => { fs.writeFileSync(process.env.MATRIX_TEST_MARKER, "done"); process.exit(0) }, 100))',
@@ -230,6 +332,8 @@ describe('runExecutionPlan', () => {
       process.emit('SIGINT')
       await execution
       await expect(fs.readFile(marker, 'utf8')).resolves.toBe('done')
+      expect(reportedAfterCleanup).toBe(true)
+      expect(summary()).toContain('app:running:test: cancelled')
     }
     finally {
       process.emit('SIGINT')
@@ -322,6 +426,10 @@ describe('runExecutionPlan', () => {
     await expect(fs.stat(staleOutput)).rejects.toMatchObject({ code: 'ENOENT' })
     await expect(fs.readFile(freshOutput, 'utf8')).resolves.toBe('fresh')
     await expect(fs.readdir(path.join(artifactsRoot, 'app', 'development'))).resolves.toHaveLength(1)
+    expect(summary()).toMatch(/^Execution succeeded.*\s\d+(?:\.\d+)?\s*s\b/)
+    expect(summary()).toContain('app:web:build: completed')
+    const [artifact] = await fs.readdir(path.join(artifactsRoot, 'app', 'development'))
+    expect(summary()).toContain(`Artifact: ${path.join(artifactsRoot, 'app', 'development', artifact!)}`)
   })
 
   it('inherits the host environment and lets task variables override it', async () => {
@@ -392,6 +500,9 @@ describe('runExecutionPlan', () => {
       .rejects
       .toThrow('app:dependency:test exited with code 7')
     await expect(fs.stat(marker)).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(summary()).toContain('app:dependency:test: failed')
+    expect(summary()).toContain('app:dependent:test: not run')
+    expect(summary()).toContain('command, project project, step 1/1')
   })
 
   it('waits for a port before starting a ready dependent', async () => {
@@ -416,6 +527,8 @@ describe('runExecutionPlan', () => {
     await runExecutionPlan(plan([service, dependent]))
 
     await expect(fs.readFile(marker, 'utf8')).resolves.toBe('started')
+    expect(summary()).toContain('app:service:test: stopped')
+    expect(summary()).toContain('app:dependent:test: completed')
   })
 
   it('fails when a ready dependency exits before becoming ready', async () => {
@@ -431,6 +544,9 @@ describe('runExecutionPlan', () => {
     await expect(runExecutionPlan(plan([service, dependent])))
       .rejects
       .toThrow('app:service:test exited before becoming ready')
+    expect(summary()).toContain('app:service:test: failed')
+    expect(summary()).toContain('app:dependent:test: not run')
+    expect(summary()).toContain('readiness, project project, affected task app:dependent:test')
   })
 
   it('honors a short readiness timeout', async () => {
@@ -445,6 +561,8 @@ describe('runExecutionPlan', () => {
     await expect(runExecutionPlan(plan([service, dependent])))
       .rejects
       .toThrow('Timed out waiting for')
+    expect(summary()).toContain('readiness, project project, affected task app:dependent:test')
+    expect(summary()).toContain('app:service:test: failed')
   })
 
   it('fails fast when an independent continuous task exits unexpectedly', async () => {
@@ -459,5 +577,8 @@ describe('runExecutionPlan', () => {
       .rejects
       .toThrow('app:service:test exited with code 9')
     await expect(fs.stat(marker)).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(summary()).toContain('app:service:test: failed')
+    expect(summary()).toContain('app:long-running:test: stopped')
+    expect(summary().split('Failure:')).toHaveLength(2)
   })
 })

@@ -1,7 +1,8 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
+import consola from 'consola'
 import path from 'pathe'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { runCli } from '../../src/cli/index.js'
 
 describe('cli entry', () => {
@@ -27,6 +28,10 @@ describe('cli entry', () => {
   })
 
   it('prepares shared projects once and generates types for the selected products', async () => {
+    const messages: string[] = []
+    const info = vi.spyOn(consola, 'info').mockImplementation((message) => {
+      messages.push(String(message))
+    })
     const cwd = await mkdtemp(path.join(os.tmpdir(), 'matrix-cli-prepare-'))
     const previousCwd = process.cwd()
     try {
@@ -70,11 +75,19 @@ describe('cli entry', () => {
       expect(desktopTypes).not.toContain('readonly VITE_WEB_ONLY: string')
       expect(await readFile(path.join(cwd, 'apps/web/prepared'), 'utf8')).toBe('done;')
       expect(await readFile(path.join(cwd, 'apps/desktop/prepared'), 'utf8')).toBe('done;')
+      const summaries = messages.filter(message => message.startsWith('Execution '))
+      expect(summaries).toHaveLength(1)
+      expect(summaries[0]).toContain('Execution succeeded')
+      expect(summaries[0]).toContain('prepare:web: completed')
+      expect(summaries[0]).toContain('prepare:desktop: completed')
+      expect(summaries[0]).toContain('apps/web/.matrix/types/matrix-runtime.d.ts')
+      expect(summaries[0]).toContain('apps/desktop/.matrix/types/matrix-runtime.d.ts')
       await runCli(['prepare', 'desktopApp'])
       expect(await readFile(path.join(cwd, 'apps/web/prepared'), 'utf8')).toBe('done;')
       expect(await readFile(path.join(cwd, 'apps/desktop/prepared'), 'utf8')).toBe('done;done;')
     }
     finally {
+      info.mockRestore()
       process.chdir(previousCwd)
       await rm(cwd, { recursive: true, force: true })
     }
