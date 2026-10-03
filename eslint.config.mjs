@@ -12,6 +12,8 @@ export default antfu(
       'artifacts/**',
       '.matrix/**',
       'coverage/**',
+      'docs/.vitepress/cache/**',
+      'docs/.vitepress/dist/**',
       'examples/**/dist/**',
       'examples/**/release/**',
       'examples/**/artifacts/**',

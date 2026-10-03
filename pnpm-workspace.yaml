@@ -1,14 +1,17 @@
 minimumReleaseAgeExcludePrune: true
 
 trustPolicy: no-downgrade
-# Approved migration exception: already pinned in the former Electron npm lockfile.
 trustPolicyExclude:
+  # Approved migration exceptions: pinned in the former Electron npm lockfile.
   - semver@5.7.2
   - semver@6.3.1
+  # User-approved exact exception for VitePress 1.6.4; official tag and provenance checked.
+  - vite@5.4.21
 
 shellEmulator: true
 
 packages:
+  - docs
   - examples/basic
   - examples/electron-web
 
@@ -46,6 +49,7 @@ catalog:
   unplugin: ^3.4.0
   valibot: ^1.5.0
   vite: ^8.3.1
+  vitepress: 1.6.4
   vitest: ^5.0.1
   vue: ^3.5.43
   webpack: ^5.111.1

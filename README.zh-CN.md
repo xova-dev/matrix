@@ -19,20 +19,26 @@
 
 ## 安装
 
-需要 Node.js `>=22.18.0`。
+<!-- #region installation -->
 
-进程树关闭在 macOS/Linux 使用系统 `ps` 命令（精简 Linux 镜像需安装 `procps`），在 Windows 使用 `taskkill.exe`。POSIX 任务先收到 SIGTERM，必要时在 30 秒后收到 SIGKILL；Matrix 等待受控进程组停止，而不只是 shell 退出。
+需要 Node.js `>=22.18.0`。
 
 ```bash
 pnpm add -D @xova/matrix
 ```
 
+<!-- #endregion installation -->
+
+精简 Linux 镜像还需要系统 `ps` 命令；平台要求见[进程关闭](docs/site/zh-CN/guides/execution.md#进程关闭)。
+
 ## 快速开始
+
+<!-- #region quick-start -->
 
 在工作区根目录创建 `matrix.config.ts`：
 
 ```ts
-import { defineMatrixConfig, defineMatrixEnv } from '@xova/matrix'
+import { defineMatrixConfig } from '@xova/matrix'
 
 export default defineMatrixConfig({
   projects: {
@@ -47,6 +53,7 @@ export default defineMatrixConfig({
   },
   products: {
     app: {
+      version: '1.0.0',
       variants: { web: 'web' },
     },
   },
@@ -56,404 +63,43 @@ export default defineMatrixConfig({
 在包含配置文件的目录中运行：
 
 ```bash
-matrix dev app
-matrix build app --env staging
-matrix plan app --target preview --env production
-matrix doctor
+pnpm exec matrix dev app
+pnpm exec matrix build app --env staging
+pnpm exec matrix plan app --target preview --env production
+pnpm exec matrix doctor
 ```
 
-运行 `matrix` 进入“产品 → 动作 → 配置”。唯一候选自动选择；紧凑配置菜单直接显示当前变体和环境，可以运行、修改字段、查看执行详情或返回动作列表。详情包含依赖、Node 模式和等价命令。一次运行只选择一个产品，调整不会记忆到下次运行。
+以上假设 Web 项目已安装 Vite 并能独立构建。显式产品版本让归档不依赖项目 `package.json` 的版本；`archive` 保留 Web 输出，便于后续 preview。`dev` 是持续服务，使用 `Ctrl+C` 停止后再执行其他命令。运行 `pnpm exec matrix` 可进入交互向导，完整命令则直接执行。
 
-支持的交互终端中，向导使用临时屏幕，每次切换替换当前页面，不累计选择历史。运行、取消或异常退出都会恢复原终端；执行前打印选择摘要，执行结束后打印一次执行摘要，任务日志留在正常终端中。`ACCESSIBLE=1`、Clack 无障碍设置及 `TERM=dumb` / `TERM=unknown` 将提示保留在普通终端中，不切换屏幕、不清除页面。完整命令和非交互运行不会进入临时屏幕。
+<!-- #endregion quick-start -->
 
-`matrix dev app` 等完整命令在终端里也直接执行：环境采用目标默认值，范围默认为全部变体。`matrix dev` 或 `matrix --product app` 等不完整命令只补选缺少的产品或动作，再显示配置菜单。非终端或 CI 环境中，如果产品或动作无法唯一确定，则报错并给出补全提示，不弹菜单。可以使用 `--product` 和 `--target` 显式选择，使用 `--help` 查看示例；也支持 `--env=name` 和重复的 `--variant` / `-v`。
+## 文档
 
-完整的可运行示例见 [`examples/basic`](examples/basic/README.md)，它不依赖具体前端框架。
+[文档导航](docs/site/zh-CN/index.md)提供按主题的阅读路径和完整参考：
 
-CI 判断中，未设置、空值、`false` 和 `0` 在输入输出均为终端时允许交互；判断会去掉首尾空白并忽略大小写。其他非空值禁用提示和临时屏幕。
+- [核心概念](docs/site/zh-CN/concepts.md)：项目、产品、变体与目标。
+- [配置参考](docs/site/zh-CN/reference/configuration.md)：字段、默认值、覆盖、就绪、依赖、身份与版本。
+- [环境与 schema](docs/site/zh-CN/guides/environments.md)：优先级、dotenv 和公开值类型。
+- [构建工具接入](docs/site/zh-CN/guides/integrations.md)：Vite/Rollup/Webpack/esbuild、runtime 快照、Electron scope 与类型。
+- [插件与 runtime 参考](docs/site/zh-CN/reference/plugins.md)：适配器选项与公开 runtime 字段。
+- [执行与产物](docs/site/zh-CN/guides/execution.md)：目标默认值、准备、进程关闭与产物交付。
+- [CLI 参考](docs/site/zh-CN/reference/cli.md)与[排错指南](docs/site/zh-CN/guides/troubleshooting.md)。
 
-## 配置
+## 示例
 
-| 概念    | 作用                                           |
-| ------- | ---------------------------------------------- |
-| Project | 应用目录及其命令                               |
-| Product | 由多个变体组成的可运行交付物                   |
-| Variant | 绑定到项目的产品条目                           |
-| Target  | `dev`、`build`、`preview`、`test` 或自定义目标 |
+- [basic](examples/basic/README.md)：无框架依赖的双项目开发与构建入门。
+- [electron-web](examples/electron-web/README.md)：两个 Web 产品复用真实 Electron 项目。
+- [示例安装与验证边界](examples/README.md)。
 
-### 多变体
+## 边界
 
-一个产品可以运行多个项目，并为不同目标声明依赖：
-
-```ts
-export default {
-  products: {
-    app: {
-      variants: {
-        web: 'web',
-        desktop: {
-          project: 'desktop',
-          targets: {
-            dev: { dependsOn: [{ variant: 'web', condition: 'ready' }] },
-            build: { dependsOn: [{ variant: 'web', condition: 'completed' }] },
-          },
-        },
-      },
-    },
-  },
-}
-```
-
-持续运行的 `dev` 适合使用 `ready`，一次性执行的 `build` 适合使用 `completed`。
-
-### 环境
-
-所有产品共享的变量放在顶层 `env` 和 `$env`。如果不同产品复用相同项目但连接不同后端，则将产品专属变量放在产品内部：
-
-```ts
-export default defineMatrixConfig({
-  projects: {},
-  products: {
-    app: {
-      appId: 'com.example.app',
-      env: { VITE_API_BASE: 'http://localhost:3000' },
-      $env: defineMatrixEnv({
-        staging: { VITE_API_BASE: 'https://staging-api.example.com' },
-        production: { VITE_API_BASE: 'https://api.example.com' },
-      }),
-      variants: {},
-    },
-  },
-})
-```
-
-`defineMatrixEnv()` 是 c12 兼容的 `$env.<environment>.env` 写法的语法糖，底层结构仍然保持不变，也继续支持直接使用原始写法。
-
-普通应用变量的覆盖优先级从低到高为：
-
-```text
-global env/$env < product env/$env < .env layers < process.env
-```
-
-产品 identity override 会先从合并后的环境变量中解析，然后再应用 suffix：
-
-```text
-product identity < variant identity < 合并后的 identity override < environment suffix
-```
-
-`MATRIX_PRODUCT_NAME`、`MATRIX_PRODUCT_SLUG` 和 `MATRIX_PRODUCT_APP_ID` 可以通过环境变量提供 identity override。包含 suffix 的最终值会同时写入任务元数据和对应的 `MATRIX_PRODUCT_*` 变量。`MATRIX_PRODUCT_ID`、`MATRIX_PRODUCT_KEY`、执行上下文变量和 `NODE_ENV` 由 Matrix 生成，不能被环境变量覆盖。
-
-Matrix 会向每个子进程注入以下执行上下文变量：
-
-```text
-MATRIX_ENV_NAME
-MATRIX_TARGET
-MATRIX_PRODUCT_KEY
-MATRIX_PRODUCT_ID
-MATRIX_PRODUCT_NAME
-MATRIX_PRODUCT_SLUG
-MATRIX_PRODUCT_APP_ID
-MATRIX_PRODUCT_VERSION
-MATRIX_VARIANT
-MATRIX_PROJECT
-MATRIX_NODE_ENV
-NODE_ENV
-```
-
-`MATRIX_ENV_NAME` 是当前选择的 Matrix 配置环境，可以是 `staging`、`qa` 等自定义名称。`NODE_ENV` 表示目标进程的运行模式：`dev` 使用 `development`，`test` 使用 `test`，`build` 和 `preview` 使用 `production`。`MATRIX_NODE_ENV` 是同一个生成值的 `MATRIX_` 前缀版本，用于让 Vite 的前缀过滤 `config.env` 将它带入构建期 runtime module。因此 staging 构建通常会同时得到 `MATRIX_ENV_NAME=staging`、`MATRIX_NODE_ENV=production` 和 `NODE_ENV=production`。只有最终解析出的产品 identity 配置了 `appId` 时，才会注入 `MATRIX_PRODUCT_APP_ID`；环境 suffix 会在导出前生效。
-
-产品级环境变量会为每个产品独立解析。这样多个产品可以复用同一个 Desktop 项目，同时连接不同的 Web 变体或服务。
-
-支持自定义环境名称。使用相同的 helper 定义，并在 CLI 中显式传入环境名：
-
-```ts
-export default defineMatrixConfig({
-  $env: defineMatrixEnv({
-    qa: {
-      VITE_API_BASE: 'https://qa-api.example.com',
-    },
-  }),
-  projects: {},
-  products: {},
-})
-```
-
-```bash
-matrix build app --env qa
-matrix plan app --target preview --env qa
-```
-
-自定义环境可以通过 `--env` 使用。交互式运行时，Matrix 会将顶层和产品级 `$env` 中声明的环境名加入选择器。
-
-dotenv 文件按 `.env`、`.env.local`、`.env.<environment>` 和 `.env.<environment>.local` 加载。Matrix 会将 `VITE_*`、`NUXT_*` 等变量传递给子进程，应用框架继续负责自己的运行时配置。
-
-配置文件求值期间可以通过 `process.env` 读取本次 dotenv，继承的 Shell 变量保持更高优先级。每次配置加载或环境列表读取都在短生命周期 Worker 中执行，拥有独立环境和完整的 ESM/CommonJS 模块缓存；本地配置依赖随本次加载一起求值，不修改宿主环境或宿主模块缓存。结果返回后 Worker 会被销毁，因此配置文件应生成数据，不应启动持久服务。执行计划保留独立环境快照；返回的 `layers` 是 JSON 诊断快照，不携带可执行对象。
-
-### 环境变量 schema
-
-在根级 `envSchema` 集中声明类型、默认值和可选性；产品仍通过 `env` / `$env` 覆盖值，不声明自己的 schema，也不从覆盖值推断类型：
-
-```ts
-export default defineMatrixConfig({
-  envSchema: {
-    VITE_RENDERER_MODE: { type: 'enum', values: ['remote', 'bundled'], default: 'remote' },
-    VITE_CLOUD_SUBMISSION_ENABLED: { type: 'boolean', default: false },
-    VITE_RETRY_COUNT: { type: 'number', default: 3 },
-    VITE_LABEL: { type: 'string', optional: true },
-  },
-  projects: { web: { targets: { build: 'vite build' } } },
-  products: {
-    app: {
-      env: { VITE_RENDERER_MODE: 'bundled' },
-      variants: { web: 'web' },
-    },
-  },
-})
-```
-
-`defineMatrixConfig()` 按根级声明约束全局、产品及其 `$env` 的输入，enum 默认值也必须属于 `values`。默认值使用原生类型；boolean 的覆盖值接受布尔值或精确的 `'true'` / `'false'`，number 接受有限数字或十进制／科学计数法字符串，不接受空白、空字符串、十六进制、NaN 或 Infinity。string 不做隐式转换，enum 按字符串精确匹配。
-
-覆盖顺序保持为 `schema default < global env/$env < product env/$env < dotenv < process.env`。默认值只补缺失字段；最终覆盖值非法会报错，不回退默认值，错误只标明字段和期望类型，不输出值。未声明字段保持原有行为。
-
-通过 Matrix 启动构建后，`matrix.config.cloudSubmissionEnabled` 为 boolean、`retryCount` 为 number、`rendererMode` 为 enum 字面量联合类型。原始 `process.env` 和生成的 `ImportMetaEnv` 字段仍为 string。`optional: true` 且无默认值的缺失字段不出现在 runtime 对象中，生成的属性带 `?`；有默认值则生成必有属性。`matrix prepare` 和构建插件均使用同一份声明生成类型，不把实际值或非公开字段写入类型文件。
-
-required 的检查范围是当前构建插件消费的公开前缀：例如 Web 使用 `VITE_` 时，不要求缺失的 `MAIN_VITE_*`。计划中的任务和准备命令会校验各自最终环境中的已有值并应用默认值，不全局要求所有字段都存在；类型生成本身不要求字段有值。Vite 在最终配置解析完成时校验当前 `envPrefix` 的字段，其他适配器在构建启动时校验；不依赖应用导入 runtime 模块，关闭类型生成也不会跳过校验。同一前缀内的 required 声明适用于所有消费该前缀的项目，项目专属字段应使用独立前缀或标记 optional。非公开字段的已有值也会校验，但缺失检查由应用负责。`scope` 继续隔离模块与类型文件，公开范围仍由 `envPrefix` 决定，schema 不扩大它。不同字段若映射到同一个公开属性且涉及 schema，直接报错，避免类型与值不一致。
-
-schema 通过 Matrix 的内部子进程上下文传给适配器，不会进入 `matrix.config`；没有通过 Matrix 启动的独立构建保持原有字符串行为。`MATRIX_*`、`__MATRIX_*` 和 `NODE_ENV` 为保留字段，不能声明在 schema 中。plan 输出仍可能包含已声明变量的实际值，不应公开粘贴。
-
-### 产品发布版本
-
-多个产品复用同一项目时，可以分别声明发布版本；变体也可以覆盖产品版本：
-
-```ts
-export default {
-  products: {
-    alpha: {
-      version: '2.0.0',
-      variants: { desktop: 'desktop' },
-    },
-    beta: {
-      version: '3.0.0',
-      variants: { desktop: { project: 'desktop', version: '3.1.0-rc.1' } },
-    },
-  },
-}
-```
-
-解析优先级为 `MATRIX_PRODUCT_VERSION > variant.version > product.version > 项目 package.json 的 version`。环境变量沿用全局／产品 `env`、`$env`、dotenv、Shell 的现有合并顺序。版本使用 SemVer（支持预发布与构建元数据），不拼接环境 identity suffix；无效的显式版本直接报错，不回退。
-
-版本在生成执行计划时确定，同步写入任务 `version`、子进程的 `MATRIX_PRODUCT_VERSION` 和构建期 `matrix.product.version`，产物命名使用同一个值。Matrix 不修改源 `package.json`，也不自动修改应用打包器的版本配置。例如 electron-builder 可以通过 `extraMetadata: { version: process.env.MATRIX_PRODUCT_VERSION }` 使用该版本。
-
-没有显式版本时读取所选项目的 `package.json`（不向父目录查找）。非产物任务允许文件或 `version` 字段缺失，此时不注入版本；启用产物交付的非持续任务必须解析到有效版本。已有显式版本时不要求项目提供 `package.json`。
-
-### 构建工具接入
-
-Matrix 提供统一的 Unplugin 工厂，以及各构建工具的入口。
-
-    import matrix from '@xova/matrix/vite'
-
-    export default defineConfig({
-      plugins: [matrix()],
-    })
-
-Vite 适配器会保留最终解析出的 envPrefix，并自动加入 Matrix 保留的 MATRIX_ 前缀。它读取 Vite 最终的 config.env，通过 virtual:matrix/runtime 提供结构化构建上下文：
-
-    import { matrix } from 'virtual:matrix/runtime'
-
-    matrix.environment
-    matrix.product.name
-    matrix.product.appId
-    matrix.config.apiBase
-
-    matrix.isDevelopment
-    matrix.isProduction
-    matrix.isTest
-
-这些模式标记由 Matrix 解析后的 `nodeEnv`（`development`、`production` 或 `test`）生成，是构建时快照值。`dev`、`build`、`dist`、`preview` 等 Matrix 专属目标仍应通过 `matrix.target` 判断。
-
-同一套工厂也可以通过 @xova/matrix/rollup、@xova/matrix/webpack 和 @xova/matrix/esbuild 使用。虚拟模块是构建时快照，不是部署后可变的 runtime config；只有宿主构建工具已通过前缀暴露的变量，才会进入 matrix.config。
-
-#### 不可变快照与 tree shaking
-
-现有 import 同时也是静态优化入口，无需全局变量或 `import.meta.matrix`：
-
-```ts
-import { matrix } from 'virtual:matrix/runtime'
-
-if (matrix.isDevelopment) {
-  void import('./dev-tools')
-}
-```
-
-Matrix 为每个插件／构建上下文解析一份不可变快照。共享的 Oxc 转换识别匹配虚拟模块的具名导入，把已知、实际存在的标量属性读取替换为字面量，支持导入重命名、点访问和字符串字面量下标。宿主随后可以删除不可达分支及其专属动态导入 chunk。Vite、Rollup、esbuild、Webpack 均有实际构建测试；Electron main/preload 通过 electron-vite 使用同一转换。其他宿主及框架 loader 组合不自动获得兼容性承诺。带副作用的静态导入仍遵循宿主正常的模块语义。
-
-动态 key、解构、对象别名、namespace import 和重导出继续使用虚拟模块回退，不承诺内联。未知、继承或缺失的 optional 属性也保留运行时读取。允许传递、枚举快照；只有当前 scope 的公开字段参与替换，boolean／number 保留原生标量类型。每个编译上下文使用一个 scope；尤其是 esbuild 不会在同一源码模块上串联多个独立注册的插件实例的转换。
-
-所有适配器都只加载精确匹配的 Matrix 虚拟模块 ID。普通 JS/TS 文件可以进行静态替换；其他资源保留宿主原行为，除非属于下述明确支持的情况。Webpack 还会检查实际模块类型，即使资源以 JS 为扩展名，也不会改写其内容。
-
-Vite 配合官方 `@vitejs/plugin-vue` 时，也支持已编译 Vue 脚本中的静态读取，包括 `<script setup lang="ts">` 和普通 `<script>`。Matrix 复用 Vue 编译结果及 sourcemap，不自行解析 SFC；客户端生产构建、SSR 和开发管线均有测试。template/style/custom block、raw/url 导入仍不参与转换；其他框架及自定义 Vue 查询格式不自动获得支持。
-
-esbuild 仅处理 file namespace；import attributes 和非脚本 loader 交由原宿主处理。**必需的源码加载插件应注册在 Matrix 之前**：其接管的文件使用不可变 runtime 回退，未接管的文件仍可由 Matrix 内联。如果后续 loader 必须处理同一源码，则不支持将 Matrix 放在前面，因为 esbuild 采用首个返回的内容，不会串联 loader：
-
-```ts
-plugins: [customSourceLoader(), matrix()]
-```
-
-复杂 loader 组合可使用 `matrix({ inline: false })` 关闭 Matrix 的源码转换。该选项适用于所有适配器，默认为 `true`；虚拟模块、公开字段和 scope 边界、冻结快照及类型生成不受影响。关闭后不再提供 Matrix 的构建期写入诊断，修改仍受运行时冻结保护，也不保证开发分支及专属 chunk 被删除。esbuild 此时不会注册 Matrix 的源码 loader，可使用 `plugins: [matrix({ inline: false }), customSourceLoader()]`，但其他插件之间仍遵循宿主自身的顺序规则。
-
-没有实际 Matrix 替换的文件继续交给后续 loader。Vite/Rollup 和 Webpack 保留上游 sourcemap；esbuild 合并有效的 inline map，外置或不支持的 map 则交回宿主 loader，不保证内联。上述映射链路均有实际构建测试。
-
-**兼容性变化：**根对象、`product` 和 `config` 在类型上只读，在运行时冻结。可识别的直接赋值、自增减和删除会报构建错误；间接修改由冻结对象阻止（严格模式赋值抛错，`Reflect.set` 返回 `false`）。需要可变应用状态时，应复制相关值到应用自己的对象。开发和生产均不再支持修改 Matrix 快照。
-
-值在插件解析环境时确定，不在构建产物启动时重新读取。修改环境后应重启开发／构建上下文；`matrix prepare` 仍只生成契约，不嵌入环境值。不同产品和 scope 使用独立快照。
-
-Electron 多配置时为每个构建指定 scope，避免 main、preload、renderer 互相覆盖：
-
-```ts
-export default defineConfig({
-  main: {
-    plugins: [matrix({ scope: 'main' })],
-  },
-  preload: {
-    plugins: [matrix({ scope: 'preload' })],
-  },
-})
-```
-
-分别使用 `virtual:matrix/runtime/main` 和 `virtual:matrix/runtime/preload`。对应类型文件会生成到 `.matrix/types/matrix-runtime-main.d.ts` 和 `.matrix/types/matrix-runtime-preload.d.ts`。
-
-启动开发前运行 `matrix prepare`，即可为所选 product 生成 runtime 声明。scope 仍放在构建插件配置中，不需要在 `matrix.config` 重复声明。
-
-- 默认仅检查 project root 中的文件，按 `electron.vite.config.*` → `vite.config.*` 的优先级匹配，不扫描子目录，也不向父目录查找。同一条选中规则匹配多个文件时需要显式选择。prepare 使用项目本地安装的宿主解析真实配置，包括配置钩子、`root`、`envDir`、`envPrefix`、`scope` 和 `types` 选项。Electron main/preload 分别生成声明，不启动 Electron、开发服务器或打包。
-- 可直接设置 `projects.desktop.configFile`，例如 `'config/electron.vite.config.ts'`，路径相对于该 project root，优先于自动发现。文件名仍需符合内置规则（`electron.vite.config.*` 或 `vite.config.*`，使用 JS/TS 模块扩展名）。显式文件不存在、文件名不支持或解析失败时直接报错，不回退。`configFile` 仅控制 prepare，不修改 target 命令；无需额外配置 host。
-- prepare 解析开发态配置（`serve`；Electron main/preload 按开发时实际流程执行 `build` 配置钩子），`NODE_ENV=development`，`mode` 为 Matrix `--env` 选择。每个 product/variant 在独立进程中解析，传入 `MATRIX_TARGET=prepare` 及 product key、project、variant。产品身份（ID/name/slug/appId，含后缀和覆盖）及版本复用执行计划的解析规则；未配置版本时允许 package version 缺失。这不是生产构建上下文；scope 和类型契约应与所选产品及 target 无关。
-- 共享项目合并所选产品的公开字段名；schema 声明的字段不要求提供运行时值。重复 scope、输出/前缀冲突、scope 集合变化或配置解析失败时，Matrix 会在写入声明前报错。prepare 除执行已有项目准备命令外，还会执行配置代码和配置钩子，并不是无副作用的静态扫描。每次宿主解析限时 30 秒。
-- 未显式指定配置且 project root 没有匹配文件时，保留原有通用生成方式，从 Matrix 配置和公开环境变量键生成 `.matrix/types/matrix-runtime.d.ts`。暂不支持其他宿主或任意配置文件名。宿主配置成功解析但未启用 Matrix 插件时，也沿用该通用方式（使用 Matrix 设置，不采用宿主特定前缀或 scope）；启用插件并设置 `types: false` 时不生成。不会自动删除旧声明文件。
-
-prepare 和构建插件生成 `ImportMetaEnv`、`matrix.config` 类型时均不写入环境变量实际值。构建插件仍按当前构建最终配置生成声明；在 Vitest 环境默认不自动生成，可用 `types: true` 或 `types: { output: '...' }` 显式开启。显式运行 `matrix prepare` 不受 Vitest 默认值限制，但遵循 `types: false`。将生成目录加入各项目对应 `tsconfig.json`：
-
-```json
-{
-  "include": ["src", ".matrix/types"]
-}
-```
-
-## 目标和默认值
-
-内置目标的默认值如下：
-
-| 目标      | 环境          | 是否持续运行 |
-| --------- | ------------- | ------------ |
-| `dev`     | `development` | 是           |
-| `build`   | `production`  | 否           |
-| `dist`    | `production`  | 否           |
-| `preview` | `production`  | 是           |
-| `test`    | `development` | 否           |
-
-自定义目标默认不会持续运行，未指定 `--env` 时使用 `development`。内置目标的运行模式为：`dev` 使用 `development`，`test` 使用 `test`，`build`、`dist` 和 `preview` 使用 `production`。自定义目标也可以将 `nodeEnv` 配置为 `development`、`production` 或 `test`。项目默认使用当前目录，目标输出目录默认为 `dist`，产物根目录默认为 `artifacts`。Target 可以使用字符串数组顺序执行多个命令，例如 `release: ['pnpm build', 'pnpm package']`。产物默认使用 `move` 模式，归档格式默认为 ZIP；需要归档时只需将 `artifacts.mode` 设置为 `archive` 或 `both`。启用产物交付时，`artifacts.clean` 默认为 `true`，会在每个非持续 Target 执行前清理输出目录，确保产物只包含本次执行的输出。`archive` 模式会保留本次输出目录，`move` 和 `both` 会将其移动到产物目录。产物命名为 `<variant>-<version>-<YYYYMMDD-HHmmss>`，默认按 Product、Environment、Variant 保留最近 5 个 ArtifactSet。
-
-动作菜单包含单端专属目标并标注适用范围；选择后，配置菜单明确显示该范围。显式传入 `--variant` 时，只展示所选变体共同支持的动作。直接命令不会静默跳过不支持目标的变体，需要用 `--variant` 缩小范围。调整变体至少选择一项；返回动作列表时，本次向导调整重置为原始 CLI 参数和新目标的默认值。
-
-`matrix plan app --target build` 输出 JSON，不执行任务。每个任务的 `env` 展示 Matrix 配置、所选产品和本次 dotenv 文件声明的变量，以及 `MATRIX_*`、`NODE_ENV` 的最终合并值，其中包含 Shell 覆盖结果。无关的继承 Shell 变量不展示，但仍会传递给子进程。不按变量名自动脱敏，因此 plan 输出可能包含敏感值，请勿直接粘贴到公开日志或 issue。完整的 plan 命令只输出 JSON，不显示交互摘要。
-
-配置中的任意目标都可以通过 CLI 调用。常见的自定义目标包括 `test`、`lint` 和 `e2e`。
-
-### 执行摘要与失败诊断
-
-实际执行在子进程清理完成后统一输出一次最终摘要，覆盖成功、失败和取消：包含整体结果、耗时、各任务与项目准备步骤的状态，以及已生成的产物路径。`matrix prepare` 会等类型生成结束后再输出同一份摘要，并包含生成的声明文件路径。
-
-- 有限任务仅在命令和已配置的产物交付均成功后标记为 `completed`。失败项为 `failed`，尚未启动的任务与准备步骤保持 `not run`。
-- 用户取消时，正在执行的有限任务为 `cancelled`。持续服务正常退出或被 Matrix 关闭时为 `stopped`，不算完成；因后台服务失败而中断的其他任务也为 `stopped`，不误报为失败。
-- 失败诊断标识具体的 `product:variant:target`、阶段（`preparation`、`command`、`readiness` 或 `artifact handling`）及底层错误或退出码；顺序命令标识失败步骤编号。项目准备失败会标识项目，并在可确定时指出受影响任务；清理失败单独报告。
-
-执行仍保持串行，子进程输出与终端交互原样透传。Matrix 的执行进度只标识任务与命令步骤，不回显配置的完整命令、不转储环境变量。诊断保留错误消息和路径，不猜测敏感键名、不替换值；仅清理自身诊断行中的终端控制字符。错误消息、路径和子进程输出仍可能含敏感信息，公开日志前需自行检查。不会捕获或改写子进程输出。现有 CLI 退出码保持不变：执行失败为 `1`，SIGINT 为 `130`，SIGTERM 为 `143`。`matrix plan` JSON 不变，仍需注意前述敏感值披露边界。
-
-### 项目准备
-
-在 Project 上声明可选的 `prepare`，支持与 target command 相同的字符串或字符串数组。数组按顺序执行；空命令和完整 target 对象不受支持。
-
-```ts
-export default {
-  projects: {
-    desktop: {
-      root: './apps/desktop',
-      prepare: ['pnpm run setup', 'pnpm run generate'],
-      targets: {
-        dev: 'pnpm dev',
-        build: 'pnpm build',
-        lint: { command: 'pnpm lint', prepare: false },
-      },
-    },
-  },
-  products: { app: { variants: { desktop: 'desktop' } } },
-}
-```
-
-- 自动运行时，在该项目第一个需要准备的 target 启动前执行；包括依赖展开后涉及的项目，不执行无关项目的准备。
-- 每次调用按 Project key 去重，多个产品或变体复用同一项目时只准备一次。全部命令成功后才算完成，不跨调用缓存；准备脚本应可重复执行，资源缓存由工具自身负责。
-- 启用产物清理时，顺序为“清理目标输出目录 → 按需 prepare → 执行 target → 交付产物”。后续变体仍可能清理或移动输出目录，因此跨变体复用的准备文件应放在 target 输出目录之外；每次构建都需要生成的输出文件应放入 target 命令数组，而不是一次性的项目准备。
-- `target.prepare: false` 只跳过当前目标，不影响后续其他目标的准备需求。准备失败或取消会停止本次执行，不启动后续目标。
-- 准备命令在 project 根目录执行，使用全局配置、当前 dotenv 和 Shell 环境，不合并产品级 env 或注入产品／变体身份。不继承某个目标的默认 NODE_ENV，保留全局／外部环境中的值；注入 `MATRIX_PROJECT`、`MATRIX_ENV_NAME` 和 `MATRIX_TARGET=prepare`。
-- `matrix prepare [product]` 显式准备所选产品引用的项目（省略产品则处理所有产品），成功后生成现有 runtime 类型，不运行业务 target。构建插件的自动类型生成功能保持不变。
-- `matrix plan` 只展示准备步骤：JSON 的 `preparations` 包含命令、工作目录、环境和 `beforeTask`；`doctor` 执行静态预检，两者均不执行准备命令。
-
-`project.prepare` 与名为 `prepare` 的普通 target 是不同概念。准备阶段本身不会递归触发准备，也不支持依赖、持续服务或产物交付选项。
-
-## 命令
-
-短参数：`-p` / `--product`、`-t` / `--target`、`-e` / `--env`、`-v` / `--variant`、`-h` / `--help`。原有 `--mode` 别名已移除，请改用 `--env` 或 `-e`。同一参数混用长短形式仍按重复参数报错，变体参数除外，允许重复指定。交互生成的等价命令使用短参数。
-
-参数语法统一由 Node 的严格参数解析器处理，Matrix 只校验重复选择、变体列表和命令专属组合；帮助从同一份参数定义生成。支持 `--env=staging`，也保留已有的 `-e=staging` 写法。
-
-```bash
-matrix dev app -v desktop -e staging
-matrix plan app -t build -e production
-matrix -p app # 继续交互选择动作
-```
-
-自定义目标与 `help`、`plan`、`doctor` 或 `prepare` 同名时，使用显式目标参数，例如 `matrix -p app -t prepare -e development`。生成的等价命令也会使用这一形式，避免误入内置命令分支。
-
-```text
-matrix [target] [product] [--variant name] [--env <environment>]
-matrix --product <product> [--target <target>] [--variant name] [--env <environment>]
-matrix dev [product]
-matrix build [product] [--env <environment>]
-matrix dist [product] [--env <environment>]
-matrix preview [product] [--env <environment>]
-matrix test [product] [--env <environment>]
-matrix plan [product] [--target <target>] [--env <environment>]
-matrix doctor
-matrix prepare [product] [--env <environment>]
-matrix <custom-target> [product] [--env <environment>]
-```
-
-### 静态预检
-
-`matrix doctor [--env <environment>]` 检查所选环境中的全部产品、变体和目标，不运行目标或准备命令、不探测端口、不生成类型，也不清理输出。配置加载仍会按原有方式执行配置文件。
-
-- 错误包括不存在或不是目录的项目根路径、会删除项目根目录或祖先目录的清理配置，以及依赖错误、产物版本不可用等计划错误。版本优先级与清理安全规则和执行时保持一致。
-- 对指向持续任务的 `completed` 依赖，以及缺少 `readyWhen` 的 `ready` 依赖报告警告；进程启动并不代表服务已就绪。
-- 依赖计划错误保留原始任务及配置来源。同一根因只报告一次，受影响的下游任务列为 `Blocked`，不重复计为独立错误。
-- 诊断标明项目或任务、配置路径和修正建议，不打印环境变量值。成功加载配置后尽量聚合独立检查；无法加载的无效配置仍立即失败。有错误时退出码非零，仅有警告时正常退出。
-- 构建前尚未生成的输出目录、串行任务共用的输出目录均允许。Doctor 不推断应用环境要求，也不自动修复文件。
+- Matrix 编排项目自己的命令，不安装应用框架，也不自动提供未声明的目标。
+- 虚拟 runtime 是不可变的构建期快照，不是部署后动态配置。
+- `matrix plan` 可能包含敏感值，公开分享前需检查。
 
 ## 开发
 
-示例分为轻量的 `examples/basic` 和真实的 [双 Web / 共享 Electron 示例](examples/electron-web/README.md)，统一加入 pnpm workspace；安装方式和验证边界见 [示例导航](examples/README.md)。根目录执行 `pnpm install --frozen-lockfile`、`pnpm build` 后，可用 `pnpm example:basic` 打开入门向导，或用 `pnpm example:electron-web` 准备 Electron 项目。`pnpm check:examples` 检查两个 Matrix 配置；`pnpm test:electron-web` 则在仓库外、依赖锁定的临时项目中独立安装本次 tarball，验收开发、构建和真实应用启动。
-
-独立 CI 在 PR、main push 和手动触发时运行。质量检查使用 Node 24；兼容性矩阵覆盖 Ubuntu、macOS、Windows 与精确的 Node 22.18.0 / 24.x。每组验证核心行为和安装包，Node 24 额外执行真实 Electron/Web 验收。平台特有的 POSIX 信号断言明确跳过 Windows，通用取消与执行行为仍验证。
-
-依赖版本统一维护在 `pnpm-workspace.yaml` 的 pnpm catalog 中。
-
-```bash
-pnpm install
-pnpm check
-pnpm lint:fix
-```
-
-`pnpm lint:fix` 通过 ESLint 格式化 JavaScript、TypeScript 和 Markdown。`pnpm check` 会依次执行 lint、类型检查、测试和生产构建，不启动示例服务。
-
-`pnpm test:pack` 将打包产物安装到临时消费项目，验证导出、配置隔离、准备流程及 CLI 关闭。关闭验收使用两个不占用网络端口的最小进程；在 macOS/Linux 向 Matrix 发送 SIGINT，检查退出码 130、清理完成且没有测试进程残留。Windows 会明确跳过这条 POSIX 信号验收，其他打包检查仍执行。成功时输出简短摘要，失败时提供诊断日志。发布流程同时运行 `pnpm check` 和 `pnpm test:pack`。
+仓库环境、质量检查、CI 与验收边界见[开发与验证](docs/site/zh-CN/contributing.md)。
 
 ## 许可证
 

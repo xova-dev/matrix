@@ -15,3 +15,14 @@ jobs:
     with:
       verify-command: pnpm check && pnpm test:pack
       publish-command: pnpm publish --access public --no-git-checks
+
+  documentation:
+    needs: publish
+    if: github.event_name == 'release' && !github.event.release.prerelease
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/docs.yml
+    with:
+      deploy: true

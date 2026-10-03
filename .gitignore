@@ -1,6 +1,8 @@
 node_modules/
 dist/
 artifacts/
+docs/.vitepress/cache/
+docs/.vitepress/dist/
 .env.local
 .env.*.local
 .DS_Store

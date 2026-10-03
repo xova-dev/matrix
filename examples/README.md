@@ -1,5 +1,7 @@
 # Examples
 
+For concepts and configuration fields, see the [documentation guide](../docs/site/en/index.md) ([简体中文](../docs/site/zh-CN/index.md)). This directory keeps runnable setup and acceptance instructions alongside each example.
+
 | Example                                | Purpose                        | Main features                                                                          |
 | -------------------------------------- | ------------------------------ | -------------------------------------------------------------------------------------- |
 | [basic](basic/README.md)               | Framework-free introduction    | Projects, products, variants, environment overrides, target dependencies and artifacts |
