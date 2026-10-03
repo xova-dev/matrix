@@ -112,6 +112,7 @@ async function verifyProductionModules(directory) {
 }
 
 const reports = await mkdtemp(path.join(root, '.matrix-acceptance-'))
+const failures = []
 try {
   let prepared = await preparationCount()
   await run(process.execPath, [cli, 'prepare'])
@@ -170,8 +171,20 @@ try {
     console.log(`Packaged application verified: ${product} / ${environment}.`)
   }
 }
+catch (error) {
+  failures.push(error)
+}
 finally {
   process.removeListener('SIGINT', interrupt)
   process.removeListener('SIGTERM', interrupt)
-  await rm(reports, { recursive: true, force: true })
+  try {
+    await rm(reports, { recursive: true, force: true })
+  }
+  catch (error) {
+    failures.push(error)
+  }
 }
+if (failures.length === 1)
+  throw failures[0]
+if (failures.length > 1)
+  throw new AggregateError(failures, 'Electron/Web acceptance and cleanup both failed')

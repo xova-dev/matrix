@@ -1,42 +1,12 @@
 import { execFileSync, spawn } from 'node:child_process'
 import { once } from 'node:events'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import process from 'node:process'
 import { setTimeout as delay } from 'node:timers/promises'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath } from 'node:url'
 import { execaSync } from 'execa'
 import path from 'pathe'
-import webpack from 'webpack'
-
-async function verifyPackagedWebpack(directory) {
-  const root = realpathSync(directory)
-  const { default: matrix } = await import(pathToFileURL(path.join(root, 'node_modules/@xova/matrix/dist/webpack.js')).href)
-  writeFileSync(path.join(root, 'webpack-entry.js'), [
-    'import { matrix } from "virtual:matrix/runtime";',
-    'export default matrix.product.name;',
-  ].join('\n'))
-  const compiler = webpack({
-    mode: 'production',
-    context: root,
-    entry: './webpack-entry.js',
-    target: 'node',
-    output: { path: path.join(root, 'webpack-out'), filename: 'entry.js', library: { type: 'commonjs2' } },
-    plugins: [matrix({ types: false })],
-  })
-  await new Promise((resolve, reject) => {
-    compiler.run((error, stats) => {
-      compiler.close((closeError) => {
-        if (error || closeError || stats?.hasErrors())
-          reject(error ?? closeError ?? new Error(stats.toString({ all: false, errors: true })))
-        else resolve()
-      })
-    })
-  })
-  const output = execFileSync(process.execPath, ['-e', 'process.stdout.write(JSON.stringify(require("./webpack-out/entry.js").default))'], { cwd: root, encoding: 'utf8' })
-  if (JSON.parse(output) !== (process.env.MATRIX_PRODUCT_NAME ?? ''))
-    throw new Error('Packaged Webpack loader returned an incorrect snapshot')
-}
 
 async function withTimeout(promise, milliseconds, message) {
   let timeout
@@ -179,10 +149,12 @@ const temporaryRoot = mkdtempSync(path.join(os.tmpdir(), 'xova-matrix-pack-'))
 const packageRoot = process.cwd()
 const consumerRoot = path.join(temporaryRoot, 'consumer')
 const packRoot = path.join(temporaryRoot, 'pack')
-mkdirSync(consumerRoot)
-mkdirSync(packRoot)
+const failures = []
+let shutdownVerified
 
 try {
+  mkdirSync(consumerRoot)
+  mkdirSync(packRoot)
   writeFileSync(path.join(consumerRoot, 'package.json'), JSON.stringify({
     name: 'matrix-pack-smoke-consumer',
     private: true,
@@ -273,7 +245,11 @@ try {
     timeout: 10_000,
   })
 
-  await verifyPackagedWebpack(consumerRoot)
+  // Native addons from the consumer must unload before its directory is removed.
+  execFileSync(process.execPath, [fileURLToPath(new URL('./pack-webpack.mjs', import.meta.url)), consumerRoot], {
+    encoding: 'utf8',
+    timeout: 30_000,
+  })
 
   for (const root of ['dev-root', 'stage-root']) {
     const projectRoot = path.join(consumerRoot, root)
@@ -344,13 +320,25 @@ try {
   if (readdirSync(doctorRoot).join(',') !== 'matrix.config.mjs')
     throw new Error('Packaged doctor executed commands or wrote workspace files')
 
-  const shutdownVerified = await verifyShutdown(path.join(consumerRoot, cli), path.join(consumerRoot, 'shutdown'))
-  if (shutdownVerified !== null) {
-    console.log(shutdownVerified
-      ? 'Package smoke passed: exports, config isolation, preparation, doctor, and POSIX shutdown.'
-      : 'Package smoke passed: exports, config isolation, preparation, and doctor. POSIX shutdown skipped on Windows.')
-  }
+  shutdownVerified = await verifyShutdown(path.join(consumerRoot, cli), path.join(consumerRoot, 'shutdown'))
+}
+catch (error) {
+  failures.push(error)
 }
 finally {
-  rmSync(temporaryRoot, { recursive: true, force: true })
+  try {
+    rmSync(temporaryRoot, { recursive: true, force: true })
+  }
+  catch (error) {
+    failures.push(error)
+  }
+}
+if (failures.length === 1)
+  throw failures[0]
+if (failures.length > 1)
+  throw new AggregateError(failures, 'Package smoke and cleanup both failed')
+if (shutdownVerified !== null) {
+  console.log(shutdownVerified
+    ? 'Package smoke passed: exports, config isolation, preparation, doctor, and POSIX shutdown.'
+    : 'Package smoke passed: exports, config isolation, preparation, and doctor. POSIX shutdown skipped on Windows.')
 }

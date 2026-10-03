@@ -1,11 +1,11 @@
 import fs from 'node:fs/promises'
-import os from 'node:os'
 import path from 'pathe'
 import { describe, expect, it } from 'vitest'
 import { materializeArtifact } from '../../src/execution/artifact.js'
+import { temporaryDirectory } from '../helpers/temporary-directory.js'
 
 async function createProject(): Promise<{ root: string, output: string, artifacts: string }> {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'matrix-artifact-'))
+  const root = await temporaryDirectory('matrix-artifact-')
   const output = path.join(root, 'dist')
   const artifacts = path.join(root, 'artifacts')
   await fs.mkdir(output, { recursive: true })

@@ -1,25 +1,20 @@
 import fs from 'node:fs/promises'
-import os from 'node:os'
 import path from 'pathe'
 import { describe, expect, it } from 'vitest'
 import { archiveDirectory } from '../../src/execution/archive.js'
+import { temporaryDirectory } from '../helpers/temporary-directory.js'
 
 describe('archiveDirectory', () => {
   it.each(['inside.zip', '..hidden/archive.zip'])('rejects an archive inside the source at %s', async (relativeDestination) => {
-    const source = await fs.mkdtemp(path.join(os.tmpdir(), 'matrix-archive-'))
-    try {
-      await fs.writeFile(path.join(source, 'keep'), 'original')
-      await expect(archiveDirectory(source, path.join(source, relativeDestination), 'zip')).rejects.toThrow('outside source directory')
-      expect(await fs.readdir(source)).toEqual(['keep'])
-      expect(await fs.readFile(path.join(source, 'keep'), 'utf8')).toBe('original')
-    }
-    finally {
-      await fs.rm(source, { recursive: true, force: true })
-    }
+    const source = await temporaryDirectory('matrix-archive-')
+    await fs.writeFile(path.join(source, 'keep'), 'original')
+    await expect(archiveDirectory(source, path.join(source, relativeDestination), 'zip')).rejects.toThrow('outside source directory')
+    expect(await fs.readdir(source)).toEqual(['keep'])
+    expect(await fs.readFile(path.join(source, 'keep'), 'utf8')).toBe('original')
   })
 
   it('fails when the source directory does not exist', async () => {
-    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'matrix-archive-'))
+    const cwd = await temporaryDirectory('matrix-archive-')
     const destination = path.join(cwd, 'artifact.zip')
     const source = path.join(cwd, 'missing')
 
@@ -30,7 +25,7 @@ describe('archiveDirectory', () => {
   })
 
   it('does not replace an existing archive when the source is missing', async () => {
-    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'matrix-archive-'))
+    const cwd = await temporaryDirectory('matrix-archive-')
     const destination = path.join(cwd, 'artifact.zip')
     await fs.writeFile(destination, 'previous archive')
 
@@ -39,7 +34,7 @@ describe('archiveDirectory', () => {
   })
 
   it('writes a non-empty archive for a directory', async () => {
-    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'matrix-archive-'))
+    const cwd = await temporaryDirectory('matrix-archive-')
     const source = path.join(cwd, 'dist')
     const destination = path.join(cwd, 'artifacts', 'artifact.zip')
     await fs.mkdir(source)

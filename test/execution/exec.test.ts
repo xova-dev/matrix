@@ -2,11 +2,11 @@ import type { ExecutionPlan, ExecutionTask } from '../../src/types.js'
 import { Buffer } from 'node:buffer'
 import fs from 'node:fs/promises'
 import net from 'node:net'
-import os from 'node:os'
 import { fileURLToPath } from 'node:url'
 import path from 'pathe'
 import { describe, expect, it, vi } from 'vitest'
 import { runExecutionPlan } from '../../src/execution/exec.js'
+import { temporaryDirectory } from '../helpers/temporary-directory.js'
 
 function task(id: string, command: string, overrides: Partial<ExecutionTask> = {}): ExecutionTask {
   return {
@@ -80,7 +80,7 @@ async function waitForFile(file: string, timeout: number): Promise<void> {
 
 describe('runExecutionPlan', () => {
   it.skipIf(process.platform === 'win32').each(['target', 'prepare', 'ready', 'service'])('force-stops a stubborn child during %s cancellation (POSIX)', async (phase) => {
-    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'matrix-exec-stubborn-'))
+    const cwd = await temporaryDirectory('matrix-exec-stubborn-')
     const ready = path.join(cwd, 'ready.pid')
     const marker = path.join(cwd, 'next-started')
     const listeners = process.listenerCount('SIGINT')
@@ -138,17 +138,12 @@ describe('runExecutionPlan', () => {
           // The executor normally reaps the fixture before this cleanup.
         }
       }
-      try {
-        await execution
-      }
-      finally {
-        await fs.rm(cwd, { recursive: true, force: true })
-      }
+      await execution
     }
   })
 
   it('cancels execution, terminates the child, and never starts the next task on every platform', async () => {
-    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'matrix-exec-cancel-'))
+    const cwd = await temporaryDirectory('matrix-exec-cancel-')
     const ready = path.join(cwd, 'ready.pid')
     const nextMarker = path.join(cwd, 'next-started')
     const running = scriptedTask('app:running:test', [
@@ -173,12 +168,11 @@ describe('runExecutionPlan', () => {
       if (!completed)
         process.emit('SIGINT')
       await execution
-      await fs.rm(cwd, { recursive: true, force: true })
     }
   })
 
   it.skipIf(process.platform === 'win32')('waits for all task groups to exit before reporting a process inspection failure', async () => {
-    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'matrix-exec-inspection-'))
+    const cwd = await temporaryDirectory('matrix-exec-inspection-')
     const files = ['first.pid', 'second.pid'].map(name => path.join(cwd, name))
     const tasks = files.map((file, index) => scriptedTask(`app:service${index}:test`, [
       'process.on("SIGTERM", () => {})',
@@ -213,12 +207,11 @@ describe('runExecutionPlan', () => {
       if (!completed)
         process.emit('SIGINT')
       await execution.catch(() => undefined)
-      await fs.rm(cwd, { recursive: true, force: true })
     }
   }, 10_000)
 
   it.skipIf(process.platform === 'win32')('waits for a child graceful shutdown before returning after SIGINT (POSIX)', async () => {
-    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'matrix-exec-shutdown-'))
+    const cwd = await temporaryDirectory('matrix-exec-shutdown-')
     const marker = path.join(cwd, 'cleanup-complete')
     const ready = path.join(cwd, 'ready')
     const running = scriptedTask('app:running:test', [
@@ -231,15 +224,21 @@ describe('runExecutionPlan', () => {
     })
     const execution = runExecutionPlan(plan([running]))
 
-    await waitForFile(ready, 2000)
-    process.emit('SIGINT')
-
-    await execution
-    await expect(fs.readFile(marker, 'utf8')).resolves.toBe('done')
+    void execution.catch(() => undefined)
+    try {
+      await waitForFile(ready, 2000)
+      process.emit('SIGINT')
+      await execution
+      await expect(fs.readFile(marker, 'utf8')).resolves.toBe('done')
+    }
+    finally {
+      process.emit('SIGINT')
+      await execution.catch(() => undefined)
+    }
   })
 
   it.skipIf(process.platform === 'win32')('waits for every running child to finish graceful shutdown (POSIX)', async () => {
-    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'matrix-exec-multi-shutdown-'))
+    const cwd = await temporaryDirectory('matrix-exec-multi-shutdown-')
     const firstMarker = path.join(cwd, 'first-cleanup-complete')
     const secondMarker = path.join(cwd, 'second-cleanup-complete')
     const createRunningTask = (id: string, marker: string): ExecutionTask => scriptedTask(id, [
@@ -256,16 +255,22 @@ describe('runExecutionPlan', () => {
       createRunningTask('app:second:test', secondMarker),
     ]))
 
-    await Promise.all([firstMarker, secondMarker].map(marker => waitForFile(`${marker}.ready`, 2000)))
-    process.emit('SIGINT')
-
-    await execution
-    await expect(fs.readFile(firstMarker, 'utf8')).resolves.toBe('done')
-    await expect(fs.readFile(secondMarker, 'utf8')).resolves.toBe('done')
+    void execution.catch(() => undefined)
+    try {
+      await Promise.all([firstMarker, secondMarker].map(marker => waitForFile(`${marker}.ready`, 2000)))
+      process.emit('SIGINT')
+      await execution
+      await expect(fs.readFile(firstMarker, 'utf8')).resolves.toBe('done')
+      await expect(fs.readFile(secondMarker, 'utf8')).resolves.toBe('done')
+    }
+    finally {
+      process.emit('SIGINT')
+      await execution.catch(() => undefined)
+    }
   })
 
   it('terminates descendants started through a shell command', async () => {
-    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'matrix-exec-descendants-'))
+    const cwd = await temporaryDirectory('matrix-exec-descendants-')
     const marker = path.join(cwd, 'descendant-survived')
     const running = scriptedTask('app:running:test', [
       'const { spawn } = require("node:child_process")',
@@ -281,16 +286,22 @@ describe('runExecutionPlan', () => {
     })
     const execution = runExecutionPlan(plan([running]))
 
-    await waitForFile(path.join(cwd, 'descendant.pid'), 2_000)
-    process.emit('SIGINT')
-
-    await execution
-    await new Promise(resolve => setTimeout(resolve, 700))
-    await expect(fs.stat(marker)).rejects.toMatchObject({ code: 'ENOENT' })
+    void execution.catch(() => undefined)
+    try {
+      await waitForFile(path.join(cwd, 'descendant.pid'), 2_000)
+      process.emit('SIGINT')
+      await execution
+      await new Promise(resolve => setTimeout(resolve, 700))
+      await expect(fs.stat(marker)).rejects.toMatchObject({ code: 'ENOENT' })
+    }
+    finally {
+      process.emit('SIGINT')
+      await execution.catch(() => undefined)
+    }
   })
 
   it('cleans stale output before execution and keeps the current archived output', async () => {
-    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'matrix-exec-artifact-'))
+    const root = await temporaryDirectory('matrix-exec-artifact-')
     const output = path.join(root, 'dist')
     const artifactsRoot = path.join(root, 'artifacts')
     const freshOutput = path.join(output, 'index.html')
@@ -314,7 +325,7 @@ describe('runExecutionPlan', () => {
   })
 
   it('inherits the host environment and lets task variables override it', async () => {
-    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'matrix-exec-'))
+    const cwd = await temporaryDirectory('matrix-exec-')
     const marker = path.join(cwd, 'env.json')
     const inheritedKey = 'MATRIX_TEST_HOST_INHERITED'
     const overriddenKey = 'MATRIX_TEST_HOST_OVERRIDDEN'
@@ -350,7 +361,7 @@ describe('runExecutionPlan', () => {
   })
 
   it('waits for completed dependencies before starting the dependent task', async () => {
-    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'matrix-exec-'))
+    const cwd = await temporaryDirectory('matrix-exec-')
     const marker = path.join(cwd, 'marker')
     const dependency = scriptedTask('app:dependency:test', [
       'const fs = require("node:fs")',
@@ -369,7 +380,7 @@ describe('runExecutionPlan', () => {
   })
 
   it('does not start dependents when a completed dependency fails', async () => {
-    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'matrix-exec-'))
+    const cwd = await temporaryDirectory('matrix-exec-')
     const marker = path.join(cwd, 'marker')
     const dependency = scriptedTask('app:dependency:test', 'process.exit(7)')
     const dependent = scriptedTask('app:dependent:test', 'require("node:fs").writeFileSync(process.env.MATRIX_TEST_MARKER, "started")', {
@@ -384,7 +395,7 @@ describe('runExecutionPlan', () => {
   })
 
   it('waits for a port before starting a ready dependent', async () => {
-    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'matrix-exec-'))
+    const cwd = await temporaryDirectory('matrix-exec-')
     const marker = path.join(cwd, 'marker')
     const port = await freePort()
     const service = scriptedTask('app:service:test', [
@@ -437,7 +448,7 @@ describe('runExecutionPlan', () => {
   })
 
   it('fails fast when an independent continuous task exits unexpectedly', async () => {
-    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'matrix-exec-service-failure-'))
+    const cwd = await temporaryDirectory('matrix-exec-service-failure-')
     const marker = path.join(cwd, 'long-task-completed')
     const service = scriptedTask('app:service:test', 'setTimeout(() => process.exit(9), 50)', {
       continuous: true,
@@ -448,6 +459,5 @@ describe('runExecutionPlan', () => {
       .rejects
       .toThrow('app:service:test exited with code 9')
     await expect(fs.stat(marker)).rejects.toMatchObject({ code: 'ENOENT' })
-    await fs.rm(cwd, { recursive: true, force: true })
   })
 })

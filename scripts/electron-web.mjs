@@ -64,6 +64,7 @@ async function prepareLockedConsumer(tarball) {
   await writeFile(path.join(consumer, 'pnpm-workspace.yaml'), stringify(workspace))
 }
 
+const failures = []
 try {
   const generated = new Set(['node_modules', 'dist', 'release', 'artifacts', '.prepared', '.matrix'])
   await cp(example, consumer, { recursive: true, filter: source => !generated.has(path.basename(source)) && !path.basename(source).startsWith('.matrix-acceptance-') && !path.basename(source).startsWith('.env') })
@@ -77,8 +78,20 @@ try {
   assert.ok(installed.startsWith(`${consumer}${path.sep}`), 'Acceptance must use the installed tarball, not the repository')
   await run(process.execPath, ['acceptance/verify.mjs'], consumer)
 }
+catch (error) {
+  failures.push(error)
+}
 finally {
   process.removeListener('SIGINT', interrupt)
   process.removeListener('SIGTERM', interrupt)
-  await rm(temporaryRoot, { recursive: true, force: true })
+  try {
+    await rm(temporaryRoot, { recursive: true, force: true })
+  }
+  catch (error) {
+    failures.push(error)
+  }
 }
+if (failures.length === 1)
+  throw failures[0]
+if (failures.length > 1)
+  throw new AggregateError(failures, 'Electron/Web acceptance and cleanup both failed')

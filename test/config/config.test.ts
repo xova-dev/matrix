@@ -1,12 +1,12 @@
 import fs from 'node:fs/promises'
 import { createRequire } from 'node:module'
-import os from 'node:os'
 import process from 'node:process'
 import path from 'pathe'
 import { describe, expect, it, vi } from 'vitest'
 import { defaultEnvironmentForTarget, defineMatrixEnv, listMatrixEnvironments, loadMatrixConfig, MATRIX_DEFAULTS, normalizeMatrixConfig } from '../../src/config/index.js'
 import { assertMatrixConfig } from '../../src/config/schema.js'
 import { createExecutionPlan } from '../../src/execution/plan.js'
+import { temporaryDirectory } from '../helpers/temporary-directory.js'
 
 describe('matrix config', () => {
   it('uses target defaults for the standard environments', () => {
@@ -41,7 +41,7 @@ describe('matrix config', () => {
   })
 
   it('resolves custom c12 $env environments before planning', async () => {
-    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'matrix-config-'))
+    const cwd = await temporaryDirectory('matrix-config-')
     await fs.writeFile(path.join(cwd, 'matrix.config.mjs'), `export default {
       env: { API_BASE: 'http://localhost' },
       $env: ${JSON.stringify(defineMatrixEnv({ qa: { API_BASE: 'https://qa.example.com', QA_ONLY: 'yes' } }))},
@@ -55,7 +55,7 @@ describe('matrix config', () => {
   })
 
   it('lists custom environments for interactive selection', async () => {
-    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'matrix-environments-'))
+    const cwd = await temporaryDirectory('matrix-environments-')
     await fs.writeFile(path.join(cwd, 'matrix.config.mjs'), `export default {
       $env: { qa: { env: { API_BASE: 'https://qa.example.com' } } },
       projects: { web: { targets: { dev: 'vite' } } },
@@ -71,7 +71,7 @@ describe('matrix config', () => {
   })
 
   it('isolates ESM and CommonJS config dependencies and preserves dotenv and shell precedence', async () => {
-    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'matrix-scoped-env-'))
+    const cwd = await temporaryDirectory('matrix-scoped-env-')
     const require = createRequire(import.meta.url)
     vi.stubEnv('MATRIX_CONFIG_ROOT', undefined)
     vi.stubEnv('MATRIX_CONFIG_DEV_ONLY', undefined)
@@ -116,12 +116,11 @@ describe('matrix config', () => {
     finally {
       delete require.cache[path.join(cwd, 'settings.cjs')]
       vi.unstubAllEnvs()
-      await fs.rm(cwd, { recursive: true, force: true })
     }
   })
 
   it('isolates concurrent async config evaluations and leaves the host untouched on failure', async () => {
-    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'matrix-concurrent-env-'))
+    const cwd = await temporaryDirectory('matrix-concurrent-env-')
     vi.stubEnv('MATRIX_CONFIG_ROOT', undefined)
     try {
       for (const envName of ['development', 'broken', 'staging'])
@@ -153,12 +152,11 @@ describe('matrix config', () => {
     }
     finally {
       vi.unstubAllEnvs()
-      await fs.rm(cwd, { recursive: true, force: true })
     }
   })
 
   it('resolves product-specific $env overrides independently', async () => {
-    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'matrix-product-env-'))
+    const cwd = await temporaryDirectory('matrix-product-env-')
     await fs.writeFile(path.join(cwd, 'matrix.config.mjs'), `export default {
       projects: { web: { targets: { dev: 'vite' } } },
       products: {
