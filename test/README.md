@@ -17,21 +17,39 @@ settings. Both package test runners use profiles selected from this file.
 
 ### CI environments
 
-The [CI workflow](../.github/workflows/ci.yml) runs the following daily matrix:
+The [CI workflow](../.github/workflows/ci.yml) runs these checks for code changes:
 
 | OS                     | Node           | Checks                                                      |
 | ---------------------- | -------------- | ----------------------------------------------------------- |
-| Ubuntu                 | 22.18.0 / 24.x | Unit tests and packaged consumers with the daily profile    |
+| Ubuntu                 | 24.x           | Unit tests and packaged consumers with the full profile     |
+| Ubuntu                 | 22.18.0        | Unit tests and packaged consumers with the daily profile    |
 | macOS, Windows         | 22.18.0 / 24.x | Unit tests and packaged consumers with the platform profile |
 | Ubuntu, macOS, Windows | 24.x           | Real Electron/Web acceptance in three independent jobs      |
 
-The first two rows expand to six jobs. Every package profile includes the
+Documentation-only changes run lint and relevant site checks. Pushes whose head
+commit starts with `chore(release):` skip duplicate CI and documentation builds.
+PRs and manual CI do not use this release-message skip. Manual CI always runs
+code checks; `full` expands the package profile on every OS/Node combination.
+
+Publish accepts a separate release commit changing only `package.json.version`
+and optionally `CHANGELOG.md`, with a matching `v<version>` tag. It checks the
+direct parent's latest push/manual CI run and requires all quality, compatibility,
+and Electron jobs to have succeeded. It does not search ancestors or wait for CI.
+If the parent has only docs checks, run CI manually on it before creating the
+release commit. A failed or unavailable CI lookup stops publication; rerun Publish
+after resolving it. Manual Publish must select the release tag.
+
+Publish does not repeat lint, unit tests, or package compatibility tests. It builds
+the new package via `prepack` and checks/builds the versioned documentation before
+npm publication; Pages deploys the saved site only after successful publication.
+
+The first three rows expand to six jobs. Every package profile includes the
 host-free CLI consumer and all three Electron type-preparation combinations.
 POSIX process-group shutdown assertions run on Ubuntu and macOS; Windows runs
 the remaining checks. The separate Node 24 quality job runs lint, typecheck,
 build, and example checks. Electron acceptance starts independently of host tests.
 Compatibility jobs include the lockfile and compatibility manifest in their
-cache keys. Full verification runs before publication or on manual dispatch.
+cache keys. Full host verification runs on Ubuntu / Node 24 for every code change.
 Compatibility jobs also cache npm's download store for the CLI consumer;
 Electron jobs cache the binary archives used by the explicit Electron installer.
 These caches use OS / architecture and dependency-manifest keys, with same-platform
@@ -53,12 +71,12 @@ manifest, not a dynamically fetched registry version. Support ranges do not
 change with the selected profile. Vite 8 consumers explicitly install the WASM
 runtime peers pinned in the manifest, with strict peer checks still enabled.
 
-- Daily Linux: `pnpm test:pack --profile daily`.
+- Ubuntu / Node 24: `pnpm test:pack`; Ubuntu / Node 22: `pnpm test:pack --profile daily`.
 - Daily macOS/Windows: `pnpm test:pack --profile platform`.
-- Full local or pre-publication verification: `pnpm test:pack` (defaults to `full`).
+- Full local verification: `pnpm test:pack` (defaults to `full`).
 - Full cross-platform verification: manually dispatch CI with `full` enabled.
 
-The publish workflow retains the full profile. Consumers run with concurrency 2;
+CI owns the full profile; Publish reuses the parent commit's successful verification. Consumers run with concurrency 2;
 `--concurrency 1` runs serially and values up to 4 are supported. Each consumer's
 prepare, typecheck, and build phases remain sequential. Failures are collected
 before removing temporary workspaces. Logs record install, prepare, typecheck,
@@ -123,7 +141,7 @@ Change exact test pins and shared settings in
 `scripts/compatibility-matrix.json`. Update `package.json` only when changing
 the supported ranges. Keep this matrix and both integration guides aligned,
 then run `pnpm check` and `pnpm test:pack`. Change OS/Node jobs in
-`.github/workflows/ci.yml`.
+`.github/workflows/ci.yml` and keep required job names in `scripts/check-release.mjs` aligned.
 
 ## Runtime conformance tests
 

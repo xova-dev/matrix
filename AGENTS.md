@@ -23,11 +23,11 @@ Details: [tests and profiles](test/README.md), [contributing](docs/site/en/contr
 - Preserve consumer-based host resolution, optional host peers, and host-free CLI installs; no fixed regular host dependencies.
 - Supported ranges: `package.json`. Test pins/settings: `scripts/compatibility-matrix.json`. Broaden support only after consumer verification; sync both integration guides without weakening type checks.
 - Root dependencies use `pnpm-workspace.yaml` catalogs. Update the lockfile and verify `pnpm install --frozen-lockfile` after dependency changes.
-- Reduced profiles retain supported ranges. Full checks run before publication or manually; no scheduled runs by default.
+- Reduced profiles retain supported ranges. Full host checks run in Ubuntu / Node 24 CI; no scheduled runs by default.
 
 ## Releases and Maintenance
 
 - Use changelogen for versions and root `CHANGELOG.md`; docs reference that file.
-- Before publication: `pnpm check` and full `pnpm test:pack`. See [publish workflow](.github/workflows/publish.yml).
+- Wait for code CI, then use an independent `chore(release):` commit changing only `package.json.version` and `CHANGELOG.md`. Publish checks its tag and direct parent's CI, builds the package/docs, and publishes without repeating tests. See [publish workflow](.github/workflows/publish.yml).
 - `release:prepare` pushes; `release:github` creates a release and triggers publishing. Require explicit authorization for those actions; implementation or commit requests are insufficient.
 - Keep this file for lasting conventions; maintain version lists, matrix counts, and run results elsewhere.

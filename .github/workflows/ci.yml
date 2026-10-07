@@ -19,8 +19,40 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: Check changed paths
+    if: github.event_name != 'push' || !startsWith(github.event.head_commit.message, 'chore(release):')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.paths.outputs.code }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: paths
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { execFileSync } from 'node:child_process'
+          import { appendFileSync } from 'node:fs'
+          let code = true
+          const base = process.env.BASE
+          if (base && !/^0+$/.test(base)) {
+            const range = process.env.GITHUB_EVENT_NAME === 'pull_request' ? `${base}...HEAD` : `${base}..HEAD`
+            const files = execFileSync('git', ['diff', '--name-only', '--no-renames', '-z', range], { encoding: 'utf8' }).split('\0').filter(Boolean)
+            const docs = file => file.startsWith('docs/')
+              || ['README.md', 'README.zh-CN.md', 'CHANGELOG.md', 'AGENTS.md', 'test/README.md'].includes(file)
+              || /^examples\/(?:[^/]+\/)*README(?:\.[^/]+)?\.md$/.test(file)
+            code = files.length === 0 || !files.every(docs)
+          }
+          appendFileSync(process.env.GITHUB_OUTPUT, `code=${code}\n`)
+          NODE
+
   quality:
     name: Lint and types
+    needs: changes
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -32,14 +64,22 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
-      - run: pnpm typecheck
-      - run: pnpm build
-      - run: pnpm check:examples
-      - run: pnpm --filter matrix-basic-example run doctor
-      - run: pnpm --filter matrix-basic-example run test
-      - run: pnpm --filter matrix-basic-example run build
+      - if: needs.changes.outputs.code == 'true'
+        run: pnpm typecheck
+      - if: needs.changes.outputs.code == 'true'
+        run: pnpm build
+      - if: needs.changes.outputs.code == 'true'
+        run: pnpm check:examples
+      - if: needs.changes.outputs.code == 'true'
+        run: pnpm --filter matrix-basic-example run doctor
+      - if: needs.changes.outputs.code == 'true'
+        run: pnpm --filter matrix-basic-example run test
+      - if: needs.changes.outputs.code == 'true'
+        run: pnpm --filter matrix-basic-example run build
 
   compatibility:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     name: ${{ matrix.os }} / Node ${{ matrix.node }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
@@ -71,9 +111,11 @@ jobs:
       - name: Packaged compatibility
         env:
           npm_config_cache: ${{ runner.temp }}/matrix-npm-cache
-        run: pnpm test:pack --profile ${{ inputs.full && 'full' || (runner.os == 'Linux' && 'daily' || 'platform') }}
+        run: pnpm test:pack --profile ${{ (inputs.full || (matrix.os == 'ubuntu-latest' && matrix.node == '24.x')) && 'full' || (runner.os == 'Linux' && 'daily' || 'platform') }}
 
   electron:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     name: Electron / ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
