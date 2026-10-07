@@ -40,8 +40,6 @@ jobs:
       - run: pnpm --filter matrix-basic-example run build
 
   compatibility:
-    env:
-      npm_config_cache: ${{ runner.temp }}/matrix-npm-cache
     name: ${{ matrix.os }} / Node ${{ matrix.node }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
@@ -71,11 +69,11 @@ jobs:
       - run: pnpm test
       # prepack builds with this job's exact Node version; use the installed tarball.
       - name: Packaged compatibility
+        env:
+          npm_config_cache: ${{ runner.temp }}/matrix-npm-cache
         run: pnpm test:pack --profile ${{ inputs.full && 'full' || (runner.os == 'Linux' && 'daily' || 'platform') }}
 
   electron:
-    env:
-      electron_config_cache: ${{ runner.temp }}/matrix-electron-cache
     name: Electron / ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
@@ -103,7 +101,11 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y xvfb
       - name: Dual-product Electron/Web acceptance (Linux)
         if: runner.os == 'Linux'
+        env:
+          electron_config_cache: ${{ runner.temp }}/matrix-electron-cache
         run: xvfb-run --auto-servernum pnpm test:electron-web
       - name: Dual-product Electron/Web acceptance (macOS / Windows)
         if: runner.os != 'Linux'
+        env:
+          electron_config_cache: ${{ runner.temp }}/matrix-electron-cache
         run: pnpm test:electron-web
