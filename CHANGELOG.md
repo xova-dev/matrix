@@ -1,6 +1,28 @@
 # Changelog
 
 
+## v0.2.1
+
+[compare changes](https://github.com/xova-dev/matrix/compare/v0.2.0...v0.2.1)
+
+### 🩹 Fixes
+
+- **prepare:** Resolve the Vite 5 CommonJS API correctly when generating types, including Electron contexts. ([67d4a29](https://github.com/xova-dev/matrix/commit/67d4a29))
+- **compat:** Declare optional host peers, isolate consumer adapter types, and support older Rollup and esbuild APIs with published-package regression coverage. ([67d4a29](https://github.com/xova-dev/matrix/commit/67d4a29))
+- **ci:** Scope runner cache variables to execution steps ([ca0534f](https://github.com/xova-dev/matrix/commit/ca0534f))
+
+### 📖 Documentation
+
+- Add concise project agent guidelines ([efa3f33](https://github.com/xova-dev/matrix/commit/efa3f33))
+
+### 🤖 CI
+
+- Streamline compatibility matrix and cache downloads ([c97e9e6](https://github.com/xova-dev/matrix/commit/c97e9e6))
+
+### ❤️ Contributors
+
+- Oevery ([@oevery](https://github.com/oevery))
+
 ## v0.2.0
 
 [compare changes](https://github.com/xova-dev/matrix/compare/v0.1.7...v0.2.0)
