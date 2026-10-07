@@ -27,10 +27,14 @@ process.once('message', async (request: TypePreparationRequest) => {
     const require = createRequire(path.join(root, 'package.json'))
     const hostEntry = require.resolve(request.host.name)
     const viteEntry = request.host.name === 'vite' ? hostEntry : createRequire(hostEntry).resolve('vite')
-    const vite = await import(pathToFileURL(viteEntry).href) as typeof import('vite')
+    type ViteApi = Pick<typeof import('vite'), 'resolveConfig'>
+    const vite = await import(pathToFileURL(viteEntry).href) as Partial<ViteApi> & { default?: Partial<ViteApi> }
+    const resolveConfig = vite.resolveConfig ?? vite.default?.resolveConfig
+    if (typeof resolveConfig !== 'function')
+      throw new Error(`Vite at ${viteEntry} does not expose resolveConfig`)
     const inline = { configFile: request.host.configFile, mode: request.mode, logLevel: 'silent' as const }
     if (request.host.name === 'vite') {
-      await vite.resolveConfig(inline, 'serve', 'development', 'development')
+      await resolveConfig(inline, 'serve', 'development', 'development')
     }
     else {
       const electron = await import(pathToFileURL(hostEntry).href) as {
@@ -42,7 +46,7 @@ process.once('message', async (request: TypePreparationRequest) => {
       for (const context of ['main', 'preload', 'renderer'] as const) {
         const config = resolved.config?.[context]
         if (config)
-          await vite.resolveConfig(config, context === 'renderer' ? 'serve' : 'build', 'development', 'development')
+          await resolveConfig(config, context === 'renderer' ? 'serve' : 'build', 'development', 'development')
       }
     }
     // Send field names and schema only, never configuration values.

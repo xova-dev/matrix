@@ -2,9 +2,9 @@
 
 See the [examples guide](https://github.com/xova-dev/matrix/blob/main/examples/README.md) for workspace setup and verification boundaries. `examples/basic` is the framework-free introduction; the [dual-Web/shared-Electron example](https://github.com/xova-dev/matrix/blob/main/examples/electron-web/README.md) exercises preparation, development dependencies, packaging and real application startup. After `pnpm install --frozen-lockfile` and `pnpm build`, run `pnpm example:basic` for the interactive introduction or `pnpm example:electron-web` to prepare the Electron workspace. `pnpm check:examples` checks both Matrix configurations. `pnpm test:electron-web` separately verifies the current tarball in a temporary, lockfile-pinned consumer outside the workspace.
 
-CI runs on pull requests, main pushes, and manual dispatch. A Node 24 job checks lint and types. Six compatibility jobs cover Ubuntu, macOS, and Windows with exact Node 22.18.0 and Node 24.x. Each runs behavior tests and package smoke; the Node 24 jobs additionally run real Electron/Web acceptance. POSIX-only signal assertions explicitly skip Windows, while portable cancellation and execution behavior remain covered.
+CI runs on pull requests, main pushes, and manual dispatch. The [test matrix](https://github.com/xova-dev/matrix/blob/main/test/README.md#compatibility-matrix) defines OS / Node jobs, packaged hosts, Electron acceptance, and platform-specific skips.
 
-Dependency versions are maintained in the pnpm catalog in `pnpm-workspace.yaml`.
+Development dependencies use the pnpm catalog in `pnpm-workspace.yaml`. Published-package consumer versions and typecheck settings live in `scripts/compatibility-matrix.json`.
 
 ```bash
 pnpm install
@@ -14,7 +14,7 @@ pnpm lint:fix
 
 `pnpm lint:fix` formats JavaScript, TypeScript, and Markdown through ESLint. `pnpm check` runs lint, typecheck, tests, and the production build without starting example services.
 
-`pnpm test:pack` installs the packed package into a temporary consumer and checks exports, configuration isolation, preparation, and CLI shutdown. The shutdown check uses two minimal processes without network ports; on macOS/Linux it sends SIGINT to Matrix and verifies exit code 130, cleanup completion, and no remaining fixture processes. This POSIX signal check is explicitly skipped on Windows; the other package checks still run. Successful runs print a short summary and failures include diagnostics. The release workflow runs both `pnpm check` and `pnpm test:pack`.
+`pnpm test:pack` installs the same tarball into a host-free CLI consumer and mixed-version host workspaces, then runs the checks in the test matrix. Both host runners read one exact-version manifest; `package.json` peer dependencies declare supported ranges. The release workflow runs `pnpm check` and `pnpm test:pack`.
 
 See the [test guide](https://github.com/xova-dev/matrix/blob/main/test/README.md) for test organization and coverage boundaries.
 

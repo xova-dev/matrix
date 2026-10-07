@@ -2,9 +2,9 @@
 
 示例分为轻量的 `examples/basic` 和真实的 [双 Web / 共享 Electron 示例](https://github.com/xova-dev/matrix/blob/main/examples/electron-web/README.md)，统一加入 pnpm workspace；安装方式和验证边界见 [示例导航](https://github.com/xova-dev/matrix/blob/main/examples/README.md)。根目录执行 `pnpm install --frozen-lockfile`、`pnpm build` 后，可用 `pnpm example:basic` 打开入门向导，或用 `pnpm example:electron-web` 准备 Electron 项目。`pnpm check:examples` 检查两个 Matrix 配置；`pnpm test:electron-web` 则在仓库外、依赖锁定的临时项目中独立安装本次 tarball，验收开发、构建和真实应用启动。
 
-独立 CI 在 PR、main push 和手动触发时运行。质量检查使用 Node 24；兼容性矩阵覆盖 Ubuntu、macOS、Windows 与精确的 Node 22.18.0 / 24.x。每组验证核心行为和安装包，Node 24 额外执行真实 Electron/Web 验收。平台特有的 POSIX 信号断言明确跳过 Windows，通用取消与执行行为仍验证。
+CI 在 PR、main push 和手动触发时运行。OS / Node 组合、发布包宿主版本、Electron 验收与平台跳过项统一见[测试矩阵](https://github.com/xova-dev/matrix/blob/main/test/README.md#compatibility-matrix)。
 
-依赖版本统一维护在 `pnpm-workspace.yaml` 的 pnpm catalog 中。
+开发依赖版本维护在 `pnpm-workspace.yaml` 的 pnpm catalog 中；发布包消费端测试版本与类型检查基线维护在 `scripts/compatibility-matrix.json` 中。
 
 ```bash
 pnpm install
@@ -14,7 +14,7 @@ pnpm lint:fix
 
 `pnpm lint:fix` 通过 ESLint 格式化 JavaScript、TypeScript 和 Markdown。`pnpm check` 会依次执行 lint、类型检查、测试和生产构建，不启动示例服务。
 
-`pnpm test:pack` 将打包产物安装到临时消费项目，验证导出、配置隔离、准备流程及 CLI 关闭。关闭验收使用两个不占用网络端口的最小进程；在 macOS/Linux 向 Matrix 发送 SIGINT，检查退出码 130、清理完成且没有测试进程残留。Windows 会明确跳过这条 POSIX 信号验收，其他打包检查仍执行。成功时输出简短摘要，失败时提供诊断日志。发布流程同时运行 `pnpm check` 和 `pnpm test:pack`。
+`pnpm test:pack` 将同一 tarball 安装到无宿主 CLI 消费项目及混合宿主版本工作区，执行测试矩阵中的检查。精确版本由两个宿主测试脚本直接读取同一清单；支持范围由 `package.json` 的 peer dependencies 声明。发布流程运行 `pnpm check` 和 `pnpm test:pack`。
 
 测试组织与覆盖边界见[测试指南](https://github.com/xova-dev/matrix/blob/main/test/README.md)。
 

@@ -2,6 +2,21 @@
 
 Matrix 提供统一的 Unplugin 工厂，以及各构建工具的入口。
 
+## 支持范围
+
+需要 Node.js `>=22.18.0`。以下宿主均为可选 peer dependency，由使用对应适配器的消费项目安装；仅使用 CLI 时无需安装。
+
+| 宿主    | 包入口                 | 支持范围                               |
+| ------- | ---------------------- | -------------------------------------- |
+| Vite    | `@xova/matrix/vite`    | `^5.1.0`、`^6.0.0`、`^7.0.0`、`^8.0.0` |
+| Rollup  | `@xova/matrix/rollup`  | `^2.68.0`、`^3.0.0`、`^4.0.0`          |
+| Webpack | `@xova/matrix/webpack` | `^5.100.1`                             |
+| esbuild | `@xova/matrix/esbuild` | `>=0.12.0 <0.29.0`                     |
+
+Matrix 从消费项目解析宿主；Electron 类型准备使用 electron-vite 对应的 Vite。框架插件需要满足各自的宿主依赖。测试版本、组合与覆盖项目见[测试矩阵](https://github.com/xova-dev/matrix/blob/main/test/README.md#compatibility-matrix)。
+
+## Vite 接入
+
 ```ts
 import matrix from '@xova/matrix/vite'
 import { defineConfig } from 'vite'
@@ -83,6 +98,8 @@ export default defineConfig({
 ```
 
 分别使用 `virtual:matrix/runtime/main` 和 `virtual:matrix/runtime/preload`。对应类型文件会生成到 `.matrix/types/matrix-runtime-main.d.ts` 和 `.matrix/types/matrix-runtime-preload.d.ts`。
+
+electron-vite 必须支持所选 Vite。类型准备组合与真实 Electron 应用验收是两项独立检查，版本及覆盖范围见[测试矩阵](https://github.com/xova-dev/matrix/blob/main/test/README.md#compatibility-matrix)。
 
 ## 类型准备
 

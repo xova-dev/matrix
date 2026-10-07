@@ -41,7 +41,7 @@ export function setupMatrixEsbuildTransform(build: PluginBuild, runtimeId: strin
   const defaults: Record<string, Loader> = { '.js': 'js', '.mjs': 'js', '.cjs': 'js', '.jsx': 'jsx', '.ts': 'ts', '.mts': 'ts', '.cts': 'ts', '.tsx': 'tsx' }
   build.onLoad({ filter: /\.[cm]?[jt]sx?$/, namespace: 'file' }, async (args) => {
     // Foreign namespaces, resource queries and attributes retain their owners.
-    if (args.suffix || Object.keys(args.with).length)
+    if (args.suffix || (args.with && Object.keys(args.with).length))
       return
     const extension = path.extname(args.path)
     const loader = build.initialOptions.loader?.[extension] ?? defaults[extension]

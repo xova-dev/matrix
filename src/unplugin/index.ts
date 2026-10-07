@@ -1,7 +1,7 @@
 import type { UnpluginFactory } from 'unplugin'
 import type { MatrixRuntime } from '../runtime/index.js'
-import type { EnvPrefix } from '../runtime/public-env.js'
 import type { GenerateMatrixTypesOptions } from '../typegen/generate.js'
+import type { MatrixUnpluginOptions } from './options.js'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import path from 'pathe'
@@ -21,16 +21,7 @@ export const MATRIX_RUNTIME_ID = 'virtual:matrix/runtime'
 export type { MatrixRuntime } from '../runtime/index.js'
 export type { EnvPrefix } from '../runtime/public-env.js'
 
-export interface MatrixUnpluginOptions {
-  /** Public prefixes for non-Vite adapters; Vite uses the resolved config. */
-  envPrefix?: EnvPrefix
-  /** Build scope used to isolate Electron main/preload/renderer runtime modules and types. */
-  scope?: string
-  /** Inline static reads on supported hosts. Set false for runtime-only integration. Defaults to true. */
-  inline?: boolean
-  /** Generate project-local declarations during prepare and builds. Defaults to true. */
-  types?: boolean | { output?: string }
-}
+export { ensureMatrixEnvPrefix, normalizeEnvPrefix } from '../runtime/public-env.js'
 
 function isVitest(): boolean {
   return process.env.VITEST !== undefined
@@ -41,7 +32,7 @@ function isScriptFile(id: string): boolean {
 }
 
 /** Shared Unplugin factory; host adapters are exported from separate entrypoints. */
-export const matrixUnpluginFactory: UnpluginFactory<MatrixUnpluginOptions | undefined> = (options = {}, meta) => {
+export const matrixUnpluginFactory: UnpluginFactory<MatrixUnpluginOptions | undefined, false> = (options = {}, meta) => {
   let envPrefix = ensureMatrixEnvPrefix(options.envPrefix)
   let env = currentProcessEnv()
   const envSchema = readEnvSchema(env)
@@ -161,14 +152,17 @@ export const matrixUnpluginFactory: UnpluginFactory<MatrixUnpluginOptions | unde
     // keep the virtual runtime without installing an eager transform pipeline.
     transform: options.inline === false || !['vite', 'rollup'].includes(meta.framework)
       ? undefined
-      : {
-          filter: { code: runtimeId },
-          handler(code, id) {
-            return inlineMatrixReads(code, id, runtimeId, snapshot())
+      : meta.framework === 'rollup'
+        // Rollup 2 supports function hooks before it supports object hooks.
+        ? (code, id) => code.includes(runtimeId) ? inlineMatrixReads(code, id, runtimeId, snapshot()) : undefined
+        : {
+            filter: { code: runtimeId },
+            handler(code, id) {
+              return inlineMatrixReads(code, id, runtimeId, snapshot())
+            },
           },
-        },
   }
 }
 
-export const MatrixUnplugin = createUnplugin(matrixUnpluginFactory)
-export { ensureMatrixEnvPrefix, normalizeEnvPrefix } from '../runtime/public-env.js'
+export const MatrixUnplugin = createUnplugin<MatrixUnpluginOptions | undefined, false>(matrixUnpluginFactory)
+export type { MatrixUnpluginOptions } from './options.js'

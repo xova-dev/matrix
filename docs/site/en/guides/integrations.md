@@ -2,6 +2,21 @@
 
 Matrix provides one Unplugin factory and host-specific entrypoints.
 
+## Supported hosts
+
+Node.js `>=22.18.0` is required. Each host is an optional peer dependency installed by consumers of its adapter. CLI-only use requires none of these hosts.
+
+| Host    | Package entrypoint     | Supported range                        |
+| ------- | ---------------------- | -------------------------------------- |
+| Vite    | `@xova/matrix/vite`    | `^5.1.0`, `^6.0.0`, `^7.0.0`, `^8.0.0` |
+| Rollup  | `@xova/matrix/rollup`  | `^2.68.0`, `^3.0.0`, `^4.0.0`          |
+| Webpack | `@xova/matrix/webpack` | `^5.100.1`                             |
+| esbuild | `@xova/matrix/esbuild` | `>=0.12.0 <0.29.0`                     |
+
+Matrix resolves hosts from the consumer; Electron type preparation uses electron-vite's Vite. Framework plugins must satisfy their own host dependencies. See the [test matrix](https://github.com/xova-dev/matrix/blob/main/test/README.md#compatibility-matrix) for pinned versions, combinations, and checks.
+
+## Vite integration
+
 ```ts
 import matrix from '@xova/matrix/vite'
 import { defineConfig } from 'vite'
@@ -83,6 +98,8 @@ export default defineConfig({
 ```
 
 Import `virtual:matrix/runtime/main` and `virtual:matrix/runtime/preload` respectively. Their declarations are generated as `.matrix/types/matrix-runtime-main.d.ts` and `.matrix/types/matrix-runtime-preload.d.ts`.
+
+electron-vite must support the selected Vite version. Type preparation and real Electron application acceptance are separate checks; see the [test matrix](https://github.com/xova-dev/matrix/blob/main/test/README.md#compatibility-matrix) for their versions and scope.
 
 ## Type preparation
 

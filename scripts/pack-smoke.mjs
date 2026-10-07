@@ -7,6 +7,8 @@ import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { execaSync } from 'execa'
 import path from 'pathe'
+import { verifyHostCompatibility } from './pack-hosts.mjs'
+import { verifyViteCompatibility } from './pack-vite.mjs'
 
 async function withTimeout(promise, milliseconds, message) {
   let timeout
@@ -208,6 +210,10 @@ try {
     '-e',
     `
       const main = await import('@xova/matrix')
+      const { createRequire } = await import('node:module')
+      const { default: assert } = await import('node:assert/strict')
+      for (const host of ['vite', 'rollup', 'webpack', 'esbuild'])
+        assert.throws(() => createRequire(import.meta.url).resolve(host), { code: 'MODULE_NOT_FOUND' })
       const config = await import('@xova/matrix/config')
       const plan = await import('@xova/matrix/plan')
       for (const [name, value] of Object.entries({
@@ -321,6 +327,10 @@ try {
     throw new Error('Packaged doctor executed commands or wrote workspace files')
 
   shutdownVerified = await verifyShutdown(path.join(consumerRoot, cli), path.join(consumerRoot, 'shutdown'))
+  if (shutdownVerified !== null) {
+    verifyViteCompatibility(tarball, path.join(temporaryRoot, 'vite-workspace'))
+    verifyHostCompatibility(tarball, path.join(temporaryRoot, 'host-workspace'))
+  }
 }
 catch (error) {
   failures.push(error)
