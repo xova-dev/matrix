@@ -5,9 +5,12 @@ import os from 'node:os'
 import process from 'node:process'
 import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
+import { parseArgs } from 'node:util'
 import { execaSync } from 'execa'
 import path from 'pathe'
 import { verifyHostCompatibility } from './pack-hosts.mjs'
+import { selectCompatibility } from './pack-matrix.mjs'
+import { createPackageTimings } from './pack-timings.mjs'
 import { verifyViteCompatibility } from './pack-vite.mjs'
 
 async function withTimeout(promise, milliseconds, message) {
@@ -147,6 +150,17 @@ async function verifyShutdown(cli, cwd) {
   return true
 }
 
+const { values } = parseArgs({ options: {
+  profile: { type: 'string', default: 'full' },
+  concurrency: { type: 'string', default: '2' },
+} })
+const compatibility = selectCompatibility(values.profile)
+const concurrency = Number(values.concurrency)
+if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 4)
+  throw new Error('Package test concurrency must be an integer from 1 to 4')
+console.log('Package compatibility:', values.profile, 'concurrency:', concurrency)
+
+const timings = createPackageTimings()
 const temporaryRoot = mkdtempSync(path.join(os.tmpdir(), 'xova-matrix-pack-'))
 const packageRoot = process.cwd()
 const consumerRoot = path.join(temporaryRoot, 'consumer')
@@ -328,14 +342,15 @@ try {
 
   shutdownVerified = await verifyShutdown(path.join(consumerRoot, cli), path.join(consumerRoot, 'shutdown'))
   if (shutdownVerified !== null) {
-    verifyViteCompatibility(tarball, path.join(temporaryRoot, 'vite-workspace'))
-    verifyHostCompatibility(tarball, path.join(temporaryRoot, 'host-workspace'))
+    await verifyViteCompatibility(tarball, path.join(temporaryRoot, 'vite-workspace'), compatibility, concurrency, timings)
+    await verifyHostCompatibility(tarball, path.join(temporaryRoot, 'host-workspace'), compatibility, concurrency, timings)
   }
 }
 catch (error) {
   failures.push(error)
 }
 finally {
+  timings.report()
   try {
     rmSync(temporaryRoot, { recursive: true, force: true })
   }

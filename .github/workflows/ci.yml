@@ -5,6 +5,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      full:
+        description: Run the full host matrix on all OS / Node combinations
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -35,6 +40,8 @@ jobs:
       - run: pnpm --filter matrix-basic-example run build
 
   compatibility:
+    env:
+      npm_config_cache: ${{ runner.temp }}/matrix-npm-cache
     name: ${{ matrix.os }} / Node ${{ matrix.node }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
@@ -50,16 +57,53 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
           cache: pnpm
+          cache-dependency-path: |
+            pnpm-lock.yaml
+            scripts/compatibility-matrix.json
+      - name: Cache npm downloads
+        uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/matrix-npm-cache/_cacache
+          key: npm-downloads-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml', 'package.json') }}
+          restore-keys: |
+            npm-downloads-v1-${{ runner.os }}-${{ runner.arch }}-
       - run: pnpm install --frozen-lockfile
       - run: pnpm test
       # prepack builds with this job's exact Node version; use the installed tarball.
-      - run: pnpm test:pack
+      - name: Packaged compatibility
+        run: pnpm test:pack --profile ${{ inputs.full && 'full' || (runner.os == 'Linux' && 'daily' || 'platform') }}
+
+  electron:
+    env:
+      electron_config_cache: ${{ runner.temp }}/matrix-electron-cache
+    name: Electron / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.x
+          cache: pnpm
+      - name: Cache Electron downloads
+        uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/matrix-electron-cache
+          key: electron-downloads-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('examples/electron-web/package.json') }}
+          restore-keys: |
+            electron-downloads-v1-${{ runner.os }}-${{ runner.arch }}-
+      - run: pnpm install --frozen-lockfile
       - name: Install virtual display for Electron
-        if: runner.os == 'Linux' && matrix.node == '24.x'
+        if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y xvfb
       - name: Dual-product Electron/Web acceptance (Linux)
-        if: runner.os == 'Linux' && matrix.node == '24.x'
+        if: runner.os == 'Linux'
         run: xvfb-run --auto-servernum pnpm test:electron-web
       - name: Dual-product Electron/Web acceptance (macOS / Windows)
-        if: runner.os != 'Linux' && matrix.node == '24.x'
+        if: runner.os != 'Linux'
         run: pnpm test:electron-web

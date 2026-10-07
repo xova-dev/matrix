@@ -14,7 +14,7 @@ pnpm lint:fix
 
 `pnpm lint:fix` 通过 ESLint 格式化 JavaScript、TypeScript 和 Markdown。`pnpm check` 会依次执行 lint、类型检查、测试和生产构建，不启动示例服务。
 
-`pnpm test:pack` 将同一 tarball 安装到无宿主 CLI 消费项目及混合宿主版本工作区，执行测试矩阵中的检查。精确版本由两个宿主测试脚本直接读取同一清单；支持范围由 `package.json` 的 peer dependencies 声明。发布流程运行 `pnpm check` 和 `pnpm test:pack`。
+`pnpm test:pack` 将同一 tarball 安装到无宿主 CLI 消费项目及混合宿主版本工作区，执行测试矩阵中的检查。日常 CI 从同一精确版本清单选取边界组合；支持范围由 `package.json` 的 peer dependencies 声明。发布流程运行 `pnpm check` 和默认全量的 `pnpm test:pack`。本地可用 `--profile daily` 或 `--profile platform` 缩小验证范围；手动触发 CI 并启用 `full` 可运行完整跨平台矩阵。真实 Electron 验收使用独立 job。日志包含分阶段耗时和最慢消费项目。
 
 测试组织与覆盖边界见[测试指南](https://github.com/xova-dev/matrix/blob/main/test/README.md)。
 

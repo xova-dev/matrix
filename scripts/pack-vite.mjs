@@ -1,15 +1,15 @@
 import assert from 'node:assert/strict'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import process from 'node:process'
-import { execaSync } from 'execa'
+import { execa } from 'execa'
 import path from 'pathe'
-import compatibility from './compatibility-matrix.json' with { type: 'json' }
+import { runConsumers } from './pack-matrix.mjs'
 
 function write(root, name, content) {
   writeFileSync(path.join(root, name), typeof content === 'string' ? content : JSON.stringify(content))
 }
 
-function fixture(root, tarball, version, electron) {
+function fixture(root, tarball, version, electron, compatibility) {
   mkdirSync(root, { recursive: true })
   write(root, 'package.json', {
     name: electron ? `electron-${version}` : `vite-${version}`,
@@ -19,6 +19,8 @@ function fixture(root, tarball, version, electron) {
       '@xova/matrix': `file:${tarball}`,
       ...compatibility.typecheck.dependencies,
       'vite': version,
+      // Rolldown's optional WASM binding also requires explicit peers in strict installs.
+      ...(version.startsWith('8.') ? compatibility.vite8Dependencies : {}),
       ...(electron ? { ...compatibility.electron.dependencies, 'electron-vite': electron } : {}),
     },
   })
@@ -118,7 +120,7 @@ function fixture(root, tarball, version, electron) {
 }
 
 /** Install the tarball into a real mixed-version pnpm workspace, without root Vite. */
-export function verifyViteCompatibility(tarball, root) {
+export async function verifyViteCompatibility(tarball, root, compatibility, concurrency, timings) {
   mkdirSync(root)
   write(root, 'package.json', { private: true })
   write(root, 'pnpm-workspace.yaml', [
@@ -137,15 +139,15 @@ export function verifyViteCompatibility(tarball, root) {
     ...compatibility.electron.combinations.map(host => ({ name: `electron-${host.vite}`, version: host.vite, electron: host.electronVite })),
   ]
   for (const consumer of consumers)
-    fixture(path.join(root, consumer.name), tarball, consumer.version, consumer.electron)
-  execaSync('pnpm', ['install', '--strict-peer-dependencies'], { cwd: root, timeout: 180_000 })
+    fixture(path.join(root, consumer.name), tarball, consumer.version, consumer.electron, compatibility)
+  await timings.measure('vite-workspace', 'install', () => execa('pnpm', ['install', '--strict-peer-dependencies'], { cwd: root, timeout: 180_000 }))
 
   const failures = []
-  for (const consumer of consumers) {
+  await runConsumers(consumers, concurrency, async (consumer) => {
     const cwd = path.join(root, consumer.name)
-    const run = args => execaSync('pnpm', ['exec', ...args], { cwd, timeout: 60_000 })
+    const run = (phase, args) => timings.measure(consumer.name, phase, () => execa('pnpm', ['exec', ...args], { cwd, timeout: 60_000 }))
     try {
-      run(['matrix', 'prepare', 'app'])
+      await run('prepare', ['matrix', 'prepare', 'app'])
       const declaration = readFileSync(path.join(cwd, '.matrix/types/matrix-runtime.d.ts'), 'utf8')
       assert.match(declaration, /readonly enabled: boolean/)
       assert.match(declaration, /readonly limit: number/)
@@ -158,16 +160,16 @@ export function verifyViteCompatibility(tarball, root) {
           assert.doesNotMatch(scoped, scope === 'main' ? /PRELOAD_VITE_|SENTINEL/ : /MAIN_VITE_|SENTINEL/)
         }
       }
-      run(['tsc', '--noEmit'])
+      await run('types', ['tsc', '--noEmit'])
       if (!consumer.electron)
-        run(['matrix', 'build', 'app'])
+        await run('build', ['matrix', 'build', 'app'])
       console.log(`Package Vite compatibility passed: ${consumer.name}`)
     }
     catch (error) {
       console.error(`Package Vite compatibility failed: ${consumer.name}\n${error.message}`)
       failures.push(new Error(`${consumer.name} failed`, { cause: error }))
     }
-  }
+  })
   if (failures.length)
     throw new AggregateError(failures, `Packaged Vite compatibility failed on Node ${process.version}`)
 }

@@ -14,7 +14,7 @@ pnpm lint:fix
 
 `pnpm lint:fix` formats JavaScript, TypeScript, and Markdown through ESLint. `pnpm check` runs lint, typecheck, tests, and the production build without starting example services.
 
-`pnpm test:pack` installs the same tarball into a host-free CLI consumer and mixed-version host workspaces, then runs the checks in the test matrix. Both host runners read one exact-version manifest; `package.json` peer dependencies declare supported ranges. The release workflow runs `pnpm check` and `pnpm test:pack`.
+`pnpm test:pack` installs the same tarball into a host-free CLI consumer and mixed-version host workspaces, then runs the checks in the test matrix. Daily CI selects boundary profiles from one exact-version manifest; `package.json` peer dependencies declare supported ranges. The release workflow runs `pnpm check` and the full `pnpm test:pack` profile. Use `--profile daily` or `--profile platform` for smaller local runs; manually dispatch CI with `full` enabled for the complete cross-platform matrix. Electron acceptance runs in independent jobs. Package logs include phase durations and the slowest consumers.
 
 See the [test guide](https://github.com/xova-dev/matrix/blob/main/test/README.md) for test organization and coverage boundaries.
 

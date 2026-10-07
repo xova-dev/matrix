@@ -13,20 +13,57 @@ programs stay in `fixtures/`.
 Supported host ranges are declared in [package.json](../package.json).
 [compatibility-matrix.json](../scripts/compatibility-matrix.json) is the single
 source of exact package-test versions, Electron combinations, and typecheck
-settings. Both package test runners read this file directly.
+settings. Both package test runners use profiles selected from this file.
 
 ### CI environments
 
-The [CI workflow](../.github/workflows/ci.yml) runs the following matrix:
+The [CI workflow](../.github/workflows/ci.yml) runs the following daily matrix:
 
-| OS                     | Node    | Commands                                                |
-| ---------------------- | ------- | ------------------------------------------------------- |
-| Ubuntu, macOS, Windows | 22.18.0 | `pnpm test`, `pnpm test:pack`                           |
-| Ubuntu, macOS, Windows | 24.x    | `pnpm test`, `pnpm test:pack`, `pnpm test:electron-web` |
+| OS                     | Node           | Checks                                                      |
+| ---------------------- | -------------- | ----------------------------------------------------------- |
+| Ubuntu                 | 22.18.0 / 24.x | Unit tests and packaged consumers with the daily profile    |
+| macOS, Windows         | 22.18.0 / 24.x | Unit tests and packaged consumers with the platform profile |
+| Ubuntu, macOS, Windows | 24.x           | Real Electron/Web acceptance in three independent jobs      |
 
-Each row expands to three OS jobs. POSIX process-group shutdown assertions run
-on Ubuntu and macOS; Windows runs the remaining checks. The separate Node 24
-quality job runs lint, typecheck, build, and example checks.
+The first two rows expand to six jobs. Every package profile includes the
+host-free CLI consumer and all three Electron type-preparation combinations.
+POSIX process-group shutdown assertions run on Ubuntu and macOS; Windows runs
+the remaining checks. The separate Node 24 quality job runs lint, typecheck,
+build, and example checks. Electron acceptance starts independently of host tests.
+Compatibility jobs include the lockfile and compatibility manifest in their
+cache keys. Full verification runs before publication or on manual dispatch.
+Compatibility jobs also cache npm's download store for the CLI consumer;
+Electron jobs cache the binary archives used by the explicit Electron installer.
+These caches use OS / architecture and dependency-manifest keys, with same-platform
+fallbacks. Installation, checksum validation, builds, and tests still run on cache
+hits. Consumer directories, node_modules, and build outputs are not cached.
+
+### Package profiles
+
+All profiles select versions from the same exact-version manifest:
+
+| Profile  | Vite                                | Rollup                              | Webpack                | esbuild                                             | Electron combinations | Total consumers |
+| -------- | ----------------------------------- | ----------------------------------- | ---------------------- | --------------------------------------------------- | --------------------- | --------------- |
+| daily    | Each major's first and last pin (8) | Each major's first and last pin (6) | First and last pin (2) | Last pin of every minor plus the support floor (18) | 3                     | 37              |
+| platform | Overall first and last pin (2)      | Overall first and last pin (2)      | First and last pin (2) | Overall first and last pin (2)                      | 3                     | 11              |
+| full     | 34                                  | 10                                  | 23                     | 32                                                  | 3                     | 102             |
+
+Counts exclude the shared CLI-only consumer. First/last refer to the pinned
+manifest, not a dynamically fetched registry version. Support ranges do not
+change with the selected profile. Vite 8 consumers explicitly install the WASM
+runtime peers pinned in the manifest, with strict peer checks still enabled.
+
+- Daily Linux: `pnpm test:pack --profile daily`.
+- Daily macOS/Windows: `pnpm test:pack --profile platform`.
+- Full local or pre-publication verification: `pnpm test:pack` (defaults to `full`).
+- Full cross-platform verification: manually dispatch CI with `full` enabled.
+
+The publish workflow retains the full profile. Consumers run with concurrency 2;
+`--concurrency 1` runs serially and values up to 4 are supported. Each consumer's
+prepare, typecheck, and build phases remain sequential. Failures are collected
+before removing temporary workspaces. Logs record install, prepare, typecheck,
+and build durations, followed by elapsed wall time and the five slowest
+consumers. Phase totals are cumulative and can exceed wall time under concurrency.
 
 ### Published-package hosts
 
@@ -41,7 +78,7 @@ installation and workspace-root peer resolution disabled.
 | Webpack | 5.100–5.111, starting at 5.100.1                         |              23 | `scripts/pack-hosts.mjs` |
 | esbuild | 0.12–0.28                                                |              32 | `scripts/pack-hosts.mjs` |
 
-Every pinned version runs its row's checks below. A dash means that the check
+Every version selected by a profile runs its row's checks below. A dash means that the check
 is outside this package matrix; it is not a compatibility claim.
 
 | Check                                                     | Vite | Rollup / Webpack / esbuild | electron-vite             |

@@ -1,14 +1,14 @@
 import { copyFileSync, mkdirSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { execaSync } from 'execa'
+import { execa } from 'execa'
 import path from 'pathe'
-import compatibility from './compatibility-matrix.json' with { type: 'json' }
+import { runConsumers } from './pack-matrix.mjs'
 
 function write(root, name, content) {
   writeFileSync(path.join(root, name), typeof content === 'string' ? content : JSON.stringify(content))
 }
 
-export function verifyHostCompatibility(tarball, root) {
+export async function verifyHostCompatibility(tarball, root, compatibility, concurrency, timings) {
   mkdirSync(root)
   write(root, 'package.json', { private: true })
   write(root, 'pnpm-workspace.yaml', [
@@ -48,13 +48,13 @@ export function verifyHostCompatibility(tarball, root) {
     write(cwd, 'tsconfig.json', { compilerOptions: compatibility.typecheck.compilerOptions, include: ['check.ts'] })
     copyFileSync(fileURLToPath(new URL('./pack-host-fixture.mjs', import.meta.url)), path.join(cwd, 'verify.mjs'))
   }
-  execaSync('pnpm', ['install', '--strict-peer-dependencies'], { cwd: root, timeout: 180_000 })
+  await timings.measure('host-workspace', 'install', () => execa('pnpm', ['install', '--strict-peer-dependencies'], { cwd: root, timeout: 180_000 }))
   const failures = []
-  for (const { host, version } of consumers) {
+  await runConsumers(consumers, concurrency, async ({ host, version }) => {
     const cwd = path.join(root, `${host}-${version}`)
     for (const [phase, args] of [['types', ['tsc', '--noEmit']], ['build', ['matrix', 'build', 'app']]]) {
       try {
-        execaSync('pnpm', ['exec', ...args], { cwd, timeout: 60_000 })
+        await timings.measure(`${host}@${version}`, phase, () => execa('pnpm', ['exec', ...args], { cwd, timeout: 60_000 }))
         console.log(`Package host passed: ${host}@${version} ${phase}`)
       }
       catch (error) {
@@ -62,7 +62,7 @@ export function verifyHostCompatibility(tarball, root) {
         failures.push(new Error(`${host}@${version} ${phase} failed`, { cause: error }))
       }
     }
-  }
+  })
   if (failures.length)
     throw new AggregateError(failures, 'Packaged host compatibility failed')
 }
