@@ -111,12 +111,10 @@ Run `matrix prepare` before starting development to generate runtime declaration
 - Shared projects merge the selected products' public field names. Schema-declared fields do not need runtime values to generate their types. Duplicate scopes, conflicting outputs/prefixes, changing scope sets, and configuration failures are diagnosed before Matrix writes declarations. Preparation does execute configuration code and configuration hooks, in addition to the existing project preparation commands; it is not a side-effect-free static scan. Each host evaluation has a 30-second timeout.
 - Projects with neither an explicit config nor a supported project-root config retain the generic `.matrix/types/matrix-runtime.d.ts` generation from Matrix configuration and public environment keys. Other hosts and arbitrary config basenames are not supported yet. A successfully resolved config without a Matrix plugin also retains this generic generation (using Matrix settings, not host-specific prefixes or scopes); an active plugin with `types: false` disables generation. Existing stale declaration files are not automatically deleted.
 
-Both preparation and build plugins derive `ImportMetaEnv` and `matrix.config` types without writing environment values. Build plugins continue generating the current build's declaration from its final configuration. In a Vitest environment automatic build-plugin generation is disabled by default; `types: true` or `types: { output: '...' }` explicitly enables it. Explicit `matrix prepare` generates types regardless of Vitest, but honors `types: false`. Add the generated type directory to each project's `tsconfig.json`:
+Preparation and builds generate `ImportMetaEnv` and `matrix.config` declarations without environment values. `matrix prepare` honors `types: false` and runs even in Vitest. For build-time defaults and explicit overrides, see [plugin options](../reference/plugins.md#plugin-options). Add the generated directory to each project's `tsconfig.json`:
 
 ```json
 {
   "include": ["src", ".matrix/types"]
 }
 ```
-
-See the [plugin and runtime reference](../reference/plugins.md) for adapter options, virtual module names, and fields.

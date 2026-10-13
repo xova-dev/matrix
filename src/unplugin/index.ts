@@ -4,6 +4,7 @@ import type { GenerateMatrixTypesOptions } from '../typegen/generate.js'
 import type { MatrixUnpluginOptions } from './options.js'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import consola from 'consola'
 import path from 'pathe'
 import { createUnplugin } from 'unplugin'
 import { MATRIX_ENV_SCHEMA_KEY, readEnvSchema } from '../config/env-schema.js'
@@ -35,8 +36,10 @@ function isScriptFile(id: string): boolean {
 export const matrixUnpluginFactory: UnpluginFactory<MatrixUnpluginOptions | undefined, false> = (options = {}, meta) => {
   let envPrefix = ensureMatrixEnvPrefix(options.envPrefix)
   let env = currentProcessEnv()
+  const hasMatrixContext = Object.hasOwn(env, MATRIX_ENV_SCHEMA_KEY)
   const envSchema = readEnvSchema(env)
   let typesGenerated = false
+  let missingContextWarned = false
   const runtimeId = matrixRuntimeModuleId(options.scope)
   const requestId = meta.framework === 'webpack' ? runtimeId.replace('virtual:', '__matrix_virtual__/') : runtimeId
   const resolvedRuntimeId = `\0${runtimeId}`
@@ -61,6 +64,13 @@ export const matrixUnpluginFactory: UnpluginFactory<MatrixUnpluginOptions | unde
   async function generateTypes(cwd: string): Promise<void> {
     if (options.types === false || (options.types === undefined && isVitest()) || typesGenerated)
       return
+    if (options.types === undefined && !hasMatrixContext) {
+      if (!missingContextWarned) {
+        consola.warn('Matrix: no injected environment found; skipping automatic type generation. Start the target through the Matrix CLI or run `matrix prepare`; runtime configuration may be incomplete.')
+        missingContextWarned = true
+      }
+      return
+    }
     await generateMatrixTypes(typeOptions(cwd))
     typesGenerated = true
   }
