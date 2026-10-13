@@ -39,7 +39,6 @@ afterEach(async () => {
 async function projectDirectory(): Promise<string> {
   const project = await mkdtemp(path.join(os.tmpdir(), 'matrix-unplugin-types-'))
   temporaryDirectories.push(project)
-  process.chdir(project)
   await writeFile(path.join(project, 'entry.js'), 'export const value = 1')
   return project
 }
@@ -49,8 +48,15 @@ function hostRunner(host: Host, project: string, options?: MatrixUnpluginOptions
   if (host === 'rollup build') {
     const plugin = MatrixUnplugin.rollup({ envPrefix, ...options })
     return async () => {
-      const bundle = await rollup({ input: path.join(project, 'entry.js'), plugins: [plugin] })
-      await bundle.close()
+      const cwd = process.cwd()
+      process.chdir(project)
+      try {
+        const bundle = await rollup({ input: path.join(project, 'entry.js'), plugins: [plugin] })
+        await bundle.close()
+      }
+      finally {
+        process.chdir(cwd)
+      }
     }
   }
   const config = {
@@ -178,6 +184,7 @@ describe('matrix unplugin', () => {
 
   it('generates types through CLI-injected context when the project has no envSchema', async () => {
     const project = await projectDirectory()
+    process.chdir(project)
     const plugin = fileURLToPath(new URL('../../src/unplugin/vite.ts', import.meta.url))
     await symlink(fileURLToPath(new URL('../../node_modules', import.meta.url)), path.join(project, 'node_modules'), 'junction')
     await writeFile(path.join(project, 'package.json'), '{"type":"module"}')
