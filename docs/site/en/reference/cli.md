@@ -47,6 +47,7 @@ matrix <custom-target> [product] [--env <environment>]
 `matrix doctor [--env <environment>]` checks all configured products, variants, and targets in the selected environment without running target/preparation commands, probing ports, generating types, or cleaning output. Configuration loading still evaluates the configuration file as usual.
 
 - Errors include missing/non-directory project roots, cleanup of a project root or ancestor, and planning errors such as invalid dependencies or unavailable artifact versions. Version precedence and cleanup safety use the same rules as execution.
+- Host config discovery uses the same filesystem checks as `matrix prepare`: explicit `configFile` paths must name a supported file, and automatic discovery must be unambiguous. Host configs are not loaded, and projects without a host config remain valid.
 - Warnings identify `completed` dependencies on continuous tasks and `ready` dependencies without `readyWhen`; starting a process alone does not establish service readiness.
 - Dependency planning failures retain their original task and configuration source. The same failure is reported once, with affected downstream tasks listed as `Blocked` rather than counted as additional errors.
 - Diagnostics identify the project/task and configuration path and suggest a correction, without printing environment values. Independent checks are aggregated after configuration loads successfully; invalid configuration that cannot be loaded still fails immediately. Errors exit nonzero; warnings alone exit successfully.

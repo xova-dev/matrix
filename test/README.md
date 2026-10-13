@@ -145,6 +145,12 @@ then run `pnpm check` and `pnpm test:pack`. Change OS/Node jobs in
 
 ## Automatic declaration safeguards
 
+`execution/doctor.test.ts` covers filesystem-only host config validation, invalid
+explicit paths, ambiguous discovery, selection priority, and host-free projects.
+The CLI regression rejects missing host configs without printing success; the
+host-free packaged consumer also verifies that doctor never loads host configs
+or requires optional host dependencies.
+
 `unplugin/index.test.ts` explicitly clears `VITEST` to verify the default
 missing-context safeguard through Vite configuration, real Vite builds, and
 Rollup's build-start hook. It checks existing declaration bytes and modification

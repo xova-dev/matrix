@@ -1,6 +1,7 @@
 import type { CreateExecutionPlanInput, MatrixConfig } from '../types.js'
 import { stat } from 'node:fs/promises'
 import { MATRIX_DEFAULTS } from '../config/defaults.js'
+import { findTypeHost } from '../typegen/prepare.js'
 import { assertSafeOutputDirectory } from '../utils/output.js'
 import { resolveFilesystemPath } from '../utils/path.js'
 import { createExecutionPlan, dependencyCondition, ExecutionPlanError } from './plan.js'
@@ -34,15 +35,16 @@ export async function diagnoseWorkspace(input: DoctorInput): Promise<Diagnostic[
   for (const [name, project] of Object.entries(input.projects)) {
     const root = resolveFilesystemPath(input.cwd, project.root ?? MATRIX_DEFAULTS.projectRoot)
     try {
-      if ((await stat(root)).isDirectory())
+      if (!(await stat(root)).isDirectory()) {
+        diagnostics.push({
+          severity: 'error',
+          subject: name,
+          path: `projects.${name}.root`,
+          message: 'Project root is not a directory.',
+          suggestion: 'Set root to an existing project directory.',
+        })
         continue
-      diagnostics.push({
-        severity: 'error',
-        subject: name,
-        path: `projects.${name}.root`,
-        message: 'Project root is not a directory.',
-        suggestion: 'Set root to an existing project directory.',
-      })
+      }
     }
     catch {
       diagnostics.push({
@@ -51,6 +53,19 @@ export async function diagnoseWorkspace(input: DoctorInput): Promise<Diagnostic[
         path: `projects.${name}.root`,
         message: 'Project directory is missing or inaccessible.',
         suggestion: 'Create the project directory, correct root, or grant read access.',
+      })
+      continue
+    }
+    try {
+      await findTypeHost(root, input.config.projects[name]?.configFile)
+    }
+    catch (error) {
+      diagnostics.push({
+        severity: 'error',
+        subject: name,
+        path: `projects.${name}.configFile`,
+        message: error instanceof Error ? error.message : String(error),
+        suggestion: 'Set configFile to an existing, readable vite.config.* or electron.vite.config.* file, or remove it to use automatic discovery.',
       })
     }
   }

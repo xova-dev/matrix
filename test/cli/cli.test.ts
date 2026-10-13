@@ -27,6 +27,29 @@ describe('cli entry', () => {
       .toThrow('doctor only accepts --env')
   })
 
+  it('rejects missing host configs instead of reporting the configuration as valid', async () => {
+    const cwd = await mkdtemp(path.join(os.tmpdir(), 'matrix-cli-doctor-'))
+    const previousCwd = process.cwd()
+    const success = vi.spyOn(consola, 'success').mockImplementation(() => {})
+    const error = vi.spyOn(consola, 'error').mockImplementation(() => {})
+    try {
+      await writeFile(path.join(cwd, 'matrix.config.mjs'), `export default {
+        projects: { web: { configFile: 'missing/vite.config.ts', targets: { build: 'must-not-run' } } },
+        products: { alpha: { variants: { web: 'web' } } },
+      }`)
+      process.chdir(cwd)
+      await expect(runCli(['doctor'])).rejects.toThrow('Doctor found 1 error(s).')
+      expect(error).toHaveBeenCalledWith(expect.stringContaining('projects.web.configFile'))
+      expect(success).not.toHaveBeenCalled()
+    }
+    finally {
+      success.mockRestore()
+      error.mockRestore()
+      process.chdir(previousCwd)
+      await rm(cwd, { recursive: true, force: true })
+    }
+  })
+
   it('prepares shared projects once and generates types for the selected products', async () => {
     const messages: string[] = []
     const info = vi.spyOn(consola, 'info').mockImplementation((message) => {

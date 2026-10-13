@@ -25,6 +25,62 @@ function input(raw: MatrixConfig, cwd: string, externalEnv: EnvMap = {}) {
 }
 
 describe('static doctor', () => {
+  it.each([
+    ['missing/vite.config.ts', 'ENOENT'],
+    ['missing/electron.vite.config.mjs', 'ENOENT'],
+    ['custom.config.ts', 'Unsupported host config filename'],
+    ['vite.config.ts', 'Host config is not a file'],
+  ])('reports invalid explicit host config %s without changing files', async (configFile, message) => {
+    const cwd = await workspace()
+    await mkdir(path.join(cwd, 'app/vite.config.ts'), { recursive: true })
+    await writeFile(path.join(cwd, 'app/custom.config.ts'), 'throw new Error("must not load")')
+    const before = await readdir(cwd, { recursive: true })
+    const raw: MatrixConfig = {
+      projects: { app: { root: 'app', configFile, targets: { build: 'must-not-run' } } },
+      products: { app: { variants: { web: 'app' } } },
+    }
+    expect(await diagnoseWorkspace(input(raw, cwd))).toEqual([
+      expect.objectContaining({
+        severity: 'error',
+        subject: 'app',
+        path: 'projects.app.configFile',
+        message: expect.stringContaining(message),
+        suggestion: expect.stringContaining('configFile'),
+      }),
+    ])
+    expect(await readdir(cwd, { recursive: true })).toEqual(before)
+  })
+
+  it.each(['vite.config', 'electron.vite.config'])('reports ambiguous %s discovery and accepts an explicit selection without loading it', async (basename) => {
+    const cwd = await workspace()
+    for (const extension of ['ts', 'mjs'])
+      await writeFile(path.join(cwd, `${basename}.${extension}`), 'throw new Error("must not load")')
+    const raw: MatrixConfig = {
+      projects: { app: { targets: { build: 'must-not-run' } } },
+      products: { app: { variants: { web: 'app' } } },
+    }
+    expect(await diagnoseWorkspace(input(raw, cwd))).toEqual([
+      expect.objectContaining({ severity: 'error', path: 'projects.app.configFile', message: expect.stringContaining('Ambiguous') }),
+    ])
+    raw.projects.app!.configFile = `${basename}.mjs`
+    expect(await diagnoseWorkspace(input(raw, cwd))).toEqual([])
+  })
+
+  it('preserves host-free projects and Electron discovery priority without executing host configs', async () => {
+    const cwd = await workspace()
+    const raw: MatrixConfig = {
+      projects: { app: { prepare: 'must-not-run', targets: { build: 'must-not-run' } } },
+      products: { app: { variants: { web: 'app' } } },
+    }
+    await writeFile(path.join(cwd, 'unrelated.config.ts'), 'throw new Error("must not load")')
+    expect(await diagnoseWorkspace(input(raw, cwd))).toEqual([])
+    for (const configFile of ['electron.vite.config.mjs', 'vite.config.ts', 'vite.config.mjs'])
+      await writeFile(path.join(cwd, configFile), 'throw new Error("must not load")')
+    const before = await readdir(cwd, { recursive: true })
+    expect(await diagnoseWorkspace(input(raw, cwd))).toEqual([])
+    expect(await readdir(cwd, { recursive: true })).toEqual(before)
+  })
+
   it('aggregates project and cleanup errors without changing files', async () => {
     const cwd = await workspace()
     await writeFile(path.join(cwd, 'not-a-directory'), 'keep')
@@ -32,8 +88,8 @@ describe('static doctor', () => {
     const before = await readdir(cwd, { recursive: true })
     const raw: MatrixConfig = {
       projects: {
-        missing: { root: 'missing', targets: {} },
-        file: { root: 'not-a-directory', targets: {} },
+        missing: { root: 'missing', configFile: 'vite.config.ts', targets: {} },
+        file: { root: 'not-a-directory', configFile: 'vite.config.ts', targets: {} },
         app: { root: 'project', prepare: 'must-not-run', targets: {
           root: { command: 'must-not-run', outputDir: '.', artifacts: {} },
           parent: { command: 'must-not-run', outputDir: '..', artifacts: {} },

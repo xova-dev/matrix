@@ -340,6 +340,22 @@ try {
   if (readdirSync(doctorRoot).join(',') !== 'matrix.config.mjs')
     throw new Error('Packaged doctor executed commands or wrote workspace files')
 
+  writeFileSync(doctorConfigPath, `export default ${JSON.stringify({
+    projects: { app: { configFile: 'missing/vite.config.ts', prepare: command, targets: { build: command } } },
+    products: { app: { variants: { web: 'app' } } },
+  })}`)
+  const missingHostResult = doctor()
+  const missingHostOutput = missingHostResult.stdout + missingHostResult.stderr
+  if (missingHostResult.exitCode !== 1 || !missingHostOutput.includes('projects.app.configFile') || missingHostOutput.includes('Configuration is valid'))
+    throw new Error('Packaged doctor accepted a missing host config')
+  writeFileSync(doctorConfigPath, `export default ${JSON.stringify(doctorConfig)}`)
+  writeFileSync(path.join(doctorRoot, 'vite.config.mjs'), 'import "vite"; throw new Error("Doctor must not load host configs")')
+  const staticHostResult = doctor()
+  if (staticHostResult.exitCode !== 0 || !(staticHostResult.stdout + staticHostResult.stderr).includes('Configuration is valid'))
+    throw new Error('Packaged doctor loaded a host config or required an optional host dependency')
+  if (readdirSync(doctorRoot).sort().join(',') !== 'matrix.config.mjs,vite.config.mjs')
+    throw new Error('Packaged doctor executed host configuration or wrote workspace files')
+
   shutdownVerified = await verifyShutdown(path.join(consumerRoot, cli), path.join(consumerRoot, 'shutdown'))
   if (shutdownVerified !== null) {
     await verifyViteCompatibility(tarball, path.join(temporaryRoot, 'vite-workspace'), compatibility, concurrency, timings)
