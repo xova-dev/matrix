@@ -6,6 +6,7 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { execa } from 'execa'
 import path from 'pathe'
+import { verifyReport } from './verify-report.mjs'
 
 const root = await realpath(fileURLToPath(new URL('../', import.meta.url)))
 const cli = fileURLToPath(new URL('../bin/matrix.mjs', import.meta.resolve('@xova/matrix')))
@@ -50,35 +51,6 @@ async function preparationCount() {
     if (error.code !== 'ENOENT')
       throw error
     return 0
-  }
-}
-
-function verifyReport(report, product, environment, packaged) {
-  assert.equal(report.packaged, packaged)
-  assert.equal(report.metadata.product, product)
-  assert.equal(report.metadata.appId, `dev.matrix.${product}`)
-  assert.equal(report.runtime.page, product)
-  assert.equal(report.runtime.product.key, product)
-  assert.equal(report.runtime.environment, environment)
-  const suffix = environment === 'production' ? '' : environment === 'development' ? '-dev' : '-staging'
-  assert.equal(report.runtime.config.apiBase, `https://${product}${suffix}.example.test`)
-  for (const [scope, snapshot] of [['main', report.main], ['preload', report.preload], ['renderer', report.runtime]]) {
-    assert.ok(snapshot, `${scope} must execute in the real Electron application`)
-    assert.equal(snapshot.product.key, product)
-    assert.equal(snapshot.environment, environment)
-    assert.equal(snapshot.isDevelopment, !packaged)
-    assert.equal(snapshot.config.enabled, false)
-    assert.equal(snapshot.config.retryCount, product === 'alpha' ? 2 : 3)
-    assert.equal(snapshot.config.apiBase, report.runtime.config.apiBase)
-    assert.equal(Object.hasOwn(snapshot.config, 'mainOnly'), scope === 'main')
-    assert.equal(Object.hasOwn(snapshot.config, 'preloadOnly'), scope === 'preload')
-    if (scope !== 'renderer') {
-      const scopeValue = scope === 'main' ? `${product}-main` : product === 'alpha' ? 101 : 202
-      assert.equal(snapshot.config.scopeValue, scopeValue)
-    }
-    else {
-      assert.equal(Object.hasOwn(snapshot.config, 'scopeValue'), false)
-    }
   }
 }
 
@@ -135,13 +107,13 @@ try {
     let betaPort = await freePort()
     while (betaPort === alphaPort)
       betaPort = await freePort()
-    await run(process.execPath, [cli, 'dev', product, '-v', 'desktop'], {
+    const result = await run(process.execPath, [cli, 'dev', product, '-v', 'desktop'], {
       EXAMPLE_ALPHA_PORT: String(alphaPort),
       EXAMPLE_BETA_PORT: String(betaPort),
       EXAMPLE_SMOKE_OUTPUT: output,
       EXAMPLE_RUN_DIR: runDirectory,
     })
-    verifyReport(JSON.parse(await readFile(output, 'utf8')), product, 'development', false)
+    await verifyReport(output, result, product, 'development', false)
     await run('pnpm', ['run', 'check:types'])
     await run(process.execPath, ['acceptance/check-types.mjs'])
     const webPid = Number(await readFile(path.join(runDirectory, `web-${product}.started`), 'utf8'))
@@ -165,8 +137,8 @@ try {
     assert.ok(binary, 'Unpacked application executable is missing')
     const output = path.join(reports, `${product}-${environment}.json`)
     // Deliberately pass conflicting host values: packaged resources must remain authoritative.
-    await run(binary, ['--no-sandbox'], { EXAMPLE_SMOKE_OUTPUT: output, MATRIX_PRODUCT_KEY: 'wrong-product', VITE_API_BASE: 'wrong-api', MAIN_VITE_SCOPE_VALUE: 'wrong-main', PRELOAD_VITE_SCOPE_VALUE: '999' })
-    verifyReport(JSON.parse(await readFile(output, 'utf8')), product, environment, true)
+    const result = await run(binary, ['--no-sandbox'], { EXAMPLE_SMOKE_OUTPUT: output, MATRIX_PRODUCT_KEY: 'wrong-product', VITE_API_BASE: 'wrong-api', MAIN_VITE_SCOPE_VALUE: 'wrong-main', PRELOAD_VITE_SCOPE_VALUE: '999' })
+    await verifyReport(output, result, product, environment, true)
     assert.equal(await preparationCount(), ++prepared)
     console.log(`Packaged application verified: ${product} / ${environment}.`)
   }

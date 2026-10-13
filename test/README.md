@@ -135,6 +135,12 @@ application startup using the locked
 owned by the example's package manifest and workspace lockfile; this acceptance
 run is not repeated for every package-matrix combination.
 
+`scripts/electron-report.test.js` covers missing, malformed, and incorrect
+acceptance reports after a successful command exit, including captured stdout
+and stderr, product/environment/phase context, exit status, and the quiet success
+path. It uses real Node subprocesses and report files; these diagnostics tests
+do not replace the real Electron acceptance jobs.
+
 ### Updating the matrix
 
 Change exact test pins and shared settings in

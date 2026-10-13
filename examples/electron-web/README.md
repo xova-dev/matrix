@@ -60,6 +60,8 @@ pnpm test:electron-web
 
 `matrix.config.ts` 显式列出两个产品及其差异，不通过工厂按产品名推导配置。通用布尔默认值放在根级 schema，产品值放在产品 `env`，环境差异放在 `$env`。普通构建和启动脚本位于 `scripts/` 与 Desktop 目录；验收编排、类型探针和应用报告采集位于 `acceptance/`。不要在已有构建产物的本地工作区直接运行 `verify`：它要求干净的临时消费项目，应使用根级 `pnpm test:electron-web`。
 
+如果开发或打包后启动命令正常退出，但报告缺失、无法解析或未通过断言，验收会打印产品、环境、阶段、退出码、报告路径及该命令已捕获的 stdout/stderr，然后保留原始错误。成功时仍只打印简短验收摘要，不额外输出命令日志。
+
 应用自检通过 `EXAMPLE_SMOKE_OUTPUT` 启用：窗口隐藏，但页面确实由 Electron 加载并执行。普通启动仍显示窗口。验收使用 electron-builder 的 dir 目标，不制作安装器、不发布、不使用分发签名证书。
 
 Linux 的图形验收需要显示服务器，CI 使用 Xvfb。所有平台的自检启动（开发态和打包后）均在启动命令中传入 `--no-sandbox`，不验证沙箱配置；普通手动启动不传该参数，保留 sandbox。窗口始终启用 context isolation，禁用 node integration。API 地址是示例数据，不会发起外部 API 请求。
