@@ -7,6 +7,9 @@ export interface MatrixUnpluginOptions {
   scope?: string
   /** Inline static reads on supported hosts. Set false for runtime-only integration. Defaults to true. */
   inline?: boolean
-  /** Generate project-local declarations during prepare and builds. Defaults to true. */
+  /**
+   * Generate declarations during prepare and Matrix builds; builds skip Vitest by default.
+   * Set true/object to opt in to all builds, or false to disable both.
+   */
   types?: boolean | { output?: string }
 }

@@ -111,7 +111,7 @@ electron-vite 必须支持所选 Vite。类型准备组合与真实 Electron 应
 - 共享项目合并所选产品的公开字段名；schema 声明的字段不要求提供运行时值。重复 scope、输出/前缀冲突、scope 集合变化或配置解析失败时，Matrix 会在写入声明前报错。prepare 除执行已有项目准备命令外，还会执行配置代码和配置钩子，并不是无副作用的静态扫描。每次宿主解析限时 30 秒。
 - 未显式指定配置且 project root 没有匹配文件时，保留原有通用生成方式，从 Matrix 配置和公开环境变量键生成 `.matrix/types/matrix-runtime.d.ts`。暂不支持其他宿主或任意配置文件名。宿主配置成功解析但未启用 Matrix 插件时，也沿用该通用方式（使用 Matrix 设置，不采用宿主特定前缀或 scope）；启用插件并设置 `types: false` 时不生成。不会自动删除旧声明文件。
 
-prepare 和构建插件生成 `ImportMetaEnv`、`matrix.config` 类型时均不写入环境变量实际值。构建插件仍按当前构建最终配置生成声明；在 Vitest 环境默认不自动生成，可用 `types: true` 或 `types: { output: '...' }` 显式开启。显式运行 `matrix prepare` 不受 Vitest 默认值限制，但遵循 `types: false`。将生成目录加入各项目对应 `tsconfig.json`：
+prepare 和构建插件生成 `ImportMetaEnv`、`matrix.config` 类型时均不写入环境变量实际值。Matrix CLI 注入环境元数据后，构建插件按当前构建最终配置生成声明。缺少该上下文时，Vite、Rollup、Webpack、esbuild 的自动生成都会跳过所有声明写入，且每个插件实例仅警告一次。直接运行宿主命令也适用；请通过 Matrix 启动目标，或运行 `matrix prepare`。缺少注入上下文时，运行时配置也可能不完整。Vitest 环境仍默认不自动生成。`types: true` 或 `types: { output: '...' }` 可在上述两种情况下显式开启，使用当前可用环境生成声明，但不会补齐缺失的运行时配置。显式运行 `matrix prepare` 不受 Vitest 默认值限制，但遵循 `types: false`。将生成目录加入各项目对应 `tsconfig.json`：
 
 ```json
 {

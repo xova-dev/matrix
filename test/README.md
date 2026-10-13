@@ -143,6 +143,22 @@ the supported ranges. Keep this matrix and both integration guides aligned,
 then run `pnpm check` and `pnpm test:pack`. Change OS/Node jobs in
 `.github/workflows/ci.yml` and keep required job names in `scripts/check-release.mjs` aligned.
 
+## Automatic declaration safeguards
+
+`unplugin/index.test.ts` explicitly clears `VITEST` to verify the default
+missing-context safeguard through Vite configuration, real Vite builds, and
+Rollup's build-start hook. It checks existing declaration bytes and modification
+times, absent output directories, one warning per plugin instance, empty schema
+metadata and field removal, explicit `types` overrides, and `types: false`.
+The separate default Vitest suppression remains covered with injected context.
+Explicit override cases cover both option forms with and without Vitest, plus
+one runtime-only case per host instead of a redundant full cross-product.
+The fixture clears inherited public test fields to keep empty-schema checks
+independent of the caller's environment.
+`typegen/prepare-types.test.ts` retains the multi-product merge and
+scope-preparation contracts; package consumers additionally verify installed
+adapters and all three Electron type-preparation combinations.
+
 ## Runtime conformance tests
 
 Add syntax cases to `helpers/runtime-fixtures.ts`, not a separate host-specific
