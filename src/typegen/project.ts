@@ -84,8 +84,9 @@ async function collectProjectTypes(loaded: LoadedConfig, products: Product[], op
   }
 
   const batches: GenerateMatrixTypesOptions[][] = []
+  const outputsToWrite = new Set<string>()
   const outputSources = new Map<string, { projects: Set<string>, tasks: Set<string> }>()
-  const addBatch = async (batch: GenerateMatrixTypesOptions[], project: string, tasks: string[]): Promise<void> => {
+  const addBatch = async (batch: GenerateMatrixTypesOptions[], project: string, tasks: string[], publish = true): Promise<void> => {
     for (const declaration of batch) {
       const output = await resolveFuturePath(matrixTypeOutput(declaration))
       const root = roots.get(project)!
@@ -93,6 +94,8 @@ async function collectProjectTypes(loaded: LoadedConfig, products: Product[], op
         throw new Error(`Cannot establish Matrix type output ownership for project ${project}: host root ${declaration.cwd} and output ${output} must stay within project.root ${root}. Set project.root to the actual shared host project directory; use project.configFile to reference a configuration stored elsewhere.`)
       declaration.typeProjectRoot = root
       declaration.output = output
+      if (publish)
+        outputsToWrite.add(output)
       const source = outputSources.get(output) ?? { projects: new Set<string>(), tasks: new Set<string>() }
       source.projects.add(project)
       for (const task of tasks)
@@ -107,9 +110,8 @@ async function collectProjectTypes(loaded: LoadedConfig, products: Product[], op
     try {
       const project = loaded.projects[projectName]!
       let cwd = roots.get(projectName)!
-      const host = await findTypeHost(cwd, project.configFile, signal)
-      if (!host && options.automatic)
-        continue
+      // Resolve relative config paths before canonicalizing the worker cwd.
+      const host = await findTypeHost(resolveFilesystemPath(loaded.cwd, project.root ?? MATRIX_DEFAULTS.projectRoot), project.configFile, signal)
       if (host) {
         options.onHost?.()
         cwd = await resolveExistingPath(cwd)
@@ -132,8 +134,9 @@ async function collectProjectTypes(loaded: LoadedConfig, products: Product[], op
             ...(loaded.config.envSchema ? { envSchema: loaded.config.envSchema } : {}),
           }]
           if (!host) {
-            if (!options.automatic)
-              await addBatch(genericTypes, projectName, [task])
+            // Generic owners participate in raw-key reconciliation, but automatic
+            // Vite collection must not create or overwrite their declarations.
+            await addBatch(genericTypes, projectName, [task], !options.automatic)
             continue
           }
           const identity = resolveProductContext({ config: loaded.config, product, variant, envName: loaded.envName, env: effectiveEnv, projectRoot: cwd })
@@ -162,7 +165,7 @@ async function collectProjectTypes(loaded: LoadedConfig, products: Product[], op
             if (expectedScopes !== undefined && scopes !== expectedScopes)
               throw new Error(`Matrix scopes change between products, variants, or host contexts in ${cwd}; keep the type contract stable.`)
             expectedScopes = scopes
-            await addBatch(preparedTypes ?? (options.automatic ? [] : genericTypes), projectName, [task])
+            await addBatch(preparedTypes ?? genericTypes, projectName, [task], !options.automatic || preparedTypes !== null)
           }
         }
       }
@@ -175,6 +178,8 @@ async function collectProjectTypes(loaded: LoadedConfig, products: Product[], op
   checkCancellation()
   for (const declaration of mergePreparedTypes(batches)) {
     checkCancellation()
+    if (!outputsToWrite.has(matrixTypeOutput(declaration)))
+      continue
     const source = outputSources.get(matrixTypeOutput(declaration))!
     try {
       const output = await generateMatrixTypes(declaration, signal)

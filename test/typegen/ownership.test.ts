@@ -4,6 +4,7 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { build as bundle } from 'esbuild'
 import path from 'pathe'
+import ts from 'typescript'
 import { afterEach, describe, expect, it } from 'vitest'
 import { runCli } from '../../src/cli/index.js'
 
@@ -28,6 +29,79 @@ async function workspace(): Promise<string> {
 }
 
 describe('prepared declaration ownership', { timeout: 20_000 }, () => {
+  it('resolves explicit configs from the configured symlink path before canonicalizing', async () => {
+    const cwd = await workspace()
+    await mkdir(path.join(cwd, 'links/configs'), { recursive: true })
+    await mkdir(path.join(cwd, 'configs'))
+    await symlink(path.join(cwd, 'app'), path.join(cwd, 'links/app'), 'junction')
+    const configFile = path.join(cwd, 'links/configs/vite.config.mjs')
+    await writeFile(configFile, `import matrix from ${JSON.stringify(plugin)};
+      export default { plugins: [matrix({ types: true, scope: 'selected' })], build: { write: false, lib: { entry: 'entry.mjs', formats: ['es'] } } };
+    `)
+    await writeFile(path.join(cwd, 'configs/vite.config.mjs'), 'throw new Error("Selected the canonical parent instead of the configured parent")')
+    await writeFile(path.join(cwd, 'app/entry.mjs'), 'export const value = 1')
+    await writeFile(path.join(cwd, 'app/build.mjs'), `import { build } from 'vite'; await build({ configFile: ${JSON.stringify(configFile)} });`)
+    await writeFile(path.join(cwd, 'matrix.config.mjs'), `export default ${JSON.stringify({
+      projects: { app: { root: 'links/app', configFile: '../configs/vite.config.mjs', targets: { build: 'node build.mjs' } } },
+      products: { alpha: { env: { VITE_SELECTED: 'yes' }, variants: { app: 'app' } } },
+    })}`)
+    await runCli(['prepare', 'alpha'])
+    const output = path.join(cwd, 'app/.matrix/types/matrix-runtime-selected.d.ts')
+    const prepared = await readFile(output, 'utf8')
+    expect(prepared).toContain('readonly selected: string')
+    await runCli(['build', 'alpha'])
+    expect(await readFile(output, 'utf8')).toBe(prepared)
+  })
+
+  it.each([false, true])('retains generic owner optionality without publishing its files (config without Matrix: %s)', async (emptyHostConfig) => {
+    const cwd = await workspace()
+    if (emptyHostConfig)
+      await writeFile(path.join(cwd, 'vite.config.mjs'), 'export default {}')
+    await writeFile(path.join(cwd, 'matrix.config.mjs'), `export default ${JSON.stringify({
+      projects: {
+        plain: { targets: { build: 'node unused.mjs' } },
+        web: { root: 'app', targets: { build: 'node build.mjs' } },
+      },
+      products: {
+        alpha: { env: { VITE_X: 'alpha' }, variants: { plain: 'plain' } },
+        gamma: { variants: { plain: 'plain' } },
+        beta: { env: { VITE_X: 'beta' }, variants: { web: 'web' } },
+      },
+    })}`)
+    await writeFile(path.join(cwd, 'app/vite.config.mjs'), `import matrix from ${JSON.stringify(plugin)};
+      export default { plugins: [matrix({ types: true, scope: 'web' })], build: { write: false, lib: { entry: 'entry.mjs', formats: ['es'] } } };
+    `)
+    await writeFile(path.join(cwd, 'app/entry.mjs'), 'export const value = 1')
+    await writeFile(path.join(cwd, 'app/build.mjs'), 'import { build } from "vite"; await build();')
+    await runCli(['prepare'])
+    const generic = path.join(cwd, '.matrix/types/matrix-runtime.d.ts')
+    const nested = path.join(cwd, 'app/.matrix/types/matrix-runtime-web.d.ts')
+    const original = await readFile(generic, 'utf8')
+    // A sentinel detects even a same-contract rewrite of the hostless output.
+    await writeFile(generic, `${original}\n// hostless owner sentinel\n`)
+    const untouched = await readFile(generic, 'utf8')
+    const prepared = await readFile(nested, 'utf8')
+    await runCli(['build', 'beta'])
+    expect(await readFile(generic, 'utf8')).toBe(untouched)
+    expect(await readFile(nested, 'utf8')).toBe(prepared)
+    expect(prepared).toContain('readonly VITE_X?: string')
+    expect(prepared).toContain('readonly x: string')
+    const program = ts.createProgram([generic, nested], {
+      target: ts.ScriptTarget.ES2022,
+      module: ts.ModuleKind.ESNext,
+      moduleResolution: ts.ModuleResolutionKind.Bundler,
+      strict: true,
+      noEmit: true,
+      skipLibCheck: false,
+      types: [],
+      paths: { '@xova/matrix/runtime': [fileURLToPath(new URL('../../src/runtime/index.ts', import.meta.url))] },
+    })
+    expect(ts.getPreEmitDiagnostics(program).map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'))).toEqual([])
+    await rm(path.join(cwd, '.matrix'), { recursive: true })
+    await runCli(['build', 'beta'])
+    await expect(access(generic)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
   it('keeps a non-Vite ancestor build independent from its nested Vite project', async () => {
     const cwd = await workspace()
     await writeFile(path.join(cwd, 'matrix.config.mjs'), `export default {
