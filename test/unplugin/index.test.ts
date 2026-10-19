@@ -91,6 +91,41 @@ function hostRunner(host: Host, project: string, options?: MatrixUnpluginOptions
 }
 
 describe('matrix unplugin', () => {
+  it('keeps Rollup generation host-local when Vite collection injects an empty strict contract', async () => {
+    const project = await projectDirectory()
+    vi.stubEnv(MATRIX_ENV_SCHEMA_KEY, '{}')
+    // A discoverable Vite config without Matrix plugins produces this handshake.
+    vi.stubEnv(MATRIX_TYPE_CONTRACT_KEY, JSON.stringify({ strict: true, declarations: [] }))
+    vi.stubEnv('MAIN_VITE_WINDOW_TITLE', 'Matrix')
+    await hostRunner('rollup build', project)()
+    const types = await readFile(path.join(project, output), 'utf8')
+    expect(types).toContain('readonly windowTitle: string')
+    expect(types).not.toContain(MATRIX_TYPE_CONTRACT_KEY)
+  })
+
+  it('accepts a schema-declared optional field populated only after Vite collection', async () => {
+    const project = await projectDirectory()
+    const shared = {
+      cwd: project,
+      env: {},
+      envSchema: { MAIN_VITE_OPTIONAL: { type: 'string' as const, optional: true } },
+      envPrefix: ['MAIN_VITE_', 'MATRIX_', '__MATRIX_'],
+    }
+    const filename = await generateMatrixTypes(shared)
+    const complete = await readFile(filename, 'utf8')
+    expect(complete).toContain('readonly optional?: string')
+    const declaration = preparedTypeDeclaration({ ...shared, output: await resolveFuturePath(filename) })
+    expect(declaration.keys).toContain('MAIN_VITE_OPTIONAL')
+    vi.stubEnv(MATRIX_ENV_SCHEMA_KEY, JSON.stringify(shared.envSchema))
+    vi.stubEnv(MATRIX_TYPE_CONTRACT_KEY, JSON.stringify({ strict: true, declarations: [declaration] }))
+    vi.stubEnv('MAIN_VITE_OPTIONAL', 'late-private-value')
+    await hostRunner('vite config', project)()
+    expect(await readFile(filename, 'utf8')).toBe(complete)
+    vi.stubEnv('MAIN_VITE_UNCOLLECTED', 'unexpected')
+    await expect(hostRunner('vite config', project)()).rejects.toThrow('Matrix type contract changed after collection')
+    expect(await readFile(filename, 'utf8')).toBe(complete)
+  })
+
   it.each(['direct', 'aliased'])('consumes a complete coordinated contract through a %s root without publishing an active-product subset', async (root) => {
     let project = await projectDirectory()
     if (root === 'aliased') {

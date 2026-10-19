@@ -6,8 +6,8 @@ import process from 'node:process'
 import path from 'pathe'
 import { MATRIX_TYPE_CONTRACT_KEY } from '../config/env-schema.js'
 import { ensureMatrixEnvPrefix } from '../runtime/public-env.js'
-import { resolveFilesystemPath } from '../utils/path.js'
-import { matrixRuntimeModuleId, matrixTypeEnvKeys, matrixTypeOutput, renderMatrixTypes } from './generate.js'
+import { containsPath, resolveFilesystemPath } from '../utils/path.js'
+import { matrixRuntimeModuleId, matrixTypeEnvKeys, matrixTypeEnvProperties, matrixTypeOutput, renderMatrixTypes } from './generate.js'
 
 export interface TypeHost {
   name: 'vite' | 'electron-vite'
@@ -166,11 +166,36 @@ export function mergePreparedTypes(batches: GenerateMatrixTypesOptions[][]): Gen
       merged.set(output, { ...options, env: matrixTypeEnvKeys(previous?.env, options.env) })
     }
   }
-  const options = [...merged.entries()].map(([output, declaration]) => ({
+  const options: GenerateMatrixTypesOptions[] = [...merged.entries()].map(([output, declaration]) => ({
     ...declaration,
     optionalEnvKeys: Object.keys(declaration.env).filter(key => !requiredKeys.get(output)!.has(key)).sort(),
   }))
-  for (const declaration of options)
+  // ImportMetaEnv is global even when virtual MatrixConfig modules are scoped.
+  // Agree on each raw key's presence across all collected scopes, without
+  // widening any scope's own config fields or their parsed schema types.
+  const projectRoots = [...new Set(batches.flat().map(declaration => resolveFilesystemPath(declaration.typeProjectRoot ?? declaration.cwd)))].sort((a, b) => a.length - b.length)
+  // Collection expands overlapping project aliases; their declarations may
+  // coexist too. Use the outermost collected owner, not the nested host cwd.
+  const globalRoot = (declaration: GenerateMatrixTypesOptions): string => {
+    const root = resolveFilesystemPath(declaration.typeProjectRoot ?? declaration.cwd)
+    return projectRoots.find(candidate => containsPath(candidate, root))!
+  }
+  const globals = new Map<string, { keys: Set<string>, required: Set<string> }>()
+  for (const declaration of options) {
+    const project = globalRoot(declaration)
+    const properties = matrixTypeEnvProperties(declaration)
+    const keys = new Set(properties.map(property => property.key))
+    const required = new Set(properties.filter(property => !property.optional).map(property => property.key))
+    const previous = globals.get(project)
+    globals.set(project, {
+      keys: new Set([...previous?.keys ?? [], ...keys]),
+      required: previous ? new Set([...previous.required].filter(key => required.has(key))) : required,
+    })
+  }
+  for (const declaration of options) {
+    const global = globals.get(globalRoot(declaration))!
+    declaration.optionalImportMetaEnvKeys = [...global.keys].filter(key => !global.required.has(key)).sort()
     renderMatrixTypes(declaration)
+  }
   return options
 }

@@ -24,7 +24,7 @@ export function preparedTypeDeclaration(options: GenerateMatrixTypesOptions): Pr
   return {
     output: matrixTypeOutput(options),
     signature: signature(options),
-    keys: publicEnvKeys(options.env, ensureMatrixEnvPrefix(options.envPrefix)),
+    keys: publicEnvKeys({ ...options.envSchema, ...options.env }, ensureMatrixEnvPrefix(options.envPrefix)),
   }
 }
 

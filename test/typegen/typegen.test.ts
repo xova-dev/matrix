@@ -39,6 +39,98 @@ describe('matrix type generation', () => {
     expect(cleared).not.toContain('beta')
   })
 
+  it('reconciles global raw env presence without merging scoped config contracts', async () => {
+    const project = await mkdtemp(path.join(os.tmpdir(), 'matrix-scoped-types-'))
+    temporaryDirectories.push(project)
+    const main = {
+      cwd: path.join(project, 'main'),
+      typeProjectRoot: project,
+      scope: 'main',
+      env: { VITE_CONTEXT: '', VITE_MAIN_ONLY: '', VITE_ALWAYS: '' },
+      envSchema: {
+        VITE_TYPED: { type: 'enum' as const, values: ['main', 'worker'] as const },
+        VITE_DEFAULT: { type: 'boolean' as const, default: false },
+      },
+    }
+    const renderer = {
+      cwd: path.join(project, 'renderer'),
+      typeProjectRoot: project,
+      scope: 'renderer',
+      env: { VITE_CONTEXT: '', VITE_ALWAYS: '' },
+      envSchema: {
+        VITE_TYPED: { type: 'number' as const },
+        VITE_DEFAULT: { type: 'string' as const, optional: true },
+      },
+    }
+    const batches = [[main, renderer], [main, { ...renderer, env: { VITE_ALWAYS: '' } }]]
+    const declarations = mergePreparedTypes(batches)
+    const rendered = declarations.map(renderMatrixTypes)
+    expect(mergePreparedTypes([...batches].reverse()).map(renderMatrixTypes)).toEqual(rendered)
+    for (const declaration of rendered) {
+      expect(declaration).toContain('readonly VITE_CONTEXT?: string')
+      expect(declaration).toContain('readonly VITE_DEFAULT?: string')
+      expect(declaration).toContain('readonly VITE_ALWAYS: string')
+      expect(declaration).toContain('readonly VITE_TYPED: string')
+    }
+    expect(rendered[0]).toContain('readonly VITE_MAIN_ONLY?: string')
+    expect(rendered[0]).toContain('readonly mainOnly: string')
+    expect(rendered[0]).toContain('readonly context: string')
+    expect(rendered[1]).toContain('readonly context?: string')
+    expect(rendered[1]).not.toContain('mainOnly')
+    expect(rendered[1]).not.toContain('VITE_MAIN_ONLY')
+    const aliased = mergePreparedTypes(batches.map(batch => batch.map(declaration => ({
+      ...declaration,
+      typeProjectRoot: declaration.scope === 'renderer' ? renderer.cwd : project,
+    }))))
+    expect(aliased.map(renderMatrixTypes)).toEqual(rendered)
+    const reowned = [...batches, [
+      { ...main, typeProjectRoot: main.cwd },
+      { ...renderer, typeProjectRoot: renderer.cwd, env: { VITE_ALWAYS: '' } },
+    ]]
+    // Later aliases can replace all output contributors; retain the original
+    // parent ownership when reconciling globals, regardless of batch order.
+    expect(mergePreparedTypes(reowned).map(renderMatrixTypes)).toEqual(rendered)
+    expect(mergePreparedTypes([...reowned].reverse()).map(renderMatrixTypes)).toEqual(rendered)
+    const outputs = await Promise.all(declarations.map(declaration => generateMatrixTypes(declaration)))
+    const consumer = path.join(project, 'consumer.ts')
+    await writeFile(consumer, [
+      'import { matrix as main } from "virtual:matrix/runtime/main";',
+      'import { matrix as renderer } from "virtual:matrix/runtime/renderer";',
+      'declare const raw: ImportMetaEnv;',
+      'const common: string = raw.VITE_ALWAYS;',
+      'const rawTyped: string = raw.VITE_TYPED;',
+      'const scoped: string = main.config.context;',
+      'const mainOnly: string = main.config.mainOnly;',
+      'const defaulted: boolean = main.config.default;',
+      'const mainTyped: "main" | "worker" = main.config.typed;',
+      'const rendererTyped: number = renderer.config.typed;',
+      'const rendererDefault: string | undefined = renderer.config.default;',
+      '// @ts-expect-error A key missing in one scope is globally optional.',
+      'const unsafeMain: string = raw.VITE_MAIN_ONLY;',
+      '// @ts-expect-error A key missing in one product/context is globally optional.',
+      'const unsafeContext: string = raw.VITE_CONTEXT;',
+      '// @ts-expect-error Schema optionality differs across scopes.',
+      'const unsafeDefault: string = raw.VITE_DEFAULT;',
+      '// @ts-expect-error Renderer context remains optional.',
+      'const unsafeRenderer: string = renderer.config.context;',
+      '// @ts-expect-error Main-only config must not leak into renderer.',
+      'renderer.config.mainOnly;',
+    ].join('\n'))
+    const program = ts.createProgram([...outputs, consumer], {
+      target: ts.ScriptTarget.ES2022,
+      module: ts.ModuleKind.ESNext,
+      moduleResolution: ts.ModuleResolutionKind.Bundler,
+      strict: true,
+      noEmit: true,
+      skipLibCheck: false,
+      types: [],
+      paths: { '@xova/matrix/runtime': [fileURLToPath(new URL('../../src/runtime/index.ts', import.meta.url))] },
+    })
+    expect(ts.getPreEmitDiagnostics(program).map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'))).toEqual([])
+    const separate = mergePreparedTypes([[main, { ...renderer, cwd: `${project}-separate`, typeProjectRoot: `${project}-separate`, env: {} }]])
+    expect(renderMatrixTypes(separate[0]!)).toContain('readonly VITE_CONTEXT: string')
+  })
+
   it('generates typed public env and virtual runtime declarations without values', async () => {
     const project = await mkdtemp(path.join(os.tmpdir(), 'matrix-types-'))
     temporaryDirectories.push(project)

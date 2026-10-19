@@ -38,7 +38,8 @@ function isScriptFile(id: string): boolean {
 export const matrixUnpluginFactory: UnpluginFactory<MatrixUnpluginOptions | undefined, false> = (options = {}, meta) => {
   let envPrefix = ensureMatrixEnvPrefix(options.envPrefix)
   let env = currentProcessEnv()
-  const preparedContract = env[MATRIX_TYPE_CONTRACT_KEY]
+  // Collection resolves Vite configs only; other adapters retain host-local generation.
+  const preparedContract = meta.framework === 'vite' ? env[MATRIX_TYPE_CONTRACT_KEY] : undefined
   const hasMatrixContext = Object.hasOwn(env, MATRIX_ENV_SCHEMA_KEY)
   const envSchema = readEnvSchema(env)
   let typesGenerated = false

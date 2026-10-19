@@ -91,6 +91,7 @@ async function collectProjectTypes(loaded: LoadedConfig, products: Product[], op
       const root = roots.get(project)!
       if (!containsPath(root, declaration.cwd) || !containsPath(root, output))
         throw new Error(`Cannot establish Matrix type output ownership for project ${project}: host root ${declaration.cwd} and output ${output} must stay within project.root ${root}. Set project.root to the actual shared host project directory; use project.configFile to reference a configuration stored elsewhere.`)
+      declaration.typeProjectRoot = root
       declaration.output = output
       const source = outputSources.get(output) ?? { projects: new Set<string>(), tasks: new Set<string>() }
       source.projects.add(project)
