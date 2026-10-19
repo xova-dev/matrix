@@ -14,22 +14,26 @@ import { resolveExistingPath } from '../../src/utils/path.js'
 const waiting = vi.hoisted(() => ({ notify: () => {} }))
 
 const filesystem = vi.hoisted(() => ({
-  afterRead: async (_file: unknown) => {},
-  afterUnlink: async (_file: unknown) => {},
+  beforeUnlink: async (_file: unknown) => {},
+  afterUnlink: async (_file: unknown, _error?: unknown) => {},
 }))
 
 vi.mock('node:fs/promises', async (importOriginal) => {
   const fs = await importOriginal<typeof import('node:fs/promises')>()
   return {
     ...fs,
-    readdir: async (file: Parameters<typeof fs.readdir>[0]) => {
-      const entries = await fs.readdir(file)
-      await filesystem.afterRead(file)
-      return entries
-    },
     unlink: async (file: Parameters<typeof fs.unlink>[0]) => {
-      await fs.unlink(file)
-      await filesystem.afterUnlink(file)
+      await filesystem.beforeUnlink(file)
+      let failure: unknown
+      try {
+        await fs.unlink(file)
+      }
+      catch (error) {
+        failure = error
+      }
+      await filesystem.afterUnlink(file, failure)
+      if (failure)
+        throw failure
     },
   }
 })
@@ -118,38 +122,49 @@ describe('type preparation coordination', () => {
         throw Object.assign(new Error('dead owner'), { code: 'ESRCH' })
       return true
     })
-    let releaseReads!: () => void
-    const reads = new Promise<void>((resolve) => {
-      releaseReads = resolve
+    let releaseAttempts!: () => void
+    const attempts = new Promise<void>((resolve) => {
+      releaseAttempts = resolve
     })
-    let readCount = 0
-    filesystem.afterRead = async (file) => {
-      if (file === lock && ++readCount <= 3) {
-        if (readCount === 3)
-          releaseReads()
-        await reads
+    let allAttempting!: () => void
+    const attempting = new Promise<void>((resolve) => {
+      allAttempting = resolve
+    })
+    const attemptedOwners: string[] = []
+    filesystem.beforeUnlink = async (file) => {
+      if (typeof file === 'string' && path.basename(file) === owner) {
+        attemptedOwners.push(file)
+        if (attemptedOwners.length === 3)
+          allAttempting()
+        await attempts
       }
     }
     let releaseRemoval!: () => void
     const removal = new Promise<void>((resolve) => {
       releaseRemoval = resolve
     })
-    let successfulRemovers = 0
-    filesystem.afterUnlink = async (file) => {
-      if (file === path.join(lock, owner)) {
-        successfulRemovers++
-        await removal
+    let allAttempted!: () => void
+    const attempted = new Promise<void>((resolve) => {
+      allAttempted = resolve
+    })
+    const outcomes: Array<string | undefined> = []
+    filesystem.afterUnlink = async (file, error) => {
+      if (typeof file === 'string' && path.basename(file) === owner) {
+        outcomes.push((error as NodeJS.ErrnoException | undefined)?.code)
+        if (outcomes.length === 3)
+          allAttempted()
+        if (!error)
+          await removal
       }
     }
-    let waitingCount = 0
-    let losersWaiting!: () => void
-    const losers = new Promise<void>((resolve) => {
-      losersWaiting = resolve
+    const controller = new AbortController()
+    let phase = 'waiting for three verified owner-removal attempts'
+    const watchdog = setTimeout(() => {
+      controller.abort(new Error(`Recovery test stalled ${phase}; attempts=${attemptedOwners.length}, outcomes=${JSON.stringify(outcomes)}`))
+    }, 5_000)
+    const aborted = new Promise<never>((_resolve, reject) => {
+      controller.signal.addEventListener('abort', () => reject(controller.signal.reason), { once: true })
     })
-    waiting.notify = () => {
-      if (++waitingCount === 2)
-        losersWaiting()
-    }
     let entered = 0
     let active = 0
     let maximum = 0
@@ -159,25 +174,41 @@ describe('type preparation coordination', () => {
       await setImmediate()
       active--
       return value
-    }, AbortSignal.timeout(5_000)))
+    }, controller.signal))
+    const completed = Promise.all(successors)
+    const prematureCompletion = completed.then(() => {
+      throw new Error(`Successors completed prematurely ${phase}`)
+    })
     try {
-      await losers
-      expect(successfulRemovers).toBe(1)
+      await Promise.race([attempting, prematureCompletion, aborted])
+      // Each contender already read and verified the same dead owner before
+      // reaching unlink; no read barriers or retry-timer ordering are assumed.
+      expect(attemptedOwners).toEqual(Array.from({ length: 3 }, () => path.join(lock, owner)))
+      expect(kill.mock.calls.filter(([pid]) => pid === 2147483647)).toHaveLength(3)
+      phase = 'waiting for one successful unlink and two missing-owner results'
+      releaseAttempts()
+      await Promise.race([attempted, prematureCompletion, aborted])
+      expect(outcomes.filter(code => code === undefined)).toHaveLength(1)
+      expect(outcomes.filter(code => code === 'ENOENT')).toHaveLength(2)
       expect(entered).toBe(0)
       // Losing recoverers must leave the now-empty directory for the winner.
       expect(await readdir(lock)).toEqual([])
+      phase = 'waiting for serialized successors'
       releaseRemoval()
-      expect(await Promise.all(successors)).toEqual([1, 2, 3])
+      expect(await Promise.race([completed, aborted])).toEqual([1, 2, 3])
       expect(maximum).toBe(1)
     }
     finally {
-      releaseReads()
+      clearTimeout(watchdog)
+      // Always release mock gates before awaiting cleanup, including failures
+      // before all contenders arrive. Observe every successor rejection.
+      controller.abort()
+      releaseAttempts()
       releaseRemoval()
-      await Promise.allSettled(successors)
+      await Promise.allSettled([...successors, prematureCompletion, aborted])
       kill.mockRestore()
-      filesystem.afterRead = async () => {}
+      filesystem.beforeUnlink = async () => {}
       filesystem.afterUnlink = async () => {}
-      waiting.notify = () => {}
       await rm(lock, { recursive: true, force: true })
       await rm(cwd, { recursive: true, force: true })
     }
