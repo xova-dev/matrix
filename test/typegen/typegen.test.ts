@@ -4,7 +4,9 @@ import { fileURLToPath } from 'node:url'
 import path from 'pathe'
 import ts from 'typescript'
 import { afterEach, describe, expect, it } from 'vitest'
-import { generateMatrixTypes, matrixRuntimeModuleId } from '../../src/typegen/generate.js'
+import { generateMatrixTypes, matrixRuntimeModuleId, renderMatrixTypes } from '../../src/typegen/generate.js'
+
+import { mergePreparedTypes } from '../../src/typegen/prepare.js'
 
 const temporaryDirectories: string[] = []
 
@@ -14,6 +16,29 @@ afterEach(async () => {
 })
 
 describe('matrix type generation', () => {
+  it('marks inferred fields absent from a product or context optional without weakening schema', () => {
+    const common = {
+      cwd: '/shared',
+      envSchema: {
+        VITE_REQUIRED: { type: 'number' as const },
+        VITE_DEFAULT: { type: 'boolean' as const, default: false },
+        VITE_OPTIONAL: { type: 'string' as const, optional: true },
+      },
+    }
+    const batches = [
+      [{ ...common, env: { VITE_ALPHA: '', VITE_SHARED: '', VITE_REQUIRED: '' } }],
+      [{ ...common, env: { VITE_BETA: '', VITE_SHARED: '' } }],
+    ]
+    const declarations = mergePreparedTypes(batches).map(renderMatrixTypes)
+    expect(mergePreparedTypes([...batches].reverse()).map(renderMatrixTypes)).toEqual(declarations)
+    const declaration = declarations[0]!
+    for (const field of ['alpha?: string', 'beta?: string', 'shared: string', 'required: number', 'default: boolean', 'optional?: string', 'VITE_ALPHA?: string'])
+      expect(declaration).toContain(`readonly ${field}`)
+    const cleared = mergePreparedTypes([[{ ...common, env: {} }]]).map(renderMatrixTypes)[0]!
+    expect(cleared).not.toContain('alpha')
+    expect(cleared).not.toContain('beta')
+  })
+
   it('generates typed public env and virtual runtime declarations without values', async () => {
     const project = await mkdtemp(path.join(os.tmpdir(), 'matrix-types-'))
     temporaryDirectories.push(project)

@@ -26,6 +26,8 @@
 
 **默认行为变更：**缺少 Matrix CLI 上下文时，所有适配器的自动生成都保留现有声明、不创建输出目录，每个插件实例仅警告一次。请通过 Matrix 启动目标，或运行 `matrix prepare`。运行时配置可能不完整，显式开启类型生成不会补齐上下文。
 
+Matrix CLI dev/build 会在宿主启动前，为支持的 Vite/electron-vite 配置协调共享项目声明。插件保留完整契约，运行时值仍只属于当前产品。独立使用时显式开启类型生成及自定义目标不执行此工作区级收集；上下文、回退和限制见[类型准备](../guides/integrations.md#类型准备)。
+
 相对输出路径基于 Vite 最终 root 解析，其他适配器使用当前工作目录。默认文件为 `.matrix/types/matrix-runtime.d.ts`；设置 scope 后为同目录下的 `matrix-runtime-<scope>.d.ts`。自定义输出需加入项目的 `tsconfig.json`。
 
 ## Runtime 字段

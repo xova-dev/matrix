@@ -42,6 +42,8 @@ matrix prepare [product] [--env <environment>]
 matrix <custom-target> [product] [--env <environment>]
 ```
 
+`matrix prepare [product]` 选择要处理的项目，再为每个共享项目收集所选环境下引用它的所有产品/变体。Vite/electron-vite 声明包含标准 dev 和 build 上下文。`matrix dev`/`matrix build` 在每个受影响项目启动前协调收集；支持范围及启动开销见[类型准备](../guides/integrations.md#类型准备)。
+
 ## 静态预检
 
 `matrix doctor [--env <environment>]` 检查所选环境中的全部产品、变体和目标，不运行目标或准备命令、不探测端口、不生成类型，也不清理输出。配置加载仍会按原有方式执行配置文件。

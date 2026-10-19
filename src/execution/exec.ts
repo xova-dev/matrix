@@ -5,7 +5,7 @@ import net from 'node:net'
 import process from 'node:process'
 import consola from 'consola'
 import { execa } from 'execa'
-import { MATRIX_ENV_SCHEMA_KEY, serializeEnvSchema } from '../config/env-schema.js'
+import { MATRIX_ENV_SCHEMA_KEY, MATRIX_TYPE_CONTRACT_KEY, serializeEnvSchema } from '../config/env-schema.js'
 import { assertSafeOutputDirectory } from '../utils/output.js'
 import { resolveFilesystemPath } from '../utils/path.js'
 import { materializeArtifact } from './artifact.js'
@@ -67,7 +67,9 @@ async function cleanOutputDirectory(projectRoot: string, outputDir: string): Pro
 }
 
 /** Executes tasks in plan order while respecting dependency readiness conditions. */
-export async function runExecutionPlan(plan: ExecutionPlan, options: { report?: ExecutionReport } = {}): Promise<{ children: Map<string, Child>, cancelled: false | 'SIGINT' | 'SIGTERM' }> {
+export async function runExecutionPlan(plan: ExecutionPlan, options: { report?: ExecutionReport, beforeTask?: (task: ExecutionTask, signal: AbortSignal) => Promise<void> } = {}): Promise<{ children: Map<string, Child>, cancelled: false | 'SIGINT' | 'SIGTERM' }> {
+  for (const task of [...plan.tasks, ...(plan.preparations ?? [])])
+    delete task.env[MATRIX_TYPE_CONTRACT_KEY]
   const report = options.report ?? new ExecutionReport(plan)
   const children = new Map<string, Child>()
   const services = new Map<string, Promise<void>>()
@@ -93,12 +95,14 @@ export async function runExecutionPlan(plan: ExecutionPlan, options: { report?: 
     }
     return shutdown
   }
+  const controller = new AbortController()
   let cancelled: false | 'SIGINT' | 'SIGTERM' = false
   const stopAll = (signal: 'SIGINT' | 'SIGTERM'): void => {
     if (cancelled)
       return
     cancelled = signal
     report.cancel(signal)
+    controller.abort(cancellationError)
     interruptWaits()
     void stopChildren()
   }
@@ -111,6 +115,10 @@ export async function runExecutionPlan(plan: ExecutionPlan, options: { report?: 
       return await action()
     }
     catch (error) {
+      if (cancelled)
+        throw cancellationError
+      if (controller.signal.aborted)
+        throw controller.signal.reason
       if (error === cancellationError || error instanceof ExecutionFailure)
         throw error
       throw report.fail(context, error)
@@ -131,6 +139,8 @@ export async function runExecutionPlan(plan: ExecutionPlan, options: { report?: 
           env: {
             ...Object.fromEntries(Object.entries(task.env).map(([key, value]) => [key, String(value)])),
             [MATRIX_ENV_SCHEMA_KEY]: serializeEnvSchema(plan.envSchema),
+            // Do not inherit another CLI invocation's output handshake.
+            [MATRIX_TYPE_CONTRACT_KEY]: task.env[MATRIX_TYPE_CONTRACT_KEY] === undefined ? undefined : String(task.env[MATRIX_TYPE_CONTRACT_KEY]),
           },
           extendEnv: true,
           forceKillAfterDelay: false,
@@ -168,7 +178,8 @@ export async function runExecutionPlan(plan: ExecutionPlan, options: { report?: 
           services.set(task.id, service)
           const failure = service.then(() => neverSettles)
           interruptions.add(failure)
-          void failure.catch(() => undefined)
+          // Abort in-flight preparation too, while its caller still awaits cleanup.
+          void failure.catch(error => controller.abort(error))
           return
         }
 
@@ -248,6 +259,16 @@ export async function runExecutionPlan(plan: ExecutionPlan, options: { report?: 
       await prepare(task.id)
       if (cancelled)
         return { children, cancelled }
+
+      if (options.beforeTask) {
+        await inPhase({ id: task.id, phase: 'preparation', project: task.project }, async () => {
+          controller.signal.throwIfAborted()
+          await options.beforeTask!(task, controller.signal)
+          controller.signal.throwIfAborted()
+        })
+        if (cancelled)
+          return { children, cancelled }
+      }
 
       await runCommands(task, { id: task.id, phase: 'command', project: task.project })
       if (cancelled)

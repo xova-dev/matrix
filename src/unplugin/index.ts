@@ -11,9 +11,11 @@ import { MATRIX_ENV_SCHEMA_KEY, readEnvSchema } from '../config/env-schema.js'
 import { ensureMatrixEnvPrefix } from '../runtime/public-env.js'
 import { createMatrixRuntime, runtimeModule } from '../runtime/snapshot.js'
 import { inlineMatrixReads } from '../runtime/transform.js'
-import { collectPreparedTypes } from '../typegen/collector.js'
-import { generateMatrixTypes, matrixRuntimeModuleId } from '../typegen/generate.js'
+import { collectPreparedTypes, isAutomaticTypeCollection } from '../typegen/collector.js'
+import { hasPreparedTypeContract, MATRIX_TYPE_CONTRACT_KEY } from '../typegen/coordination.js'
+import { generateMatrixTypes, matrixRuntimeModuleId, matrixTypeOutput } from '../typegen/generate.js'
 import { currentProcessEnv } from '../utils/env.js'
+import { resolveExistingPath, resolveFuturePath } from '../utils/path.js'
 import { setupMatrixEsbuildTransform } from './esbuild-transform.js'
 import { isVueScriptRequest } from './vue.js'
 
@@ -36,6 +38,7 @@ function isScriptFile(id: string): boolean {
 export const matrixUnpluginFactory: UnpluginFactory<MatrixUnpluginOptions | undefined, false> = (options = {}, meta) => {
   let envPrefix = ensureMatrixEnvPrefix(options.envPrefix)
   let env = currentProcessEnv()
+  const preparedContract = env[MATRIX_TYPE_CONTRACT_KEY]
   const hasMatrixContext = Object.hasOwn(env, MATRIX_ENV_SCHEMA_KEY)
   const envSchema = readEnvSchema(env)
   let typesGenerated = false
@@ -71,7 +74,11 @@ export const matrixUnpluginFactory: UnpluginFactory<MatrixUnpluginOptions | unde
       }
       return
     }
-    await generateMatrixTypes(typeOptions(cwd))
+    const declaration = typeOptions(await resolveExistingPath(cwd))
+    if (preparedContract !== undefined)
+      declaration.output = await resolveFuturePath(matrixTypeOutput(declaration))
+    if (!hasPreparedTypeContract(preparedContract, declaration))
+      await generateMatrixTypes(declaration)
     typesGenerated = true
   }
 
@@ -120,7 +127,7 @@ export const matrixUnpluginFactory: UnpluginFactory<MatrixUnpluginOptions | unde
         return {
           envPrefix: ensureMatrixEnvPrefix(configuredPrefix),
           // Vite snapshots env before configResolved; mask both direct reads and its env object.
-          define: { [`import.meta.env.${MATRIX_ENV_SCHEMA_KEY}`]: 'undefined' },
+          define: { [`import.meta.env.${MATRIX_ENV_SCHEMA_KEY}`]: 'undefined', [`import.meta.env.${MATRIX_TYPE_CONTRACT_KEY}`]: 'undefined' },
         }
       },
       async configResolved(config) {
@@ -129,10 +136,11 @@ export const matrixUnpluginFactory: UnpluginFactory<MatrixUnpluginOptions | unde
         vueScriptsEnabled = config.plugins.some(plugin => plugin.name === 'vite:vue' && typeof plugin.api?.version === 'string')
         // Even a custom broad prefix must not make internal metadata public.
         delete config.env[MATRIX_ENV_SCHEMA_KEY]
+        delete config.env[MATRIX_TYPE_CONTRACT_KEY]
         envPrefix = ensureMatrixEnvPrefix(config.envPrefix)
         env = { ...config.env }
         // Preparation needs the schema, not credentials or values for a runnable build.
-        if (collectPreparedTypes(options.types === false ? undefined : typeOptions(config.root)))
+        if (collectPreparedTypes(options.types === false || (options.types === undefined && isVitest() && isAutomaticTypeCollection()) ? undefined : typeOptions(config.root)))
           return
         runtime = createMatrixRuntime(env, envPrefix, envSchema)
         await generateTypes(config.root)

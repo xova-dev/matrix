@@ -9,6 +9,8 @@ import { resolveFilesystemPath } from '../utils/path.js'
 export interface GenerateMatrixTypesOptions {
   cwd: string
   env: Record<string, unknown>
+  /** Inferred fields absent from at least one collected product/variant/context. */
+  optionalEnvKeys?: string[]
   envPrefix?: EnvPrefix
   envSchema?: EnvSchema
   scope?: string
@@ -38,7 +40,11 @@ export function renderMatrixTypes(options: GenerateMatrixTypesOptions): string {
   const fields = publicConfigFields(keys, prefixes, schema)
   const configNames = [...fields.keys()].filter(Boolean).sort()
   const field = (key: string): EnvField | undefined => Object.hasOwn(schema, key) ? schema[key] : undefined
-  const optional = (key: string): string => field(key)?.optional && field(key)?.default === undefined ? '?' : ''
+  const optional = (key: string): string => (field(key)
+    ? field(key)?.optional && field(key)?.default === undefined
+    : options.optionalEnvKeys?.includes(key))
+    ? '?'
+    : ''
   const configType = (key: string): string => {
     const declaration = field(key)
     return declaration?.type === 'enum'

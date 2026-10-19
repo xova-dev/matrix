@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import type { PreparedTypeContract } from '../typegen/coordination.js'
 import type { EnvMap } from '../types.js'
 import process from 'node:process'
 import consola from 'consola'
@@ -7,6 +8,7 @@ import { diagnoseWorkspace } from '../execution/doctor.js'
 import { runExecutionPlan } from '../execution/exec.js'
 import { createPreparationPlan } from '../execution/plan.js'
 import { ExecutionReport } from '../execution/report.js'
+import { MATRIX_TYPE_CONTRACT_KEY, preparedTypeDeclaration } from '../typegen/coordination.js'
 import { TypePreparationCancelled } from '../typegen/prepare.js'
 import { generateProjectTypes, ProjectTypePreparationError } from '../typegen/project.js'
 import { CLI_COMMANDS, cliHelp, parseArgs, validateCliArgs } from './args.js'
@@ -112,7 +114,30 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
     return
   }
   consola.info(`${selectionSummary(selection)}\n${selectionCommand(selection)}`)
-  const result = await runExecutionPlan(selection.plan)
+  const contracts = new Map<string, string>()
+  // Type preparation belongs to this CLI invocation, never to each active plugin.
+  // Keep project preparation just-in-time: it may create the host configuration.
+  const result = await runExecutionPlan(selection.plan, {
+    beforeTask: async (task, signal) => {
+      delete task.env[MATRIX_TYPE_CONTRACT_KEY]
+      if (task.target !== 'dev' && task.target !== 'build')
+        return
+      let contract = contracts.get(task.project)
+      if (contract === undefined) {
+        const prepared: PreparedTypeContract = { strict: false, declarations: [] }
+        await generateProjectTypes(selection.loaded, [], {
+          projects: [task.project],
+          automatic: true,
+          signal,
+          onHost: () => { prepared.strict = true },
+          onDeclaration: declaration => prepared.declarations.push(preparedTypeDeclaration(declaration)),
+        })
+        contract = JSON.stringify(prepared)
+        contracts.set(task.project, contract)
+      }
+      task.env[MATRIX_TYPE_CONTRACT_KEY] = contract
+    },
+  })
   if (result.cancelled)
     process.exitCode = result.cancelled === 'SIGINT' ? 130 : 143
 }

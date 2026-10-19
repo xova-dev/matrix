@@ -167,9 +167,22 @@ Explicit override cases cover both option forms with and without Vitest, plus
 one runtime-only case per host instead of a redundant full cross-product.
 The fixture clears inherited public test fields to keep empty-schema checks
 independent of the caller's environment.
-`typegen/prepare-types.test.ts` retains the multi-product merge and
-scope-preparation contracts; package consumers additionally verify installed
-adapters and all three Electron type-preparation combinations.
+`typegen/prepare-types.test.ts` covers multi-product merge and scope preparation.
+`typegen/shared-contract.test.ts` exercises selected-product CLI preparation,
+product switching, active-product-only runtime values, field/product removal,
+serve/build branches, and deterministic contention between prepare/build
+processes. It also checks a real Vite dev server's readiness, runtime, and SIGINT
+cleanup (POSIX only), plus all three electron-vite scope contracts through builds.
+The Electron regression executes main/preload bundles in Node and inspects
+renderer output; it does not launch Electron or replace application acceptance.
+`typegen/coordination.test.ts` checks lock waiting/cancellation and recovery of a
+killed process owner while competing successors remain serialized.
+`execution/prepare.test.ts` verifies that a service failure aborts and drains
+in-flight type preparation before execution rejects, without launching its dependent.
+These regressions complement the missing-context and Vitest checks above; they
+do not establish custom-target or non-Vite host-aware collection support. Package
+consumers additionally verify installed adapters and all three Electron
+type-preparation combinations.
 
 ## Runtime conformance tests
 

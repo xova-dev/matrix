@@ -50,7 +50,7 @@ export default {
 - 启用产物清理时，顺序为“清理目标输出目录 → 按需 prepare → 执行 target → 交付产物”。后续变体仍可能清理或移动输出目录，因此跨变体复用的准备文件应放在 target 输出目录之外；每次构建都需要生成的输出文件应放入 target 命令数组，而不是一次性的项目准备。
 - `target.prepare: false` 只跳过当前目标，不影响后续其他目标的准备需求。准备失败或取消会停止本次执行，不启动后续目标。
 - 准备命令在 project 根目录执行，使用全局配置、当前 dotenv 和 Shell 环境，不合并产品级 env 或注入产品／变体身份。不继承某个目标的默认 NODE_ENV，保留全局／外部环境中的值；注入 `MATRIX_PROJECT`、`MATRIX_ENV_NAME` 和 `MATRIX_TARGET=prepare`。
-- `matrix prepare [product]` 显式准备所选产品引用的项目（省略产品则处理所有产品），成功后生成现有 runtime 类型，不运行业务 target。构建插件的自动类型生成功能保持不变。
+- `matrix prepare [product]` 显式准备所选产品引用的项目（省略产品则处理所有产品），成功后生成 runtime 类型，不运行业务 target。共享项目的契约包含所选环境下引用它的所有产品。dev/build 在项目准备之后、目标启动之前收集相同契约，见[类型准备](./integrations.md#类型准备)。
 - `matrix plan` 只展示准备步骤：JSON 的 `preparations` 包含命令、工作目录、环境和 `beforeTask`；`doctor` 执行静态预检，两者均不执行准备命令。
 
 `project.prepare` 与名为 `prepare` 的普通 target 是不同概念。准备阶段本身不会递归触发准备，也不支持依赖、持续服务或产物交付选项。

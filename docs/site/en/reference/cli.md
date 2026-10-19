@@ -42,6 +42,8 @@ matrix prepare [product] [--env <environment>]
 matrix <custom-target> [product] [--env <environment>]
 ```
 
+`matrix prepare [product]` selects projects, then collects every referring product/variant in the chosen environment for each shared project. Vite/electron-vite declarations include canonical dev and build contexts. `matrix dev`/`matrix build` coordinate this collection before each affected project starts; [type preparation](../guides/integrations.md#type-preparation) describes the supported scope and startup cost.
+
 ## Static preflight
 
 `matrix doctor [--env <environment>]` checks all configured products, variants, and targets in the selected environment without running target/preparation commands, probing ports, generating types, or cleaning output. Configuration loading still evaluates the configuration file as usual.

@@ -21,12 +21,12 @@ Use `matrix.config.ts` in the workspace root, export `defineMatrixConfig({...})`
 
 Preparation behavior is in [execution](../guides/execution.md#project-preparation). Supported host filenames and type generation are in [integration](../guides/integrations.md#type-preparation). Changing `configFile` does not change target commands.
 
-| Field        | Type / default                             | Purpose                                                                                                         |
-| ------------ | ------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
-| `root`       | String; `.`                                | Project directory relative to the workspace root; commands run here.                                            |
-| `targets`    | Target map; required                       | Project commands; built-in names supply defaults, not commands.                                                 |
-| `prepare`    | String or non-empty string array; optional | Finite preparation commands, once per project per invocation.                                                   |
-| `configFile` | String; optional                           | Host config relative to the project root, loaded by `matrix prepare` and checked statically by `matrix doctor`. |
+| Field        | Type / default                             | Purpose                                                                                                                           |
+| ------------ | ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------- |
+| `root`       | String; `.`                                | Project directory relative to the workspace root; commands run here.                                                              |
+| `targets`    | Target map; required                       | Project commands; built-in names supply defaults, not commands.                                                                   |
+| `prepare`    | String or non-empty string array; optional | Finite preparation commands, once per project per invocation.                                                                     |
+| `configFile` | String; optional                           | Host config relative to the project root, loaded for prepare/dev/build type collection and checked statically by `matrix doctor`. |
 
 ## Products
 

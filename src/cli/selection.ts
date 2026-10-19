@@ -13,6 +13,7 @@ const builtinCommands: readonly string[] = Object.values(CLI_COMMANDS)
 type LoadedConfig = Awaited<ReturnType<typeof loadMatrixConfig>>
 
 export interface Selection {
+  loaded: LoadedConfig
   product: string
   target: string
   variants: string[]
@@ -166,7 +167,7 @@ async function completeSelection(args: Args, screen: SelectionScreen): Promise<S
     validateSelection(product, target, variants)
     const plan = createExecutionPlan({ config: loaded.config, projects: loaded.projects, products: loaded.products, externalEnv: loaded.externalEnv, cwd: loaded.cwd, productNames: [productKey], target, envName: env, ...(variants.length ? { variantNames: variants } : {}) })
     const declaredEnvKeys = [...new Set([...loaded.dotenvKeys, ...Object.keys(loaded.config.env ?? {}), ...Object.keys(product.env ?? {}), ...Object.keys(loaded.config.envSchema ?? {})])]
-    const selection: Selection = { product: productKey, target, variants, env, plan, declaredEnvKeys }
+    const selection: Selection = { loaded, product: productKey, target, variants, env, plan, declaredEnvKeys }
     if (!interactive || (!prompted && (args.command || args.target)))
       return selection
 

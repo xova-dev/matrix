@@ -63,6 +63,58 @@ function preparedProject(prepare: string | string[]): MatrixConfig {
 }
 
 describe('project preparation', () => {
+  it('aborts and drains in-flight type preparation when a service fails before launching its dependent', async () => {
+    await writeFile(path.join(cwd, 'service.mjs'), [
+      'import { existsSync } from "node:fs";',
+      'setInterval(() => { if (existsSync("fail-now")) process.exit(7) }, 10);',
+    ].join('\n'))
+    const plan = await execution({
+      projects: {
+        service: { targets: { test: { command: 'node service.mjs', continuous: true } } },
+        dependent: { targets: { test: { command: 'node record.mjs dependent', dependsOn: [{ variant: 'service', condition: 'ready' }] } } },
+      },
+      products: { app: { variants: { dependent: 'dependent', service: 'service' } } },
+    }, ['app'])
+    let observedSignal: AbortSignal | undefined
+    let release!: () => void
+    const cleanupGate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let settled = false
+    let cleanupFinished = false
+    const running = runExecutionPlan(plan, {
+      beforeTask: async (task, signal) => {
+        if (task.project !== 'dependent')
+          return
+        observedSignal = signal
+        await writeFile(path.join(cwd, 'fail-now'), '')
+        // Model asynchronous worker cleanup which must finish before execution rejects.
+        await cleanupGate
+        cleanupFinished = true
+        signal.throwIfAborted()
+      },
+    })
+    const outcome = running.then(value => ({ value }), error => ({ error })).finally(() => {
+      settled = true
+    })
+    try {
+      await vi.waitFor(() => expect(observedSignal?.aborted).toBe(true))
+      expect(settled).toBe(false)
+      expect(cleanupFinished).toBe(false)
+      release()
+      const result = await outcome
+      expect(result).toHaveProperty('error')
+      expect('error' in result && result.error.message).toContain('app:service:test exited with code 7')
+      expect(cleanupFinished).toBe(true)
+      await expect(readFile(path.join(cwd, 'events.jsonl'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+      expect(messages.filter(message => message.startsWith('Execution '))).toHaveLength(1)
+    }
+    finally {
+      release()
+      await outcome
+    }
+  })
+
   it('prepares dependencies and shared projects once per invocation, after skipped targets', async () => {
     await writeFile(path.join(cwd, '.env.qa'), 'PREP_DOTENV=dotenv-value')
     const plan = await execution({

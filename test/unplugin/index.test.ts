@@ -9,7 +9,9 @@ import { rollup } from 'rollup'
 import { build, resolveConfig } from 'vite'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { runCli } from '../../src/cli/index.js'
-import { MATRIX_ENV_SCHEMA_KEY } from '../../src/config/env-schema.js'
+import { MATRIX_ENV_SCHEMA_KEY, MATRIX_TYPE_CONTRACT_KEY } from '../../src/config/env-schema.js'
+import { preparedTypeDeclaration } from '../../src/typegen/coordination.js'
+import { generateMatrixTypes } from '../../src/typegen/generate.js'
 import { MatrixUnplugin } from '../../src/unplugin/index.js'
 
 const temporaryDirectories: string[] = []
@@ -22,6 +24,7 @@ beforeEach(() => {
   // Do not let the separate default Vitest suppression satisfy the guard tests.
   vi.stubEnv('VITEST', undefined)
   vi.stubEnv(MATRIX_ENV_SCHEMA_KEY, undefined)
+  vi.stubEnv(MATRIX_TYPE_CONTRACT_KEY, undefined)
   for (const key of Object.keys(process.env)) {
     if (key.startsWith('MAIN_VITE_'))
       vi.stubEnv(key, undefined)
@@ -71,6 +74,7 @@ function hostRunner(host: Host, project: string, options?: MatrixUnpluginOptions
     if (host === 'vite config') {
       const resolved = await resolveConfig(config, 'serve')
       expect(resolved.env).not.toHaveProperty(MATRIX_ENV_SCHEMA_KEY)
+      expect(resolved.env).not.toHaveProperty(MATRIX_TYPE_CONTRACT_KEY)
     }
     else {
       await build({
@@ -86,6 +90,27 @@ function hostRunner(host: Host, project: string, options?: MatrixUnpluginOptions
 }
 
 describe('matrix unplugin', () => {
+  it('consumes a complete coordinated contract without publishing an active-product subset', async () => {
+    const project = await projectDirectory()
+    const shared = {
+      cwd: project,
+      env: { MAIN_VITE_ALPHA: '', MAIN_VITE_BETA: '' },
+      optionalEnvKeys: ['MAIN_VITE_ALPHA', 'MAIN_VITE_BETA'],
+      envPrefix: ['MAIN_VITE_', 'MATRIX_', '__MATRIX_'],
+    }
+    const filename = await generateMatrixTypes(shared)
+    const complete = await readFile(filename, 'utf8')
+    vi.stubEnv(MATRIX_ENV_SCHEMA_KEY, '{}')
+    vi.stubEnv(MATRIX_TYPE_CONTRACT_KEY, JSON.stringify({ strict: true, declarations: [preparedTypeDeclaration(shared)] }))
+    vi.stubEnv('MAIN_VITE_ALPHA', 'active')
+    await hostRunner('vite config', project)()
+    expect(await readFile(filename, 'utf8')).toBe(complete)
+    expect(complete).not.toContain(MATRIX_TYPE_CONTRACT_KEY)
+    vi.stubEnv('MAIN_VITE_UNCOLLECTED', 'unexpected')
+    await expect(hostRunner('vite config', project, { types: true })()).rejects.toThrow('Matrix type contract changed after collection')
+    expect(await readFile(filename, 'utf8')).toBe(complete)
+  })
+
   it('skips automatic types in Vitest even with Matrix context', async () => {
     vi.stubEnv('VITEST', 'true')
     const project = await projectDirectory()

@@ -26,6 +26,8 @@ Pass these options to `matrix()` from the Vite, Rollup, Webpack, or esbuild entr
 
 **Default behavior change:** without Matrix CLI context, automatic generation leaves declarations untouched, creates no output directory, and warns once per plugin instance. This applies to all adapters. Run the target through Matrix or use `matrix prepare`. Runtime configuration may be incomplete; opting into type generation does not restore missing context.
 
+Matrix CLI dev/build coordinates shared-project declarations for supported Vite/electron-vite configs before starting the host. The plugin retains that complete contract while runtime values remain active-product-only. Standalone explicit opt-ins and custom targets do not perform this workspace-wide collection; see [type preparation](../guides/integrations.md#type-preparation) for contexts, fallbacks, and limits.
+
 Relative output paths resolve from Vite's resolved root or other adapters' working directory. The default is `.matrix/types/matrix-runtime.d.ts`, or `matrix-runtime-<scope>.d.ts` in the same directory for scoped builds. Include custom outputs in the project's `tsconfig.json`.
 
 ## Runtime fields
