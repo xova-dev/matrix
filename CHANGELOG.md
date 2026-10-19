@@ -1,6 +1,38 @@
 # Changelog
 
 
+## v0.3.0
+
+[compare changes](https://github.com/xova-dev/matrix/compare/v0.2.1...v0.3.0)
+
+### 🚀 Enhancements
+
+- Stabilize shared-project types across products ([#8](https://github.com/xova-dev/matrix/pull/8))
+
+### 🩹 Fixes
+
+- Preserve generated types without Matrix context ([fd49d50](https://github.com/xova-dev/matrix/commit/fd49d50))
+- Validate host config discovery in doctor ([547f7e9](https://github.com/xova-dev/matrix/commit/547f7e9))
+- Retain Electron acceptance report diagnostics ([fa3ecce](https://github.com/xova-dev/matrix/commit/fa3ecce))
+
+### Migration notes
+
+- Run `matrix prepare` before standalone type checks. Without Matrix CLI context, adapters now preserve existing declarations by default; `types: true` or an output object explicitly enables generation.
+- Shared-project declarations include all linked products and variants in the selected environment, resolving both dev and build configurations. Inferred fields missing from some contexts become optional; configuration hooks run for both contexts.
+- During shared-project collection, the resolved host root and declaration output must stay within `project.root`. Set it to the shared host directory and use `configFile` for configurations stored elsewhere.
+
+### ✅ Tests
+
+- Stabilize Vite fixtures and streamline typegen docs ([e740588](https://github.com/xova-dev/matrix/commit/e740588))
+
+### 🤖 CI
+
+- Consolidate validation and streamline releases ([a5026ea](https://github.com/xova-dev/matrix/commit/a5026ea))
+
+### ❤️ Contributors
+
+- Oevery ([@oevery](https://github.com/oevery))
+
 ## v0.2.1
 
 [compare changes](https://github.com/xova-dev/matrix/compare/v0.2.0...v0.2.1)
