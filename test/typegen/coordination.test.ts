@@ -16,7 +16,7 @@ const waiting = vi.hoisted(() => ({ notify: () => {} }))
 const filesystem = vi.hoisted(() => ({
   beforeClaim: async (_file: unknown) => {},
   afterClaim: async (_file: unknown, _error?: unknown) => {},
-  afterUnlink: async (_file: unknown, _error?: unknown) => {},
+  afterUnlink: async (_file: unknown) => {},
 }))
 
 vi.mock('node:fs/promises', async (importOriginal) => {
@@ -40,16 +40,8 @@ vi.mock('node:fs/promises', async (importOriginal) => {
       return result
     },
     unlink: async (file: Parameters<typeof fs.unlink>[0]) => {
-      let failure: unknown
-      try {
-        await fs.unlink(file)
-      }
-      catch (error) {
-        failure = error
-      }
-      await filesystem.afterUnlink(file, failure)
-      if (failure)
-        throw failure
+      await fs.unlink(file)
+      await filesystem.afterUnlink(file)
     },
   }
 })
@@ -183,8 +175,8 @@ describe('type preparation coordination', () => {
       ownerRemoved = resolve
     })
     let removals = 0
-    filesystem.afterUnlink = async (file, error) => {
-      if (typeof file === 'string' && path.basename(file) === owner && !error) {
+    filesystem.afterUnlink = async (file) => {
+      if (typeof file === 'string' && path.basename(file) === owner) {
         removals++
         ownerRemoved()
         await removal

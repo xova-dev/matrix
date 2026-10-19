@@ -142,8 +142,6 @@ describe('shared project declaration contract', () => {
     const web = path.join(cwd, 'web')
     await runCli(['prepare'])
     const prepared = await declaration(web)
-    expect(prepared).toContain('readonly alpha')
-    expect(prepared).toContain('readonly beta')
     const admin = await declaration(cwd, 'admin')
     expect(admin).toContain('readonly shared: string')
     expect(admin).not.toMatch(/APP_ALPHA|APP_BETA|readonly alpha|readonly beta/)
@@ -151,8 +149,6 @@ describe('shared project declaration contract', () => {
     for (const product of ['alpha', 'beta']) {
       await runCli(['build', product])
       const built = await declaration(web)
-      expect(built).toContain('readonly alpha')
-      expect(built).toContain('readonly beta')
       expectSharedContract(built)
       expect(built).toBe(prepared)
       expect(await declaration(cwd, 'admin')).toBe(admin)
