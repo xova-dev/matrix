@@ -103,17 +103,23 @@ electron-vite 必须支持所选 Vite。类型准备组合与真实 Electron 应
 
 ## 类型准备
 
-运行 `matrix prepare` 可在不执行业务目标的情况下生成 runtime 声明。选择 product 只决定处理哪些项目，不缩小共享契约的产品范围：每个 project + scope 都收集当前 `--env` 下引用该项目的所有产品和变体，实际根目录相同或重叠的项目会一起收集，不扫描其他环境。scope 仍放在构建插件配置中。
+运行 `matrix prepare [product]` 可生成声明而不执行业务目标。product 只选择项目；每个共享 project + scope 都包含所选 `--env` 下引用它的所有产品和变体，不扫描其他环境。实际根目录相同或重叠的项目一起收集。`matrix dev` 和 `matrix build` 在项目准备之后、目标启动之前收集。
 
-- 默认只检查 project root，按 `electron.vite.config.*` → `vite.config.*` 优先级匹配；多个匹配文件需要显式选择。可设置 `projects.desktop.configFile`，例如 `'config/electron.vite.config.ts'`，路径相对于项目根目录，文件名仍须符合支持的 JS/TS 配置规则。显式文件不存在、名称不支持或解析失败时直接报错。此设置控制类型收集，不修改 target 命令。
-- 使用项目本地 Vite/electron-vite 解析真实配置钩子、`root`、`envDir`、`envPrefix`、`scope` 和 `types`。每个产品/变体都在独立进程中解析两种标准上下文：`MATRIX_TARGET=dev`、`command=serve`、`NODE_ENV=development`，以及 `MATRIX_TARGET=build`、`command=build`、`NODE_ENV=production`。遵循 dev/build 配置的 `nodeEnv` 覆盖，`mode` 始终为所选 Matrix 环境。Electron main/preload 按正常开发流程执行 build 配置钩子。产品身份和版本沿用执行计划的解析规则，包括后缀及覆盖。
-- `matrix dev` 和 `matrix build` 在每个受影响项目的准备命令之后、目标启动之前收集一次；后续 Vite/electron-vite 插件使用完整契约，不再用当前产品的类型覆盖它。每个引用产品/变体的两种上下文都会执行配置代码和钩子，因此增加启动开销，并非无副作用的静态扫描。每次宿主解析限时 30 秒，不启动 Electron、开发服务器或打包。
-- **输出边界：**协调的 prepare/dev/build 要求解析后的宿主 root 和声明输出都位于 `project.root` 内；支持嵌套宿主 root 和内部自定义输出。会解析符号链接（包括已存在的输出父目录）；越界或悬空链接在写入前报错。应将 `project.root` 设为实际共享宿主目录，通过 `project.configFile` 引用存放在其他位置的配置。外部自定义输出会被拒绝，独立使用时的显式类型生成不变。
-- 公开字段在各自 project + scope 内合并。仅部分产品、变体或上下文存在的推断字段标记为 optional。显式 schema 类型、默认值、可选性及运行时校验语义保持不变；生成 schema 字段的声明不要求提供运行时值。运行时快照仍只有当前产品的值，保留公开前缀及 main/preload/renderer 隔离。
-- 完成收集和校验后才写入：`matrix prepare` 覆盖所有受影响项目，dev/build 则以项目收集组为单位。重复 scope、输出/前缀冲突、scope 集合变化或配置失败均报错。工作区级收集/写入协调防止较窄契约相互覆盖。只有确认唯一标识的锁持有进程已退出时才自动恢复；不会因锁存在时间较长而替换仍存活或无法核实的持有者。超时后，必须先确认没有类型准备正在运行，才能手动删除提示的锁目录。单文件替换是原子的，多文件写入不是事务。契约从当前来源重新计算，不与旧声明取并集，因此删除字段/产品或合法清空配置会移除过时字段；不会自动删除废弃的输出文件本身。
-- 显式 `matrix prepare` 中，没有支持的宿主配置时，回退到 Matrix 配置和公开环境变量键，在 `.matrix/types/matrix-runtime.d.ts` 生成通用声明。配置解析成功但未启用 Matrix 插件时也使用该回退。其他宿主和任意配置文件名不提供宿主感知的共享契约保证，无法发现其特定前缀及输出路径。自定义目标保留原有插件行为，不在 dev/build 协调保证范围内。收集时不解析 target 命令的 `--mode`、`--config` 等参数；实际插件若增加未收集字段或改变 scope、前缀、输出路径或 schema，会报错而非覆盖为较窄契约。
+### 配置与兼容性
 
-生成 `ImportMetaEnv` 和 `matrix.config` 声明时不写入环境值。`types: false` 关闭生成。显式 `matrix prepare` 不受 Vitest 默认抑制影响；自动 dev/build 收集保留该抑制，可通过显式 `types: true` 或对象形式开启。缺少上下文的保护及独立使用时的显式开启方式见[插件选项](../reference/plugins.md#插件选项)。将生成目录加入项目的 `tsconfig.json`：
+- 只检查项目根目录，按 `electron.vite.config.*` → `vite.config.*` 优先级匹配；多个匹配文件需要显式选择。可设置相对于项目根目录的 `projects.desktop.configFile`（例如 `'config/electron.vite.config.ts'`），文件名须符合支持的 JS/TS 配置规则。显式文件不存在、名称不支持或解析失败时直接报错。此设置不修改 target 命令；scope 仍放在构建插件配置中。
+- **输出边界：**解析后的宿主 root 和声明输出必须位于 `project.root` 内，符号链接也不能越界；越界或悬空链接在写入前报错。迁移时，将 `project.root` 设为共享宿主目录，通过 `configFile` 引用其他位置的配置。支持嵌套宿主 root 和内部自定义输出，拒绝外部输出。独立使用时的显式生成不变。
+- 共享收集支持标准 Vite/electron-vite dev/build 目标；自定义目标和其他宿主保留原有插件行为。收集不解析 target 命令的 `--mode`、`--config` 等参数；实际插件若增加未收集字段或改变 scope、前缀、输出路径或 schema，会报错而非覆盖契约。
+- 显式 `matrix prepare` 在没有支持的配置，或配置解析成功但未启用 Matrix 插件时，回退到 Matrix 设置和公开环境变量键，在 `.matrix/types/matrix-runtime.d.ts` 生成声明。此回退无法发现宿主特定前缀或输出路径。
+
+### 契约行为
+
+- 项目本地宿主为每个产品/变体解析 dev（`MATRIX_TARGET=dev`、`command=serve`、`NODE_ENV=development`）和 build（`MATRIX_TARGET=build`、`command=build`、`NODE_ENV=production`）两种上下文。遵循配置的 `nodeEnv` 覆盖，`mode` 为所选 Matrix 环境。Electron main/preload 使用正常开发流程的 build 钩子。产品身份和版本沿用执行计划规则。
+- 两种上下文都会执行配置代码和钩子，增加启动开销；每次解析限时 30 秒。收集本身不启动 Electron、服务器或打包。
+- 仅部分产品、变体或上下文存在的推断公开字段标记为 optional。显式 schema 类型、默认值、可选性及校验不变；schema 字段不要求提供运行时值。运行时值仍只属于当前产品，保留公开前缀和 Electron scope 隔离。
+- 重复 scope、输出/前缀冲突、scope 集合变化或配置失败均在写入前报错：`prepare` 覆盖所有受影响项目，dev/build 以收集组为单位。契约从当前来源重建，因此删除字段/产品或清空配置会移除过时字段；不会自动删除废弃的输出文件。
+
+声明只包含 `ImportMetaEnv` 和 `matrix.config` 类型，不写入环境值。`types: false` 关闭生成。显式 `matrix prepare` 不受 Vitest 抑制；自动 dev/build 收集遵循[插件默认行为及显式开启方式](../reference/plugins.md#插件选项)，包括 Vitest 抑制和缺少上下文的保护。将生成目录加入项目的 `tsconfig.json`：
 
 ```json
 {

@@ -168,21 +168,13 @@ one runtime-only case per host instead of a redundant full cross-product.
 The fixture clears inherited public test fields to keep empty-schema checks
 independent of the caller's environment.
 `typegen/prepare-types.test.ts` covers multi-product merge and scope preparation.
-`typegen/shared-contract.test.ts` exercises selected-product CLI preparation,
-product switching, active-product-only runtime values, field/product removal,
-serve/build branches, and deterministic contention between prepare/build
-processes. It also checks a real Vite dev server's readiness, runtime, and SIGINT
-cleanup (POSIX only), plus all three electron-vite scope contracts through builds.
-The Electron regression executes main/preload bundles in Node and inspects
-renderer output; it does not launch Electron or replace application acceptance.
-`typegen/coordination.test.ts` checks lock waiting/cancellation and recovery of a
-killed process owner while competing successors remain serialized.
-`execution/prepare.test.ts` verifies that a service failure aborts and drains
-in-flight type preparation before execution rejects, without launching its dependent.
-These regressions complement the missing-context and Vitest checks above; they
-do not establish custom-target or non-Vite host-aware collection support. Package
-consumers additionally verify installed adapters and all three Electron
-type-preparation combinations.
+`typegen/shared-contract.test.ts` covers shared-contract lifecycle, dev/build
+contexts, contention, and active-product runtime isolation, including a real Vite
+dev server (POSIX only) and electron-vite scope builds. Electron bundles are
+checked without launching Electron; these tests do not replace app acceptance.
+`typegen/coordination.test.ts` covers lock waiting, cancellation, and owner recovery;
+`execution/prepare.test.ts` covers cancellation of in-flight preparation on service
+failure. Package consumers verify installed adapters and Electron preparation.
 
 ## Runtime conformance tests
 
