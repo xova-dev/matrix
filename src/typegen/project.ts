@@ -139,16 +139,12 @@ async function collectProjectTypes(loaded: LoadedConfig, products: Product[], op
           const identity = resolveProductContext({ config: loaded.config, product, variant, envName: loaded.envName, env: effectiveEnv, projectRoot: cwd })
           // Resolve both real host lifecycles even if this invocation selects only one.
           // Never assume a development/serve resolution covers production/build.
-          const contexts = new Map<string, { command: 'serve' | 'build', nodeEnv: string }>([
-            ['dev', { command: 'serve', nodeEnv: 'development' }],
-            ['build', { command: 'build', nodeEnv: 'production' }],
-          ])
-          for (const name of ['dev', 'build'] as const) {
-            const configured = variant.targets[name]
-            if (configured)
-              contexts.get(name)!.nodeEnv = configured.nodeEnv
-          }
-          for (const [target, context] of contexts) {
+          for (const target of ['dev', 'build'] as const) {
+            const configured = variant.targets[target]
+            const context = {
+              command: target === 'dev' ? 'serve' as const : 'build' as const,
+              nodeEnv: configured ? configured.nodeEnv : target === 'dev' ? 'development' : 'production',
+            }
             const env = {
               ...effectiveEnv,
               ...identity.env,

@@ -8,20 +8,34 @@ import { resolveExistingPath } from '../utils/path.js'
 
 /** Remove only a uniquely identified owner, never a successor's lock directory. */
 async function releaseOwner(lock: string, owner: string): Promise<boolean> {
+  // File deletion/rename completion does not elect one winner on every OS.
+  // Keep a per-owner mkdir claim until the whole directory removal finishes.
+  const claim = `${lock}.${owner}.releasing`
   try {
-    // Unlink has exactly one winner. Concurrent renames to a shared retirement
-    // path can instead succeed as same-inode no-ops on some platforms.
-    await unlink(path.join(lock, owner))
+    await mkdir(claim)
   }
   catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT')
+    if ((error as NodeJS.ErrnoException).code === 'EEXIST')
       return false
     throw error
   }
-  // Only the marker remover may remove this directory. Never recursively
-  // remove a lock: unexpected/new ownership must survive.
-  await rmdir(lock)
-  return true
+  try {
+    try {
+      await unlink(path.join(lock, owner))
+    }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT')
+        return false
+      throw error
+    }
+    // Only the claim holder may remove this directory. Never recursively
+    // remove a lock: unexpected/new ownership must survive.
+    await rmdir(lock)
+    return true
+  }
+  finally {
+    await rmdir(claim)
+  }
 }
 
 async function recoverDeadOwner(lock: string): Promise<boolean> {
@@ -69,7 +83,7 @@ export async function withTypePreparationLock<T>(cwd: string, action: () => Prom
       if (await recoverDeadOwner(lock))
         continue
       if (Date.now() >= deadline)
-        throw new Error(`Timed out waiting for Matrix type preparation lock ${lock}. If ownership cannot be verified, remove this directory only after confirming no Matrix preparation is running.`)
+        throw new Error(`Timed out waiting for Matrix type preparation lock ${lock}. If ownership cannot be verified, remove this directory and its sibling ${path.basename(lock)}.*.releasing claim directories only after confirming no Matrix preparation or recovery is running. An interrupted recovery claim is never stolen automatically.`)
       try {
         await setTimeout(50, undefined, signal ? { signal } : {})
       }

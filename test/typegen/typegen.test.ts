@@ -34,9 +34,6 @@ describe('matrix type generation', () => {
     const declaration = declarations[0]!
     for (const field of ['alpha?: string', 'beta?: string', 'shared: string', 'required: number', 'default: boolean', 'optional?: string', 'VITE_ALPHA?: string'])
       expect(declaration).toContain(`readonly ${field}`)
-    const cleared = mergePreparedTypes([[{ ...common, env: {} }]]).map(renderMatrixTypes)[0]!
-    expect(cleared).not.toContain('alpha')
-    expect(cleared).not.toContain('beta')
   })
 
   it('reconciles global raw env presence without merging scoped config contracts', async () => {

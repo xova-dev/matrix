@@ -14,7 +14,8 @@ import { resolveExistingPath } from '../../src/utils/path.js'
 const waiting = vi.hoisted(() => ({ notify: () => {} }))
 
 const filesystem = vi.hoisted(() => ({
-  beforeUnlink: async (_file: unknown) => {},
+  beforeClaim: async (_file: unknown) => {},
+  afterClaim: async (_file: unknown, _error?: unknown) => {},
   afterUnlink: async (_file: unknown, _error?: unknown) => {},
 }))
 
@@ -22,8 +23,23 @@ vi.mock('node:fs/promises', async (importOriginal) => {
   const fs = await importOriginal<typeof import('node:fs/promises')>()
   return {
     ...fs,
+    mkdir: async (...args: Parameters<typeof fs.mkdir>) => {
+      const [file] = args
+      await filesystem.beforeClaim(file)
+      let failure: unknown
+      let result: Awaited<ReturnType<typeof fs.mkdir>>
+      try {
+        result = await fs.mkdir(...args)
+      }
+      catch (error) {
+        failure = error
+      }
+      await filesystem.afterClaim(file, failure)
+      if (failure)
+        throw failure
+      return result
+    },
     unlink: async (file: Parameters<typeof fs.unlink>[0]) => {
-      await filesystem.beforeUnlink(file)
       let failure: unknown
       try {
         await fs.unlink(file)
@@ -115,6 +131,7 @@ describe('type preparation coordination', () => {
     const identity = await resolveExistingPath(cwd)
     const lock = path.join(os.tmpdir(), `matrix-types-${createHash('sha256').update(identity).digest('hex')}.lock`)
     const owner = `2147483647-${randomUUID()}.owner`
+    const claim = `${lock}.${owner}.releasing`
     await mkdir(lock)
     await writeFile(path.join(lock, owner), '')
     const kill = vi.spyOn(process, 'kill').mockImplementation((pid) => {
@@ -130,35 +147,51 @@ describe('type preparation coordination', () => {
     const attempting = new Promise<void>((resolve) => {
       allAttempting = resolve
     })
+    let releaseRemoval!: () => void
+    const removal = new Promise<void>((resolve) => {
+      releaseRemoval = resolve
+    })
     const attemptedOwners: string[] = []
-    filesystem.beforeUnlink = async (file) => {
-      if (typeof file === 'string' && path.basename(file) === owner) {
+    filesystem.beforeClaim = async (file) => {
+      if (file === claim) {
+        // Hold later retries outside this three-contender election so scheduler
+        // delays cannot turn two losing contenders into extra observations.
+        if (attemptedOwners.length >= 3) {
+          await removal
+          return
+        }
         attemptedOwners.push(file)
         if (attemptedOwners.length === 3)
           allAttempting()
         await attempts
       }
     }
-    let releaseRemoval!: () => void
-    const removal = new Promise<void>((resolve) => {
-      releaseRemoval = resolve
-    })
     let allAttempted!: () => void
     const attempted = new Promise<void>((resolve) => {
       allAttempted = resolve
     })
     const outcomes: Array<string | undefined> = []
-    filesystem.afterUnlink = async (file, error) => {
-      if (typeof file === 'string' && path.basename(file) === owner) {
+    filesystem.afterClaim = async (file, error) => {
+      if (file === claim) {
         outcomes.push((error as NodeJS.ErrnoException | undefined)?.code)
         if (outcomes.length === 3)
           allAttempted()
-        if (!error)
-          await removal
+      }
+    }
+    let ownerRemoved!: () => void
+    const removed = new Promise<void>((resolve) => {
+      ownerRemoved = resolve
+    })
+    let removals = 0
+    filesystem.afterUnlink = async (file, error) => {
+      if (typeof file === 'string' && path.basename(file) === owner && !error) {
+        removals++
+        ownerRemoved()
+        await removal
       }
     }
     const controller = new AbortController()
-    let phase = 'waiting for three verified owner-removal attempts'
+    let phase = 'waiting for three verified recovery claims'
     const watchdog = setTimeout(() => {
       controller.abort(new Error(`Recovery test stalled ${phase}; attempts=${attemptedOwners.length}, outcomes=${JSON.stringify(outcomes)}`))
     }, 5_000)
@@ -181,18 +214,22 @@ describe('type preparation coordination', () => {
     })
     try {
       await Promise.race([attempting, prematureCompletion, aborted])
-      // Each contender already read and verified the same dead owner before
-      // reaching unlink; no read barriers or retry-timer ordering are assumed.
-      expect(attemptedOwners).toEqual(Array.from({ length: 3 }, () => path.join(lock, owner)))
+      // All contenders verified the same dead owner before trying the claim.
+      // Election must finish before any contender can unlink the owner marker.
+      expect(attemptedOwners).toEqual(Array.from({ length: 3 }).fill(claim))
       expect(kill.mock.calls.filter(([pid]) => pid === 2147483647)).toHaveLength(3)
-      phase = 'waiting for one successful unlink and two missing-owner results'
+      phase = 'waiting for one claim winner and two existing-claim results'
       releaseAttempts()
       await Promise.race([attempted, prematureCompletion, aborted])
       expect(outcomes.filter(code => code === undefined)).toHaveLength(1)
-      expect(outcomes.filter(code => code === 'ENOENT')).toHaveLength(2)
+      expect(outcomes.filter(code => code === 'EEXIST')).toHaveLength(2)
+      phase = 'waiting for the claim holder to remove the marker'
+      await Promise.race([removed, prematureCompletion, aborted])
+      expect(removals).toBe(1)
       expect(entered).toBe(0)
       // Losing recoverers must leave the now-empty directory for the winner.
       expect(await readdir(lock)).toEqual([])
+      expect(await readdir(claim)).toEqual([])
       phase = 'waiting for serialized successors'
       releaseRemoval()
       expect(await Promise.race([completed, aborted])).toEqual([1, 2, 3])
@@ -207,12 +244,115 @@ describe('type preparation coordination', () => {
       releaseRemoval()
       await Promise.allSettled([...successors, prematureCompletion, aborted])
       kill.mockRestore()
-      filesystem.beforeUnlink = async () => {}
+      filesystem.beforeClaim = async () => {}
+      filesystem.afterClaim = async () => {}
       filesystem.afterUnlink = async () => {}
+      await rm(claim, { recursive: true, force: true })
       await rm(lock, { recursive: true, force: true })
       await rm(cwd, { recursive: true, force: true })
     }
   }, 10_000)
+
+  it('leaves a live successor untouched when a stale recovery claims late', async () => {
+    const cwd = await mkdtemp(path.join(os.tmpdir(), 'matrix-late-recovery-'))
+    const identity = await resolveExistingPath(cwd)
+    const lock = path.join(os.tmpdir(), `matrix-types-${createHash('sha256').update(identity).digest('hex')}.lock`)
+    const owner = `2147483647-${randomUUID()}.owner`
+    const claim = `${lock}.${owner}.releasing`
+    await mkdir(lock)
+    await writeFile(path.join(lock, owner), '')
+    const kill = vi.spyOn(process, 'kill').mockImplementation((pid) => {
+      if (pid === 2147483647)
+        throw Object.assign(new Error('dead owner'), { code: 'ESRCH' })
+      return true
+    })
+    let releaseClaim!: () => void
+    const claimGate = new Promise<void>((resolve) => {
+      releaseClaim = resolve
+    })
+    let attempts = 0
+    filesystem.beforeClaim = async (file) => {
+      if (file === claim && ++attempts === 1)
+        await claimGate
+    }
+    let releaseAction!: () => void
+    const actionGate = new Promise<void>((resolve) => {
+      releaseAction = resolve
+    })
+    let entered = 0
+    const controller = new AbortController()
+    const successors = [1, 2].map(value => withTypePreparationLock(cwd, async () => {
+      entered++
+      await actionGate
+      return value
+    }, controller.signal))
+    const settled = Promise.allSettled(successors)
+    try {
+      await expect.poll(() => entered).toBe(1)
+      const successorOwner = await readdir(lock)
+      expect(successorOwner).toHaveLength(1)
+      expect(successorOwner).not.toContain(owner)
+      // The first recoverer resumes only after another contender has retired
+      // the original lock, removed its claim, and acquired a new generation.
+      let retried = false
+      waiting.notify = () => {
+        retried = true
+      }
+      releaseClaim()
+      await expect.poll(() => retried).toBe(true)
+      expect(await readdir(lock)).toEqual(successorOwner)
+      expect(entered).toBe(1)
+    }
+    finally {
+      controller.abort()
+      releaseClaim()
+      releaseAction()
+      await settled
+      filesystem.beforeClaim = async () => {}
+      waiting.notify = () => {}
+      kill.mockRestore()
+      await rm(claim, { recursive: true, force: true })
+      await rm(lock, { recursive: true, force: true })
+      await rm(cwd, { recursive: true, force: true })
+    }
+  })
+
+  it('fails closed on an abandoned recovery claim and explains manual cleanup', async () => {
+    const cwd = await mkdtemp(path.join(os.tmpdir(), 'matrix-recovery-claim-'))
+    const identity = await resolveExistingPath(cwd)
+    const lock = path.join(os.tmpdir(), `matrix-types-${createHash('sha256').update(identity).digest('hex')}.lock`)
+    const owner = `2147483647-${randomUUID()}.owner`
+    const claim = `${lock}.${owner}.releasing`
+    await mkdir(lock)
+    await writeFile(path.join(lock, owner), '')
+    await mkdir(claim)
+    const kill = vi.spyOn(process, 'kill').mockImplementation((pid) => {
+      if (pid === 2147483647)
+        throw Object.assign(new Error('dead owner'), { code: 'ESRCH' })
+      return true
+    })
+    let time = 0
+    const now = vi.spyOn(Date, 'now').mockImplementation(() => time += 300_001)
+    try {
+      await expect(withTypePreparationLock(cwd, async () => {
+        throw new Error('An abandoned claim must not be stolen')
+      })).rejects.toThrow(`sibling ${path.basename(lock)}.*.releasing claim directories`)
+      expect(await readdir(lock)).toEqual([owner])
+      expect(await readdir(claim)).toEqual([])
+      now.mockRestore()
+      // Simulate the documented manual cleanup after confirming no recovery
+      // is running, then ensure the still-present dead owner is recoverable.
+      await rm(claim, { recursive: true })
+      await expect(withTypePreparationLock(cwd, async () => 'recovered')).resolves.toBe('recovered')
+    }
+    finally {
+      now.mockRestore()
+      kill.mockRestore()
+      await rm(claim, { recursive: true, force: true })
+      await rm(lock, { recursive: true, force: true })
+      await rm(cwd, { recursive: true, force: true })
+    }
+  })
 
   it('recovers a killed process owner and serializes competing successors', async () => {
     const cwd = await mkdtemp(path.join(os.tmpdir(), 'matrix-dead-lock-'))
