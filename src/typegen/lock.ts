@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { mkdir, readdir, rename, rm, rmdir, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, rmdir, unlink, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import process from 'node:process'
 import { setTimeout } from 'node:timers/promises'
@@ -8,23 +8,19 @@ import { resolveExistingPath } from '../utils/path.js'
 
 /** Remove only a uniquely identified owner, never a successor's lock directory. */
 async function releaseOwner(lock: string, owner: string): Promise<boolean> {
-  const retired = `${lock}.${owner}.retired`
   try {
-    // Renaming the unique owner file arbitrates concurrent recovery attempts.
-    await rename(path.join(lock, owner), retired)
+    // Unlink has exactly one winner. Concurrent renames to a shared retirement
+    // path can instead succeed as same-inode no-ops on some platforms.
+    await unlink(path.join(lock, owner))
   }
   catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT')
       return false
     throw error
   }
-  try {
-    // Never recursively remove a lock: unexpected/new ownership must survive.
-    await rmdir(lock)
-  }
-  finally {
-    await rm(retired, { force: true })
-  }
+  // Only the marker remover may remove this directory. Never recursively
+  // remove a lock: unexpected/new ownership must survive.
+  await rmdir(lock)
   return true
 }
 

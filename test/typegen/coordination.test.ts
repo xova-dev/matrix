@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process'
+import { createHash, randomUUID } from 'node:crypto'
 import { once } from 'node:events'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import { setImmediate } from 'node:timers/promises'
 import path from 'pathe'
@@ -8,8 +9,30 @@ import { describe, expect, it, vi } from 'vitest'
 import { hasPreparedTypeContract } from '../../src/typegen/coordination.js'
 import { withTypePreparationLock } from '../../src/typegen/lock.js'
 import { TypePreparationCancelled } from '../../src/typegen/prepare.js'
+import { resolveExistingPath } from '../../src/utils/path.js'
 
 const waiting = vi.hoisted(() => ({ notify: () => {} }))
+
+const filesystem = vi.hoisted(() => ({
+  afterRead: async (_file: unknown) => {},
+  afterUnlink: async (_file: unknown) => {},
+}))
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const fs = await importOriginal<typeof import('node:fs/promises')>()
+  return {
+    ...fs,
+    readdir: async (file: Parameters<typeof fs.readdir>[0]) => {
+      const entries = await fs.readdir(file)
+      await filesystem.afterRead(file)
+      return entries
+    },
+    unlink: async (file: Parameters<typeof fs.unlink>[0]) => {
+      await fs.unlink(file)
+      await filesystem.afterUnlink(file)
+    },
+  }
+})
 
 vi.mock('node:timers/promises', async (importOriginal) => {
   const timers = await importOriginal<typeof import('node:timers/promises')>()
@@ -82,6 +105,83 @@ describe('type preparation coordination', () => {
       await rm(cwd, { recursive: true, force: true })
     }
   })
+
+  it('elects exactly one remover when three recoverers read the same dead owner', async () => {
+    const cwd = await mkdtemp(path.join(os.tmpdir(), 'matrix-recovery-race-'))
+    const identity = await resolveExistingPath(cwd)
+    const lock = path.join(os.tmpdir(), `matrix-types-${createHash('sha256').update(identity).digest('hex')}.lock`)
+    const owner = `2147483647-${randomUUID()}.owner`
+    await mkdir(lock)
+    await writeFile(path.join(lock, owner), '')
+    const kill = vi.spyOn(process, 'kill').mockImplementation((pid) => {
+      if (pid === 2147483647)
+        throw Object.assign(new Error('dead owner'), { code: 'ESRCH' })
+      return true
+    })
+    let releaseReads!: () => void
+    const reads = new Promise<void>((resolve) => {
+      releaseReads = resolve
+    })
+    let readCount = 0
+    filesystem.afterRead = async (file) => {
+      if (file === lock && ++readCount <= 3) {
+        if (readCount === 3)
+          releaseReads()
+        await reads
+      }
+    }
+    let releaseRemoval!: () => void
+    const removal = new Promise<void>((resolve) => {
+      releaseRemoval = resolve
+    })
+    let successfulRemovers = 0
+    filesystem.afterUnlink = async (file) => {
+      if (file === path.join(lock, owner)) {
+        successfulRemovers++
+        await removal
+      }
+    }
+    let waitingCount = 0
+    let losersWaiting!: () => void
+    const losers = new Promise<void>((resolve) => {
+      losersWaiting = resolve
+    })
+    waiting.notify = () => {
+      if (++waitingCount === 2)
+        losersWaiting()
+    }
+    let entered = 0
+    let active = 0
+    let maximum = 0
+    const successors = [1, 2, 3].map(value => withTypePreparationLock(cwd, async () => {
+      entered++
+      maximum = Math.max(maximum, ++active)
+      await setImmediate()
+      active--
+      return value
+    }, AbortSignal.timeout(5_000)))
+    try {
+      await losers
+      expect(successfulRemovers).toBe(1)
+      expect(entered).toBe(0)
+      // Losing recoverers must leave the now-empty directory for the winner.
+      expect(await readdir(lock)).toEqual([])
+      releaseRemoval()
+      expect(await Promise.all(successors)).toEqual([1, 2, 3])
+      expect(maximum).toBe(1)
+    }
+    finally {
+      releaseReads()
+      releaseRemoval()
+      await Promise.allSettled(successors)
+      kill.mockRestore()
+      filesystem.afterRead = async () => {}
+      filesystem.afterUnlink = async () => {}
+      waiting.notify = () => {}
+      await rm(lock, { recursive: true, force: true })
+      await rm(cwd, { recursive: true, force: true })
+    }
+  }, 10_000)
 
   it('recovers a killed process owner and serializes competing successors', async () => {
     const cwd = await mkdtemp(path.join(os.tmpdir(), 'matrix-dead-lock-'))

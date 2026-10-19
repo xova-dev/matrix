@@ -13,6 +13,7 @@ import { MATRIX_ENV_SCHEMA_KEY, MATRIX_TYPE_CONTRACT_KEY } from '../../src/confi
 import { preparedTypeDeclaration } from '../../src/typegen/coordination.js'
 import { generateMatrixTypes } from '../../src/typegen/generate.js'
 import { MatrixUnplugin } from '../../src/unplugin/index.js'
+import { resolveFuturePath } from '../../src/utils/path.js'
 
 const temporaryDirectories: string[] = []
 const previousCwd = process.cwd()
@@ -90,8 +91,14 @@ function hostRunner(host: Host, project: string, options?: MatrixUnpluginOptions
 }
 
 describe('matrix unplugin', () => {
-  it('consumes a complete coordinated contract without publishing an active-product subset', async () => {
-    const project = await projectDirectory()
+  it.each(['direct', 'aliased'])('consumes a complete coordinated contract through a %s root without publishing an active-product subset', async (root) => {
+    let project = await projectDirectory()
+    if (root === 'aliased') {
+      const alias = `${project}-alias`
+      await symlink(project, alias, 'junction')
+      temporaryDirectories.push(alias)
+      project = alias
+    }
     const shared = {
       cwd: project,
       env: { MAIN_VITE_ALPHA: '', MAIN_VITE_BETA: '' },
@@ -100,8 +107,11 @@ describe('matrix unplugin', () => {
     }
     const filename = await generateMatrixTypes(shared)
     const complete = await readFile(filename, 'utf8')
+    // The coordinator publishes canonical output identities, as the host does.
+    // Temp roots may use aliases (/var or Windows short names).
+    const declaration = preparedTypeDeclaration({ ...shared, output: await resolveFuturePath(filename) })
     vi.stubEnv(MATRIX_ENV_SCHEMA_KEY, '{}')
-    vi.stubEnv(MATRIX_TYPE_CONTRACT_KEY, JSON.stringify({ strict: true, declarations: [preparedTypeDeclaration(shared)] }))
+    vi.stubEnv(MATRIX_TYPE_CONTRACT_KEY, JSON.stringify({ strict: true, declarations: [declaration] }))
     vi.stubEnv('MAIN_VITE_ALPHA', 'active')
     await hostRunner('vite config', project)()
     expect(await readFile(filename, 'utf8')).toBe(complete)

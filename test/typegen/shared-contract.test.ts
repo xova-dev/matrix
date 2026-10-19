@@ -68,14 +68,16 @@ async function workspace(conditional = false, admin = false): Promise<string> {
     `)
   }
   await writeFile(path.join(cwd, 'dev.mjs'), `
-    import { writeFile } from 'node:fs/promises';
+    import { rename, writeFile } from 'node:fs/promises';
     import { writeFileSync } from 'node:fs';
     import { createServer } from 'vite';
     const server = await createServer({ server: { host: '127.0.0.1', port: 0 } });
     server.httpServer.once('close', () => writeFileSync('dev-cleanup', 'closed'));
     await server.listen();
     const { snapshot } = await server.ssrLoadModule('/entry.mjs');
-    await writeFile('dev-ready', JSON.stringify({ url: server.resolvedUrls.local[0], snapshot }));
+    // Publish only the complete payload: file existence is the readiness signal.
+    await writeFile('dev-ready.tmp', JSON.stringify({ url: server.resolvedUrls.local[0], snapshot }));
+    await rename('dev-ready.tmp', 'dev-ready');
   `)
   if (conditional) {
     for (const [directory, key] of [['development-env', 'APP_DEV_ONLY'], ['production-env', 'APP_BUILD_ONLY']]) {
@@ -200,12 +202,18 @@ describe('shared project declaration contract', () => {
     await rm(path.join(cwd, 'node_modules'))
     await mkdir(path.join(cwd, 'node_modules'))
     // Source-config bundling externalizes Matrix's dependencies into the fixture.
-    // Reuse installed workspace packages, selecting the example's real host pair.
+    // Link each package's physical directory, including scoped dependencies:
+    // linking a scope directory can leave its relative pnpm links unresolved on Windows.
     const modules = fileURLToPath(new URL('../../node_modules', import.meta.url))
-    for (const name of (await readdir(modules)).filter(name => !name.startsWith('.') && name !== 'vite'))
-      await symlink(path.join(modules, name), path.join(cwd, 'node_modules', name), 'junction')
+    const { dependencies } = JSON.parse(await readFile(new URL('../../package.json', import.meta.url), 'utf8'))
+    for (const name of Object.keys(dependencies)) {
+      const destination = path.join(cwd, 'node_modules', name)
+      await mkdir(path.dirname(destination), { recursive: true })
+      await symlink(await realpath(path.join(modules, name)), destination, 'junction')
+    }
+    // Keep the example's real electron-vite/Vite pair instead of the root host.
     for (const name of ['vite', 'electron-vite'])
-      await symlink(fileURLToPath(new URL(`../../examples/electron-web/node_modules/${name}`, import.meta.url)), path.join(cwd, 'node_modules', name), 'junction')
+      await symlink(await realpath(fileURLToPath(new URL(`../../examples/electron-web/node_modules/${name}`, import.meta.url))), path.join(cwd, 'node_modules', name), 'junction')
     await rm(path.join(cwd, 'vite.config.mjs'))
     await writeFile(path.join(cwd, 'matrix.config.mjs'), `export default ${JSON.stringify({
       env: { VITE_SHARED: 'shared-value', MAIN_VITE_MAIN_ONLY: 'main-private-value', PRELOAD_VITE_PRELOAD_ONLY: 'preload-private-value' },
