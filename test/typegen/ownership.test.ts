@@ -102,6 +102,50 @@ describe('prepared declaration ownership', { timeout: 20_000 }, () => {
     await expect(access(generic)).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
+  it('merges fallback and host schemas at a shared output without changing default or optional semantics', async () => {
+    const cwd = await workspace()
+    await mkdir(path.join(cwd, 'empty'))
+    await writeFile(path.join(cwd, 'empty/vite.config.mjs'), 'export default {}')
+    await writeFile(path.join(cwd, 'matrix.config.mjs'), `export default ${JSON.stringify({
+      envSchema: {
+        VITE_REQUIRED: { type: 'string' },
+        VITE_OPTIONAL: { type: 'string', optional: true },
+        VITE_DEFAULTED: { type: 'string', optional: true, default: 'fallback-value' },
+      },
+      projects: {
+        plain: { root: 'app', configFile: '../empty/vite.config.mjs', targets: { build: 'node unused.mjs' } },
+        web: { root: 'app', targets: { build: 'node build.mjs' } },
+      },
+      products: {
+        alpha: { env: { VITE_REQUIRED: 'alpha' }, variants: { plain: 'plain' } },
+        beta: { env: { VITE_REQUIRED: 'beta' }, variants: { web: 'web' } },
+      },
+    })}`)
+    await writeFile(path.join(cwd, 'app/vite.config.mjs'), `import matrix from ${JSON.stringify(plugin)};
+      export default { plugins: [matrix({ types: true })], build: { lib: { entry: 'entry.mjs', formats: ['es'], fileName: () => 'built.mjs' } } };
+    `)
+    await writeFile(path.join(cwd, 'app/entry.mjs'), 'import { matrix } from "virtual:matrix/runtime"; export const config = matrix.config;')
+    await writeFile(path.join(cwd, 'app/build.mjs'), `
+      import { build } from 'vite';
+      await build();
+      const { config } = await import('./dist/built.mjs');
+      if (config.defaulted !== 'fallback-value' || config.required !== 'beta' || config.optional !== undefined)
+        throw new Error('Schema defaults or optional values changed');
+    `)
+    await runCli(['prepare', 'beta'])
+    const output = path.join(cwd, 'app/.matrix/types/matrix-runtime.d.ts')
+    const prepared = await readFile(output, 'utf8')
+    for (const name of ['REQUIRED', 'DEFAULTED']) {
+      expect(prepared).toContain(`readonly VITE_${name}: string`)
+      expect(prepared).toContain(`readonly ${name.toLowerCase()}: string`)
+    }
+    expect(prepared).toContain('readonly VITE_OPTIONAL?: string')
+    expect(prepared).toContain('readonly optional?: string')
+    expect(prepared).not.toContain('fallback-value')
+    await runCli(['build', 'beta'])
+    expect(await readFile(output, 'utf8')).toBe(prepared)
+  })
+
   it('keeps a non-Vite ancestor build independent from its nested Vite project', async () => {
     const cwd = await workspace()
     await writeFile(path.join(cwd, 'matrix.config.mjs'), `export default {

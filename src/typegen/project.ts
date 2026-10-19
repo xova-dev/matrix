@@ -1,7 +1,7 @@
 import type { loadMatrixConfig } from '../config/index.js'
 import type { GenerateMatrixTypesOptions } from './generate.js'
 import { MATRIX_DEFAULTS } from '../config/defaults.js'
-import { MATRIX_ENV_SCHEMA_KEY, resolveSchemaEnv, serializeEnvSchema } from '../config/env-schema.js'
+import { MATRIX_ENV_SCHEMA_KEY, readEnvSchema, resolveSchemaEnv, serializeEnvSchema } from '../config/env-schema.js'
 import { resolveProductContext } from '../product/context.js'
 import { containsPath, resolveExistingPath, resolveFilesystemPath, resolveFuturePath } from '../utils/path.js'
 import { generateMatrixTypes, matrixTypeEnvKeys, matrixTypeOutput } from './generate.js'
@@ -83,6 +83,8 @@ async function collectProjectTypes(loaded: LoadedConfig, products: Product[], op
     projectProducts.set(projectName, Object.values(loaded.products).filter(product => Object.values(product.variants).some(variant => variant.project === projectName)))
   }
 
+  const serializedSchema = serializeEnvSchema(loaded.config.envSchema)
+  const typeSchema = readEnvSchema({ [MATRIX_ENV_SCHEMA_KEY]: serializedSchema })
   const batches: GenerateMatrixTypesOptions[][] = []
   const outputsToWrite = new Set<string>()
   const outputSources = new Map<string, { projects: Set<string>, tasks: Set<string> }>()
@@ -131,7 +133,7 @@ async function collectProjectTypes(loaded: LoadedConfig, products: Product[], op
           const genericTypes: GenerateMatrixTypesOptions[] = [{
             cwd,
             env: matrixTypeEnvKeys(effectiveEnv),
-            ...(loaded.config.envSchema ? { envSchema: loaded.config.envSchema } : {}),
+            envSchema: typeSchema,
           }]
           if (!host) {
             // Generic owners participate in raw-key reconciliation, but automatic
@@ -157,7 +159,7 @@ async function collectProjectTypes(loaded: LoadedConfig, products: Product[], op
               MATRIX_PROJECT: projectName,
               MATRIX_VARIANT: variant.id,
               MATRIX_TARGET: target,
-              [MATRIX_ENV_SCHEMA_KEY]: serializeEnvSchema(loaded.config.envSchema),
+              [MATRIX_ENV_SCHEMA_KEY]: serializedSchema,
             }
             const preparedTypes = await resolveHostTypes(cwd, env, { host, mode: loaded.envName, ...context, automatic: options.automatic ?? false }, signal)
             checkCancellation()
