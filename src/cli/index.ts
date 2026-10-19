@@ -120,10 +120,10 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
   const result = await runExecutionPlan(selection.plan, {
     beforeTask: async (task, signal) => {
       delete task.env[MATRIX_TYPE_CONTRACT_KEY]
-      // Deferred project preparation may create or change its host config.
-      // This hook runs after that scheduled preparation has completed.
-      if (selection.plan.preparations?.some(preparation => preparation.project === task.project && preparation.beforeTask === task.id))
-        contracts.delete(task.project)
+      // Preparation can change shared configs, including another project's inputs.
+      // This hook runs after it completes; retain caches only between preparations.
+      if (selection.plan.preparations?.some(preparation => preparation.beforeTask === task.id))
+        contracts.clear()
       if (task.target !== 'dev' && task.target !== 'build')
         return
       let contract = contracts.get(task.project)

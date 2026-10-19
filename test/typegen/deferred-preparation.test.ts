@@ -15,20 +15,27 @@ afterEach(async () => {
 })
 
 describe('deferred preparation contracts', () => {
-  it.each([false, true])('refreshes a cached contract after preparation (initial host: %s), then reuses it', async (initialHost) => {
+  it.each([
+    { initialHost: false, sharedOwner: false },
+    { initialHost: true, sharedOwner: false },
+    { initialHost: true, sharedOwner: true },
+  ])('refreshes contracts after preparation (initial host: $initialHost, shared owner: $sharedOwner)', async ({ initialHost, sharedOwner }) => {
     const cwd = path.normalize(await realpath(await mkdtemp(path.join(os.tmpdir(), 'matrix-deferred-types-'))))
     directories.push(cwd)
     await symlink(fileURLToPath(new URL('../../node_modules', import.meta.url)), path.join(cwd, 'node_modules'), 'junction')
     await writeFile(path.join(cwd, 'package.json'), '{"type":"module"}')
     await writeFile(path.join(cwd, 'matrix.config.mjs'), `export default ${JSON.stringify({
-      projects: { web: { prepare: 'node prepare.mjs', targets: { build: 'node build.mjs' } } },
+      projects: {
+        web: { ...(!sharedOwner ? { prepare: 'node prepare.mjs' } : {}), targets: { build: 'node build.mjs' } },
+        ...(sharedOwner ? { other: { prepare: 'node prepare.mjs', targets: { build: 'node build.mjs' } } } : {}),
+      },
       products: {
         alpha: {
           env: { VITE_ALPHA: 'alpha' },
           variants: {
-            early: { project: 'web', targets: { build: { command: 'node early.mjs', prepare: false } } },
-            later: 'web',
-            last: 'web',
+            early: { project: 'web', targets: { build: { command: sharedOwner ? 'node build.mjs' : 'node early.mjs', prepare: false } } },
+            later: { project: sharedOwner ? 'other' : 'web', targets: { build: { dependsOn: ['early'] } } },
+            last: { project: 'web', targets: { build: { dependsOn: ['later'] } } },
           },
         },
         beta: { env: { VITE_BETA: 'beta' }, variants: { web: 'web' } },
@@ -54,17 +61,17 @@ describe('deferred preparation contracts', () => {
     await writeFile(path.join(cwd, 'entry.mjs'), 'export const value = 1')
     await writeFile(path.join(cwd, 'build.mjs'), `process.env.ACTIVE_BUILD = 'yes'; const { build } = await import('vite'); await build();`)
     process.chdir(cwd)
-    await runCli(['build', 'alpha'])
+    await runCli(['build', 'alpha', '--variant', 'last'])
 
     const declaration = await readFile(path.join(cwd, '.matrix/types/matrix-runtime.d.ts'), 'utf8')
     expect(declaration).toContain('readonly alpha?: string')
     expect(declaration).toContain('readonly beta?: string')
     expect(declaration).toContain('readonly after: string')
     const evaluations = (await readFile(path.join(cwd, 'evaluations.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line))
-    // Four associated variants, two canonical contexts; the final target must
-    // reuse the refreshed contract rather than collecting the project again.
-    expect(evaluations.filter(entry => !entry.active && entry.prepared)).toHaveLength(8)
+    // Four associated variants, two canonical contexts. One owner reuses its
+    // refreshed contract; interleaved web → other → web must refresh both caches.
+    expect(evaluations.filter(entry => !entry.active && entry.prepared)).toHaveLength(sharedOwner ? 16 : 8)
     expect(evaluations.filter(entry => !entry.active && !entry.prepared)).toHaveLength(initialHost ? 8 : 0)
-    expect(evaluations.filter(entry => entry.active)).toHaveLength(2)
+    expect(evaluations.filter(entry => entry.active)).toHaveLength(sharedOwner ? 3 : 2)
   }, 30_000)
 })
