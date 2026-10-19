@@ -1,6 +1,6 @@
 import type { EnvSchema, Scalar } from '../types.js'
 import { camelCase } from 'scule'
-import { MATRIX_ENV_SCHEMA_KEY } from '../config/env-schema.js'
+import { MATRIX_ENV_SCHEMA_KEY, MATRIX_TYPE_CONTRACT_KEY } from '../config/env-schema.js'
 import { parseEnvValue } from '../config/schema.js'
 
 export type EnvPrefix = string | string[]
@@ -31,7 +31,7 @@ export function ensureMatrixEnvPrefix(prefix: EnvPrefix | undefined): string[] {
 export function publicEnvKeys(env: Record<string, unknown>, prefix: EnvPrefix | undefined = ['VITE_', 'MATRIX_']): string[] {
   const prefixes = normalizeEnvPrefix(prefix)
   return Object.keys(env).filter((key) => {
-    if (key.startsWith('MATRIX_') || key === MATRIX_ENV_SCHEMA_KEY || matrixKeys.has(key))
+    if (key.startsWith('MATRIX_') || key === MATRIX_ENV_SCHEMA_KEY || key === MATRIX_TYPE_CONTRACT_KEY || matrixKeys.has(key))
       return false
     return prefixes.some(candidate => key.startsWith(candidate))
   }).sort()

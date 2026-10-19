@@ -3,6 +3,7 @@ import { assertEnvSchema, parseEnvValue } from './schema.js'
 
 /** Not MATRIX_-prefixed: Vite must not expose schema metadata through import.meta.env. */
 export const MATRIX_ENV_SCHEMA_KEY = '__MATRIX_ENV_SCHEMA'
+export const MATRIX_TYPE_CONTRACT_KEY = '__MATRIX_TYPE_CONTRACT'
 
 /** CLI validation never requires absent fields from unrelated build prefixes. */
 export function resolveSchemaEnv(env: EnvMap, schema?: EnvSchema): EnvMap {

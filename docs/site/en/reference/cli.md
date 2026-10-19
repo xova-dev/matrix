@@ -42,6 +42,8 @@ matrix prepare [product] [--env <environment>]
 matrix <custom-target> [product] [--env <environment>]
 ```
 
+Shared-project declaration generation for `prepare`, `dev`, and `build` is described in [type preparation](../guides/integrations.md#type-preparation).
+
 ## Static preflight
 
 `matrix doctor [--env <environment>]` checks all configured products, variants, and targets in the selected environment without running target/preparation commands, probing ports, generating types, or cleaning output. Configuration loading still evaluates the configuration file as usual.

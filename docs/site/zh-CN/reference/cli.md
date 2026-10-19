@@ -42,6 +42,8 @@ matrix prepare [product] [--env <environment>]
 matrix <custom-target> [product] [--env <environment>]
 ```
 
+`prepare`、`dev` 和 `build` 的共享项目声明生成见[类型准备](../guides/integrations.md#类型准备)。
+
 ## 静态预检
 
 `matrix doctor [--env <environment>]` 检查所选环境中的全部产品、变体和目标，不运行目标或准备命令、不探测端口、不生成类型，也不清理输出。配置加载仍会按原有方式执行配置文件。
