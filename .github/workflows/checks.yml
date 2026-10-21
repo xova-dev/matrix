@@ -20,7 +20,7 @@ permissions:
 jobs:
   quality:
     name: Lint and types
-    uses: xova-dev/actions/.github/workflows/check.yml@62e30426bc63933c2d6cf8970c05aad9d150f757
+    uses: xova-dev/actions/.github/workflows/check.yml@ef8261ffb66d4593e54a542d035f4684d5124abd
     with:
       source-sha: ${{ inputs.source-sha }}
       detect-changes: ${{ inputs.detect-changes }}

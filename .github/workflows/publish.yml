@@ -18,7 +18,7 @@ jobs:
       source-sha: ${{ github.sha }}
   release:
     needs: checks
-    uses: xova-dev/actions/.github/workflows/release.yml@62e30426bc63933c2d6cf8970c05aad9d150f757
+    uses: xova-dev/actions/.github/workflows/release.yml@ef8261ffb66d4593e54a542d035f4684d5124abd
     permissions:
       contents: read
       id-token: write

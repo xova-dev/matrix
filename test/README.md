@@ -17,7 +17,7 @@ settings. Both package test runners use profiles selected from this file.
 
 ### CI environments
 
-The [CI workflow](../.github/workflows/ci.yml) runs these checks for code changes:
+The [CI workflow](../.github/workflows/ci.yml) runs independent code/docs jobs on one source SHA. The docs job always checks/builds a read-only artifact; the code job retains these checks for code changes:
 
 | OS                     | Node           | Checks                                                      |
 | ---------------------- | -------------- | ----------------------------------------------------------- |
@@ -40,7 +40,7 @@ Native release-it uses the pinned preparation preset in `.release-it.json`. Prev
 
 `test/scripts/release-workflows.test.js` checks only Matrix matrices, source wiring and `.github/xova.json` settings. Explicit local toolkit binding also validates that configuration with the shipped parser for all five tasks. Shared calls use configuration defaults without command/setup overrides; check/build grants remain read-only, publication requires successful product checks and recovery keeps the Pages permission boundary. Generic runners, fake publishers and upstream fixture tests stay in Xova Actions. Shared quality checks run product wiring tests for both code and documentation-only changes. Code uses `release:check`; the docs-only path runs lint. Quality success gates the product matrices; final publication never uses docs-only optimization.
 
-The four shared calls pin the same full toolkit SHA after its remote CI passed. Normal `mise exec -- pnpm check` needs no local toolkit binding. Optionally use `XOVA_ACTIONS_ROOT=../actions mise exec -- pnpm check` with that toolkit revision to validate the actual workflow contracts and configuration parser as well. Binding verification rejects a different HEAD or modified tracked files/index before reading contracts. Preparation remains independently pinned. Local fixtures and toolkit CI do not prove nested required-check names, Matrix-hosted execution, OIDC or deployment acceptance.
+The four shared calls pin the same full toolkit SHA whose remote CI has passed. Normal `mise exec -- pnpm check` needs no local toolkit binding. Optionally use `XOVA_ACTIONS_ROOT=../actions mise exec -- pnpm check` with that toolkit revision to validate the actual workflow contracts and configuration parser as well. Binding verification rejects a different HEAD or modified tracked files/index before reading contracts. Preparation remains independently pinned. Local fixtures and toolkit CI do not prove nested required-check names, Matrix-hosted execution, OIDC or deployment acceptance.
 
 The first three rows expand to six jobs. Every package profile includes the
 host-free CLI consumer and all three Electron type-preparation combinations.
@@ -48,7 +48,7 @@ POSIX process-group shutdown assertions run on Ubuntu and macOS; Windows runs
 the remaining checks. The separate Node 24 quality job runs lint, typecheck,
 build, and example checks. Electron acceptance starts independently of host tests.
 Compatibility jobs include the lockfile and compatibility manifest in their
-cache keys. Full host verification runs on Ubuntu / Node 24 for every code change.
+cache keys. Shared setup separately selects npm/pnpm caches from setup.cache and only pnpm for docs.cache; cache paths and lock patterns are owned by the shared toolkit. Full host verification runs on Ubuntu / Node 24 for every code change.
 Compatibility jobs also cache npm's download store for the CLI consumer;
 Electron jobs cache the binary archives used by the explicit Electron installer.
 These caches use OS / architecture and dependency-manifest keys, with same-platform

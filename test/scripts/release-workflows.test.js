@@ -55,12 +55,12 @@ it('uses one pinned toolkit revision and validates supplied local contracts', as
 })
 
 it('retains exact-source product matrices and never exempts releases using parent CI', () => {
-  for (const call of [ci.jobs.checks, publish.jobs.checks]) {
+  for (const call of [ci.jobs.code, publish.jobs.checks]) {
     expect(call.uses).toBe('./.github/workflows/checks.yml')
     expect(call.with['source-sha']).toBe(expression('github.sha'))
   }
   expect(checks.on.workflow_call.inputs['detect-changes'].default).toBe(false)
-  expect(ci.jobs.checks.with['detect-changes']).toBe(true)
+  expect(ci.jobs.code.with['detect-changes']).toBe(true)
   expect(publish.jobs.checks.with['detect-changes']).toBeUndefined()
   expect(checks.jobs.quality.with['source-sha']).toBe(expression('inputs.source-sha'))
   expect(checks.jobs.compatibility.strategy.matrix).toEqual({ os: ['ubuntu-latest', 'macos-latest', 'windows-latest'], node: ['22.18.0', '24.x'] })
@@ -71,7 +71,7 @@ it('retains exact-source product matrices and never exempts releases using paren
     expect(job.if).toBe('needs.quality.outputs.code-changed == \'true\'')
     expect(job.steps.find(step => step.uses?.startsWith('actions/checkout@')).with.ref).toBe(expression('inputs.source-sha'))
   }
-  for (const job of [checks.jobs.quality, ci.jobs.checks, publish.jobs.checks])
+  for (const job of [checks.jobs.quality, ci.jobs.code, publish.jobs.checks])
     expect(job['continue-on-error']).toBeUndefined()
   expect(checks.jobs.compatibility.steps.map(step => step.run)).toContain('pnpm test')
   expect(checks.jobs.electron.steps.filter(step => step.run?.includes('test:electron-web'))).toHaveLength(2)
@@ -87,7 +87,7 @@ it('declares commands and documentation settings once for all four paths', () =>
   expect(config.npm['verify-command']).toBe('pnpm build')
   expect(config.npm['package-verify-command']).toBe('pnpm test:pack --profile daily')
   expect(config.docs).toMatchObject({ 'provider': 'pages', 'environment-name': 'github-pages', 'concurrency-group': 'github-pages', 'deployment-policy': 'latest-stable' })
-  for (const call of [checks.jobs.quality, read('docs').jobs.build, publish.jobs.release, recover.jobs.recover]) {
+  for (const call of [checks.jobs.quality, ci.jobs.docs, publish.jobs.release, recover.jobs.recover]) {
     expect(call.with['config-file'] ?? '.github/xova.json').toBe('.github/xova.json')
     expect(call.with['docs-build-command']).toBeUndefined()
     expect(call.with['verify-command']).toBeUndefined()
@@ -96,12 +96,21 @@ it('declares commands and documentation settings once for all four paths', () =>
   expect(publish.jobs.release.with['deploy-docs']).toBe(expression('github.event_name == \'release\' && !github.event.release.prerelease'))
   expect(Object.keys(recover.jobs)).toEqual(['recover'])
   expect(recover.jobs.recover.with['published-sha']).toBe(expression('inputs.published-sha'))
-  const docs = read('docs')
-  expect(Object.keys(docs.jobs)).toEqual(['build'])
-  expect(docs.jobs.build.with.kind).toBe('docs')
-  expect(docs.on.pull_request.paths).toContain('.github/xova.json')
-  expect(docs.on.push.paths).toContain('mise.toml')
-  expect(docs.permissions).toEqual({ contents: 'read' })
+  expect(Object.keys(ci.jobs)).toEqual(['code', 'docs'])
+  expect(readdirSync(new URL('../../.github/workflows/', import.meta.url))).not.toContain('docs.yml')
+  expect(ci.permissions).toEqual({ contents: 'read' })
+  expect(ci.on.pull_request).toBeNull()
+  expect(ci.on.push).toEqual({ branches: ['main'] })
+  expect(ci.jobs.docs.with).toEqual({ 'kind': 'docs', 'source-sha': expression('github.sha') })
+  for (const job of [ci.jobs.code, ci.jobs.docs]) {
+    expect(job.needs).toBeUndefined()
+    expect(job.if).toBeUndefined()
+    expect(job.environment).toBeUndefined()
+    expect(job.secrets).toBeUndefined()
+    expect(job.permissions).toBeUndefined()
+  }
+  expect(config.setup.cache).toEqual({ pnpm: 'pnpm-lock.yaml', npm: 'pnpm-lock.yaml' })
+  expect(config.docs.cache).toEqual({ pnpm: 'pnpm-lock.yaml' })
   expect(checks.permissions).toEqual({ contents: 'read' })
   expect(publish.permissions).toEqual({ contents: 'read' })
   expect(publish.jobs.checks.permissions).toBeUndefined()
