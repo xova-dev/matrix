@@ -48,12 +48,14 @@ POSIX process-group shutdown assertions run on Ubuntu and macOS; Windows runs
 the remaining checks. The separate Node 24 quality job runs lint, typecheck,
 build, and example checks. Electron acceptance starts independently of host tests.
 Compatibility jobs include the lockfile and compatibility manifest in their
-cache keys. Shared setup separately selects npm/pnpm caches from setup.cache and only pnpm for docs.cache; cache paths and lock patterns are owned by the shared toolkit. Full host verification runs on Ubuntu / Node 24 for every code change.
+cache keys. Shared setup selects only pnpm from setup.cache and documentation inherits it; cache paths and lock patterns are owned by the shared toolkit. Full host verification runs on Ubuntu / Node 24 for every code change.
 Compatibility jobs also cache npm's download store for the CLI consumer;
 Electron jobs cache the binary archives used by the explicit Electron installer.
 These caches use OS / architecture and dependency-manifest keys, with same-platform
 fallbacks. Installation, checksum validation, builds, and tests still run on cache
 hits. Consumer directories, node_modules, and build outputs are not cached.
+
+Compatibility and Electron acceptance steps set TMPDIR/TEMP/TMP to runner.temp so Windows temporary consumers stay on the checkout volume and reuse its pnpm store. Workflow wiring tests execute Node's real temporary-directory selection with conflicting system defaults. Local checks do not establish Windows cache transport or download counts; those require a hosted Windows run. Shared quality checks do not select npm caching because they run pnpm commands; actual npm consumers retain their product-owned download cache.
 
 ### Package profiles
 

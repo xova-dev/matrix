@@ -3,7 +3,7 @@
   "setup": {
     "toolchain": "mise",
     "install-command": "pnpm install --frozen-lockfile",
-    "cache": { "pnpm": "pnpm-lock.yaml", "npm": "pnpm-lock.yaml" }
+    "cache": { "pnpm": "pnpm-lock.yaml" }
   },
   "code": {
     "check-command": "pnpm release:check && pnpm exec vitest run test/scripts/release-workflows.test.js",
@@ -26,7 +26,6 @@
     "environment-name": "npm-publish"
   },
   "docs": {
-    "cache": { "pnpm": "pnpm-lock.yaml" },
     "provider": "pages",
     "check-command": "pnpm docs:typecheck",
     "build-command": "pnpm docs:build",

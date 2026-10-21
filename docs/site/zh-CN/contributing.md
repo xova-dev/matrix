@@ -28,7 +28,7 @@ mise exec -- pnpm exec release-it 0.4.0 --ci
 准备要求工作区干净，更新包版本和根 `CHANGELOG.md`。预览成功不代表执行了项目检查。审查差异和暂存区：官方插件可能暂存新建的 changelog。失败时保留部分结果。检查记录并补充必要的迁移文档、示例或代码；候选提交不限制为版本和 changelog 文件，标题也不豁免检查。提交、标签、推送和创建 GitHub Release 继续分别遵循授权；创建 GitHub Release 会触发发布。
 CI 和发布共用产品自己的 `checks.yml`，命令和文档参数统一声明在 `.github/xova.json`。质量任务调用共享 `check.yml`；兼容性和 Electron 任务保留产品所有权，在质量检查成功后启动。普通 CI 可以使用共享纯文档判断；Publish 对精确来源 SHA 保持完整检查，之后调用共享 `release.yml`。通用 setup、配置校验、来源/恢复门禁与上游行为回归归 Xova Actions 维护。共享工作流默认读取 .github/xova.json，命令/setup 不提供工作流输入覆盖；文档检查、发布构建和恢复统一使用 check(kind=docs)，自定义任务仍可直接组合操作 actions。
 
-共享 setup 在 setup.cache 中声明 npm/pnpm 缓存，以 pnpm-lock.yaml 区分；docs.cache 仅选择 pnpm。checks.yml 保留产品专属的兼容性 npm 缓存和 Electron 二进制缓存。命中后仍执行安装、产品检查和来源校验。
+共享 setup 在 setup.cache 中仅声明 pnpm 缓存，以 pnpm-lock.yaml 区分；文档直接继承该选择。npm 下载缓存保留在执行 npm 消费验证的兼容性任务中，避免只跑 pnpm 的质量检查先写入空的 npm 缓存。checks.yml 继续维护产品专属的 Electron 二进制缓存。兼容性和 Electron 验收步骤将 TMPDIR/TEMP/TMP 设为 runner.temp，让 Windows 临时消费项目使用检出所在卷和已缓存的 pnpm store。命中后仍执行安装、产品检查和来源校验。
 
 发布选择 pnpm 打包。在同一 SHA 的完整产品检查成功后，发布器只执行 `pnpm build`，不重复 lint、类型和示例检查；随后使用提供的绝对路径 `TARBALL` 执行 `pnpm test:pack --profile daily`，直接消费该文件、不重新打包，发布前再次检查源码和 tarball 字节。未提供 `TARBALL` 时本地 `test:pack` 仍先打包一次。发布工具使用 Node 24，产品的 Node 22.18.0 兼容性检查保持独立。
 

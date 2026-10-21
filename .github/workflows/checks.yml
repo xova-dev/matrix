@@ -63,7 +63,11 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm test
       - name: Packaged compatibility
+        # Keep isolated consumers on the checkout volume for pnpm store reuse on Windows.
         env:
+          TMPDIR: ${{ runner.temp }}
+          TEMP: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
           npm_config_cache: ${{ runner.temp }}/matrix-npm-cache
         run: pnpm test:pack --profile ${{ (inputs.full || (matrix.os == 'ubuntu-latest' && matrix.node == '24.x')) && 'full' || (runner.os == 'Linux' && 'daily' || 'platform') }}
   electron:
@@ -103,10 +107,16 @@ jobs:
       - name: Dual-product Electron/Web acceptance (Linux)
         if: runner.os == 'Linux'
         env:
+          TMPDIR: ${{ runner.temp }}
+          TEMP: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
           electron_config_cache: ${{ runner.temp }}/matrix-electron-cache
         run: xvfb-run --auto-servernum pnpm test:electron-web
       - name: Dual-product Electron/Web acceptance (macOS / Windows)
         if: runner.os != 'Linux'
         env:
+          TMPDIR: ${{ runner.temp }}
+          TEMP: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
           electron_config_cache: ${{ runner.temp }}/matrix-electron-cache
         run: pnpm test:electron-web

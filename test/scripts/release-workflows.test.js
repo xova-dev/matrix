@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process'
-import { readdirSync, readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { expect, it } from 'vitest'
 import { parse } from 'yaml'
@@ -78,6 +79,31 @@ it('retains exact-source product matrices and never exempts releases using paren
   expect(ci.jobs.changes).toBeUndefined()
 })
 
+it('uses the runner temporary directory for package and Electron consumers', () => {
+  const root = mkdtempSync(join(tmpdir(), 'matrix-ci-temp-'))
+  const runnerTemporary = join(root, 'runner')
+  const systemTemporary = join(root, 'system')
+  try {
+    const compatibility = checks.jobs.compatibility.steps.filter(step => step.run?.includes('pnpm test:pack'))
+    const electron = checks.jobs.electron.steps.filter(step => step.run?.includes('pnpm test:electron-web'))
+    expect(compatibility).toHaveLength(1)
+    expect(electron).toHaveLength(2)
+    for (const step of [...compatibility, ...electron]) {
+      for (const key of ['TMPDIR', 'TEMP', 'TMP'])
+        expect(step.env?.[key]).toBe(expression('runner.temp'))
+      const env = Object.fromEntries(Object.entries(step.env || {}).map(([key, value]) => [key, value.replaceAll(expression('runner.temp'), runnerTemporary)]))
+      const selected = execFileSync(process.execPath, ['-e', 'process.stdout.write(require("node:os").tmpdir())'], {
+        encoding: 'utf8',
+        env: { ...process.env, RUNNER_TEMP: runnerTemporary, TMPDIR: systemTemporary, TEMP: systemTemporary, TMP: systemTemporary, ...env },
+      })
+      expect(resolve(selected)).toBe(resolve(runnerTemporary))
+    }
+  }
+  finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
 it('declares commands and documentation settings once for all four paths', () => {
   expect(config.schemaVersion).toBe(1)
   expect(config.code['check-command']).toContain('pnpm release:check')
@@ -109,8 +135,8 @@ it('declares commands and documentation settings once for all four paths', () =>
     expect(job.secrets).toBeUndefined()
     expect(job.permissions).toBeUndefined()
   }
-  expect(config.setup.cache).toEqual({ pnpm: 'pnpm-lock.yaml', npm: 'pnpm-lock.yaml' })
-  expect(config.docs.cache).toEqual({ pnpm: 'pnpm-lock.yaml' })
+  expect(config.setup.cache).toEqual({ pnpm: 'pnpm-lock.yaml' })
+  expect(config.docs.cache).toBeUndefined()
   expect(checks.permissions).toEqual({ contents: 'read' })
   expect(publish.permissions).toEqual({ contents: 'read' })
   expect(publish.jobs.checks.permissions).toBeUndefined()
