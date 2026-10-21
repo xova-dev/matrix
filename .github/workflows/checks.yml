@@ -100,7 +100,8 @@ jobs:
           key: electron-downloads-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('examples/electron-web/package.json') }}
           restore-keys: |
             electron-downloads-v1-${{ runner.os }}-${{ runner.arch }}-
-      - run: pnpm install --frozen-lockfile
+      # The isolated consumer installs its own locked Electron dependencies.
+      - run: pnpm --filter @xova/matrix --fail-if-no-match install --frozen-lockfile
       - name: Install virtual display for Electron
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y xvfb

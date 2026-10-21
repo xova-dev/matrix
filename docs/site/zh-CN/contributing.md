@@ -30,6 +30,8 @@ CI 和发布共用产品自己的 `checks.yml`，命令和文档参数统一声�
 
 共享 setup 在 setup.cache 中仅声明 pnpm 缓存，以 pnpm-lock.yaml 区分；文档直接继承该选择。npm 下载缓存保留在执行 npm 消费验证的兼容性任务中，避免只跑 pnpm 的质量检查先写入空的 npm 缓存。checks.yml 继续维护产品专属的 Electron 二进制缓存。兼容性和 Electron 验收步骤将 TMPDIR/TEMP/TMP 设为 runner.temp，让 Windows 临时消费项目使用检出所在卷和已缓存的 pnpm store。命中后仍执行安装、产品检查和来源校验。
 
+仅 Electron 任务通过 `pnpm --filter @xova/matrix --fail-if-no-match install --frozen-lockfile` 安装根包，保留构建工具和开发依赖。独立的 tarball 消费项目仍安装完整、锁定的 Electron 依赖，验证准备阶段、两个产品的开发启动和三种打包应用。质量与兼容性任务继续完整安装 workspace。Vitest 保持默认 worker 并发与文件隔离；只有目标 runner 上的重复测量证实收益后才降低并发，并保留全部用例。
+
 发布选择 pnpm 打包。在同一 SHA 的完整产品检查成功后，发布器只执行 `pnpm build`，不重复 lint、类型和示例检查；随后使用提供的绝对路径 `TARBALL` 执行 `pnpm test:pack --profile daily`，直接消费该文件、不重新打包，发布前再次检查源码和 tarball 字节。未提供 `TARBALL` 时本地 `test:pack` 仍先打包一次。发布工具使用 Node 24，产品的 Node 22.18.0 兼容性检查保持独立。
 
 `docs-recover.yml` 只保留手动入口，将已确认的发布标签/SHA 传给共享恢复流程。发布和恢复使用相同的 `github-pages` 环境、并发组以及 `latest-stable` 策略。Publish 只在稳定 release 事件部署，手动发布不部署；恢复从已确认源码重建，不重复发布 npm。

@@ -57,6 +57,10 @@ hits. Consumer directories, node_modules, and build outputs are not cached.
 
 Compatibility and Electron acceptance steps set TMPDIR/TEMP/TMP to runner.temp so Windows temporary consumers stay on the checkout volume and reuse its pnpm store. Workflow wiring tests execute Node's real temporary-directory selection with conflicting system defaults. Local checks do not establish Windows cache transport or download counts; those require a hosted Windows run. Shared quality checks do not select npm caching because they run pnpm commands; actual npm consumers retain their product-owned download cache.
 
+Only Electron jobs narrow the root install with `pnpm --filter @xova/matrix --fail-if-no-match install --frozen-lockfile`. This retains root build tools and development dependencies without installing documentation or example workspaces there. `test:electron-web` still packs the current source and installs the example's complete locked dependencies in a separate consumer before preparation, both development runs and all three packaged application runs. Quality and compatibility jobs retain full workspace installation. Workflow wiring tests guard this distinction.
+
+Vitest retains its default worker concurrency and per-file isolation. Compare the same heavy files with `pnpm exec vitest run <files> --isolate`, then repeat with `--maxWorkers 2` or `--maxWorkers 1` in alternating order. Keep the pool, test cases and dependencies unchanged and run comparisons sequentially. Lower concurrency must show a repeatable benefit on the target runner before adoption; local macOS timings do not establish hosted performance.
+
 ### Package profiles
 
 All profiles select versions from the same exact-version manifest:
