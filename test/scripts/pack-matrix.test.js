@@ -1,7 +1,19 @@
+import { spawnSync } from 'node:child_process'
+import process from 'node:process'
 import { setImmediate } from 'node:timers/promises'
 import { expect, it } from 'vitest'
 import compatibility from '../../scripts/compatibility-matrix.json' with { type: 'json' }
 import { runConsumers, selectCompatibility } from '../../scripts/pack-matrix.mjs'
+
+it('rejects a relative external tarball before packing or installing', () => {
+  const result = spawnSync(process.execPath, ['scripts/pack-smoke.mjs', '--profile', 'platform'], {
+    encoding: 'utf8',
+    timeout: 10000,
+    env: { ...process.env, TARBALL: 'relative.tgz' },
+  })
+  expect(result.status).not.toBe(0)
+  expect(result.stdout + result.stderr).toContain('TARBALL must be an absolute path')
+})
 
 it('preserves the complete release matrix and Electron combinations', () => {
   expect(selectCompatibility('full')).toEqual(compatibility)

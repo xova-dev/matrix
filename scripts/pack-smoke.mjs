@@ -1,6 +1,6 @@
 import { execFileSync, spawn } from 'node:child_process'
 import { once } from 'node:events'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import process from 'node:process'
 import { setTimeout as delay } from 'node:timers/promises'
@@ -176,18 +176,25 @@ try {
     private: true,
   }))
 
-  execaSync('pnpm', [
-    'pack',
-    '--pack-destination',
-    packRoot,
-  ], {
-    cwd: packageRoot,
-    encoding: 'utf8',
-  })
-  const tarballName = readdirSync(packRoot).find(name => name.endsWith('.tgz'))
-  if (!tarballName)
-    throw new Error('pnpm pack did not produce a tarball')
-  const tarball = path.join(packRoot, tarballName)
+  let tarball = process.env.TARBALL
+  if (tarball) {
+    if (!path.isAbsolute(tarball) || !statSync(tarball).isFile())
+      throw new Error('TARBALL must be an absolute path to the packed candidate')
+  }
+  else {
+    execaSync('pnpm', [
+      'pack',
+      '--pack-destination',
+      packRoot,
+    ], {
+      cwd: packageRoot,
+      encoding: 'utf8',
+    })
+    const tarballName = readdirSync(packRoot).find(name => name.endsWith('.tgz'))
+    if (!tarballName)
+      throw new Error('pnpm pack did not produce a tarball')
+    tarball = path.join(packRoot, tarballName)
+  }
 
   execaSync('npm', [
     'install',

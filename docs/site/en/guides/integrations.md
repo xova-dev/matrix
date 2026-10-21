@@ -15,6 +15,8 @@ Node.js `>=22.18.0` is required. Each host is an optional peer dependency instal
 
 Matrix resolves hosts from the consumer; Electron type preparation uses electron-vite's Vite. Framework plugins must satisfy their own host dependencies. See the [test matrix](https://github.com/xova-dev/matrix/blob/main/test/README.md#compatibility-matrix) for pinned versions, combinations, and checks.
 
+The isolated historical Webpack fixtures pin `schema-utils` to `4.5.0`, matching the repository lockfile, because `4.8.1` requires `webpack ^5.112.0`. Strict peer checks remain enabled. This is a test-fixture pin, not a published dependency override or a change to the supported host ranges.
+
 ## Vite integration
 
 ```ts

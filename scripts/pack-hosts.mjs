@@ -16,6 +16,8 @@ export async function verifyHostCompatibility(tarball, root, compatibility, conc
     '  - "*-*"',
     'autoInstallPeers: false',
     'resolvePeersFromWorkspaceRoot: false',
+    'overrides:',
+    ...Object.entries(compatibility.hostWorkspaceOverrides).map(([name, version]) => `  ${JSON.stringify(name)}: ${JSON.stringify(version)}`),
     'allowBuilds:',
     '  esbuild: true',
   ].join('\n'))

@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "setup": {
+    "toolchain": "mise",
+    "install-command": "pnpm install --frozen-lockfile"
+  },
+  "code": {
+    "check-command": "pnpm release:check && pnpm exec vitest run test/scripts/release-workflows.test.js",
+    "docs-only-command": "pnpm lint && pnpm exec vitest run test/scripts/release-workflows.test.js",
+    "docs-only-paths": [
+      "docs/**",
+      "README.md",
+      "README.zh-CN.md",
+      "CHANGELOG.md",
+      "AGENTS.md",
+      "test/README.md",
+      "examples/**/README.md",
+      "examples/**/README.*.md"
+    ]
+  },
+  "npm": {
+    "package-manager": "pnpm",
+    "verify-command": "pnpm build",
+    "package-verify-command": "pnpm test:pack --profile daily",
+    "environment-name": "npm-publish"
+  },
+  "docs": {
+    "provider": "pages",
+    "check-command": "pnpm docs:typecheck",
+    "build-command": "pnpm docs:build",
+    "site-directory": "docs/.vitepress/dist",
+    "environment-name": "github-pages",
+    "concurrency-group": "github-pages",
+    "deployment-policy": "latest-stable"
+  }
+}

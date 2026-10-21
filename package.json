@@ -71,8 +71,6 @@
     "docs:preview": "pnpm --filter @xova/matrix-docs preview",
     "docs:typecheck": "pnpm --filter @xova/matrix-docs typecheck",
     "prepack": "pnpm build",
-    "release:prepare": "changelogen --clean --release --push",
-    "release:github": "changelogen gh release",
     "test:pack": "node scripts/pack-smoke.mjs",
     "example:basic": "pnpm --filter matrix-basic-example run matrix",
     "example:electron-web": "pnpm --filter matrix-electron-web-example run prepare:projects",
@@ -82,7 +80,8 @@
     "test": "vitest run",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm check:examples"
+    "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm check:examples",
+    "release:check": "pnpm lint && pnpm typecheck && pnpm build && pnpm check:examples && pnpm --filter matrix-basic-example run doctor && pnpm --filter matrix-basic-example run test && pnpm --filter matrix-basic-example run build"
   },
   "peerDependencies": {
     "esbuild": ">=0.12.0 <0.29.0",
@@ -122,15 +121,16 @@
   },
   "devDependencies": {
     "@antfu/eslint-config": "catalog:",
+    "@release-it/conventional-changelog": "catalog:",
     "@types/archiver": "catalog:",
     "@types/node": "catalog:",
     "@vitejs/plugin-vue": "catalog:",
-    "changelogen": "catalog:",
     "esbuild": "catalog:",
     "eslint": "catalog:",
     "eslint-plugin-format": "catalog:",
     "prettier": "catalog:",
     "publint": "catalog:",
+    "release-it": "catalog:",
     "rollup": "catalog:",
     "tsdown": "catalog:",
     "typescript": "catalog:",

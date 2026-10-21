@@ -15,6 +15,8 @@ Matrix 提供统一的 Unplugin 工厂，以及各构建工具的入口。
 
 Matrix 从消费项目解析宿主；Electron 类型准备使用 electron-vite 对应的 Vite。框架插件需要满足各自的宿主依赖。测试版本、组合与覆盖项目见[测试矩阵](https://github.com/xova-dev/matrix/blob/main/test/README.md#compatibility-matrix)。
 
+隔离的历史 Webpack fixture 将 `schema-utils` 固定到仓库锁文件使用的 `4.5.0`，因为 `4.8.1` 要求 `webpack ^5.112.0`。严格 peer 检查继续启用；该固定仅用于测试，不是发布包的依赖覆盖，也不改变宿主支持范围。
+
 ## Vite 接入
 
 ```ts

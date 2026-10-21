@@ -26,22 +26,21 @@ The [CI workflow](../.github/workflows/ci.yml) runs these checks for code change
 | macOS, Windows         | 22.18.0 / 24.x | Unit tests and packaged consumers with the platform profile |
 | Ubuntu, macOS, Windows | 24.x           | Real Electron/Web acceptance in three independent jobs      |
 
-Documentation-only changes run lint and relevant site checks. Pushes whose head
-commit starts with `chore(release):` skip duplicate CI and documentation builds.
-PRs and manual CI do not use this release-message skip. Manual CI always runs
-code checks; `full` expands the package profile on every OS/Node combination.
+Documentation-only changes run lint, product wiring checks and relevant
+site checks. Commit titles never skip CI or documentation builds. Manual CI always
+runs code checks; `full` expands the package profile on every OS/Node combination.
 
-Publish accepts a separate release commit changing only `package.json.version`
-and optionally `CHANGELOG.md`, with a matching `v<version>` tag. It checks the
-direct parent's latest push/manual CI run and requires all quality, compatibility,
-and Electron jobs to have succeeded. It does not search ancestors or wait for CI.
-If the parent has only docs checks, run CI manually on it before creating the
-release commit. A failed or unavailable CI lookup stops publication; rerun Publish
-after resolving it. Manual Publish must select the release tag.
+CI and Publish share `checks.yml` rather than duplicate product matrices. Publish checks the exact native source in all six compatibility and three Electron jobs before calling shared release orchestration. Necessary code, release notes and migration files are allowed; no version-only commit or parent-CI exception remains.
 
-Publish does not repeat lint, unit tests, or package compatibility tests. It builds
-the new package via `prepack` and checks/builds the versioned documentation before
-npm publication; Pages deploys the saved site only after successful publication.
+The shared flow checks the native candidate, builds documentation, runs `pnpm build` after complete product checks on that SHA, packs with pnpm lifecycle scripts disabled and tests that same TARBALL using the daily profile before publication. It does not repeat lint/types/examples in the publishing job. Provider policy runs inside the configured environment/concurrency gate. Publish/recovery read identical settings from `.github/xova.json`; manual Publish does not deploy.
+
+`docs-recover.yml` is one shared recovery call. Operators confirm the published SHA and select its release tag. Shared source validation runs before rebuilding or waiting for deployment approval. Recovery creates a new artifact and never invokes npm publication.
+
+Native release-it uses the pinned preparation preset in `.release-it.json`. Preview with an explicit version and `--dry-run`; the preset disables Git delivery and publication. The official plugin may stage a newly created changelog. Preserve partial preparation results on failure.
+
+`test/scripts/release-workflows.test.js` checks only Matrix matrices, source wiring and `.github/xova.json` settings. Explicit local toolkit binding also validates that configuration with the shipped parser for all five tasks. Shared calls use configuration defaults without command/setup overrides; check/build grants remain read-only, publication requires successful product checks and recovery keeps the Pages permission boundary. Generic runners, fake publishers and upstream fixture tests stay in Xova Actions. Shared quality checks run product wiring tests for both code and documentation-only changes. Code uses `release:check`; the docs-only path runs lint. Quality success gates the product matrices; final publication never uses docs-only optimization.
+
+The four shared calls pin the same full toolkit SHA after its remote CI passed. Normal `mise exec -- pnpm check` needs no local toolkit binding. Optionally use `XOVA_ACTIONS_ROOT=../actions mise exec -- pnpm check` with that toolkit revision to validate the actual workflow contracts and configuration parser as well. Binding verification rejects a different HEAD or modified tracked files/index before reading contracts. Preparation remains independently pinned. Local fixtures and toolkit CI do not prove nested required-check names, Matrix-hosted execution, OIDC or deployment acceptance.
 
 The first three rows expand to six jobs. Every package profile includes the
 host-free CLI consumer and all three Electron type-preparation combinations.
@@ -70,13 +69,17 @@ Counts exclude the shared CLI-only consumer. First/last refer to the pinned
 manifest, not a dynamically fetched registry version. Support ranges do not
 change with the selected profile. Vite 8 consumers explicitly install the WASM
 runtime peers pinned in the manifest, with strict peer checks still enabled.
+The host workspace pins `schema-utils` to `4.5.0`, the version in the repository
+lockfile, through `hostWorkspaceOverrides`. This keeps historical Webpack fixtures
+reproducible after `schema-utils@4.8.1` added a `webpack ^5.112.0` peer. Strict peer
+checks remain enabled; published dependencies and host support ranges do not change.
 
 - Ubuntu / Node 24: `pnpm test:pack`; Ubuntu / Node 22: `pnpm test:pack --profile daily`.
 - Daily macOS/Windows: `pnpm test:pack --profile platform`.
 - Full local verification: `pnpm test:pack` (defaults to `full`).
 - Full cross-platform verification: manually dispatch CI with `full` enabled.
 
-CI owns the full profile; Publish reuses the parent commit's successful verification. Consumers run with concurrency 2;
+CI and Publish each run the full profile on their own Ubuntu / Node 24 candidate. Consumers run with concurrency 2;
 `--concurrency 1` runs serially and values up to 4 are supported. Each consumer's
 prepare, typecheck, and build phases remain sequential. Failures are collected
 before removing temporary workspaces. Logs record install, prepare, typecheck,
@@ -85,8 +88,8 @@ consumers. Phase totals are cumulative and can exceed wall time under concurrenc
 
 ### Published-package hosts
 
-`pnpm test:pack` packs Matrix once, then installs the tarball into temporary
-consumers. Host versions coexist in pnpm workspaces with automatic peer
+`pnpm test:pack` consumes an absolute `TARBALL` when supplied, otherwise packs Matrix once, then installs the tarball into temporary
+consumers. The publication workflow supplies the already packed candidate and runs the daily profile; it never repacks during that check. Host versions coexist in pnpm workspaces with automatic peer
 installation and workspace-root peer resolution disabled.
 
 | Host    | Version lines                                            | Pinned versions | Runner                   |
@@ -146,8 +149,8 @@ do not replace the real Electron acceptance jobs.
 Change exact test pins and shared settings in
 `scripts/compatibility-matrix.json`. Update `package.json` only when changing
 the supported ranges. Keep this matrix and both integration guides aligned,
-then run `pnpm check` and `pnpm test:pack`. Change OS/Node jobs in
-`.github/workflows/ci.yml` and keep required job names in `scripts/check-release.mjs` aligned.
+then run `pnpm check` and `pnpm test:pack`. Change OS/Node jobs once in
+`.github/workflows/checks.yml`; CI and Publish both call that product workflow.
 
 ## Automatic declaration safeguards
 

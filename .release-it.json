@@ -1,0 +1,3 @@
+{
+  "extends": ["github:xova-dev/actions/config#27d3146cb27599d6b60334d8292c4a47da56da22"]
+}

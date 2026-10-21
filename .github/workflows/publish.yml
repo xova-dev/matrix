@@ -1,81 +1,29 @@
 name: Publish
-
 on:
   release:
-    types: [published]
+    types:
+      - published
   workflow_dispatch:
-
+    inputs:
+      release-tag:
+        description: Existing release tag; run this workflow at the same tag
+        type: string
+        required: true
 permissions:
   contents: read
-  id-token: write
-
 jobs:
-  baseline:
-    name: Check release conditions
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      contents: read
-      actions: read
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 2
-      - name: Check release commit and parent CI
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.event.release.tag_name || (github.ref_type == 'tag' && github.ref_name) }}
-        run: node scripts/check-release.mjs
-
-  documentation:
-    needs: baseline
-    permissions:
-      contents: read
-      pages: read
-    uses: ./.github/workflows/docs.yml
+  checks:
+    uses: ./.github/workflows/checks.yml
     with:
-      upload-pages: ${{ github.event_name == 'release' && !github.event.release.prerelease }}
-
-  publish:
-    needs: [baseline, documentation]
-    uses: xova-dev/.github/.github/workflows/npm-publish.yml@main
-    with:
-      # pnpm publish runs prepack to build the new version once.
-      verify-command: ''
-      publish-command: pnpm publish --access public --no-git-checks
-
-  deploy:
-    name: Deploy documentation to Pages
-    if: github.event_name == 'release' && !github.event.release.prerelease
-    needs: [publish, documentation]
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    concurrency:
-      group: github-pages
-      cancel-in-progress: false
+      source-sha: ${{ github.sha }}
+  release:
+    needs: checks
+    uses: xova-dev/actions/.github/workflows/release.yml@62e30426bc63933c2d6cf8970c05aad9d150f757
     permissions:
       contents: read
-      pages: write
       id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: Check latest stable release
-        id: release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
-        run: |
-          latest_tag="$(gh api "repos/$GH_REPO/releases/latest" --jq .tag_name)"
-          if [ "$RELEASE_TAG" = "$latest_tag" ]; then
-            echo 'current=true' >> "$GITHUB_OUTPUT"
-          else
-            echo 'current=false' >> "$GITHUB_OUTPUT"
-            echo 'Skipping deployment: this is not the latest stable release.'
-          fi
-      - name: Deploy to Pages
-        id: deployment
-        if: steps.release.outputs.current == 'true'
-        uses: actions/deploy-pages@v5
+      pages: write
+    with:
+      release-tag: ${{ github.event.release.tag_name || inputs.release-tag }}
+      expected-sha: ${{ needs.checks.outputs.source-sha }}
+      deploy-docs: ${{ github.event_name == 'release' && !github.event.release.prerelease }}
