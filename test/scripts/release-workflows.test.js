@@ -25,34 +25,61 @@ it('uses one pinned toolkit revision and validates supplied local contracts', as
   const references = []
   for (const file of readdirSync(new URL('../../.github/workflows/', import.meta.url))) {
     for (const job of Object.values(read(file.replace('.yml', '')).jobs)) {
-      if (!job.uses?.startsWith('xova-dev/actions/'))
-        continue
-      const [target, revision] = job.uses.split('@')
-      references.push(revision)
-      expect(job.steps).toBeUndefined()
-      expect(revision).toMatch(/^[0-9a-f]{40}$/)
-      if (process.env.XOVA_ACTIONS_ROOT) {
-        const contract = parse(readFileSync(resolve(process.env.XOVA_ACTIONS_ROOT, target.replace('xova-dev/actions/', '')), 'utf8')).on.workflow_call
-        for (const field of Object.keys(job.with || {})) expect(contract.inputs).toHaveProperty(field)
-        for (const [field, value] of Object.entries(contract.inputs)) {
-          if (value.required)
-            expect(job.with).toHaveProperty(field)
+      for (const call of [job, ...(job.steps || [])]) {
+        if (!call.uses?.startsWith('xova-dev/actions/'))
+          continue
+        const [target, revision] = call.uses.split('@')
+        references.push(revision)
+        expect(call.steps).toBeUndefined()
+        expect(revision).toMatch(/^[0-9a-f]{40}$/)
+        if (process.env.XOVA_ACTIONS_ROOT) {
+          const path = target.replace('xova-dev/actions/', '')
+          const definition = parse(readFileSync(resolve(process.env.XOVA_ACTIONS_ROOT, path, ...(path.startsWith('actions/') ? ['action.yml'] : [])), 'utf8'))
+          const contract = definition.on?.workflow_call || definition
+          for (const field of Object.keys(call.with || {})) expect(contract.inputs).toHaveProperty(field)
+          for (const [field, value] of Object.entries(contract.inputs)) {
+            if (value.required)
+              expect(call.with).toHaveProperty(field)
+          }
         }
       }
     }
   }
-  expect(references).toHaveLength(4)
+  expect(references).toHaveLength(5)
   expect(new Set(references).size).toBe(1)
-  expect(Object.keys(publish.jobs)).toEqual(['checks', 'release'])
-  expect(publish.jobs.release.needs).toBe('checks')
-  expect(publish.jobs.release.if).toBeUndefined()
   expect(publish.jobs.release['continue-on-error']).toBeUndefined()
-  expect(publish.jobs.release.with['expected-sha']).toBe(expression('needs.checks.outputs.source-sha'))
+  expect(publish.jobs.release.with['expected-sha']).toBe(expression('needs.checks.outputs.source-sha || needs.ci.outputs.source-sha'))
   if (process.env.XOVA_ACTIONS_ROOT) {
+    const template = readFileSync(resolve(process.env.XOVA_ACTIONS_ROOT, 'examples/matrix/publish.yml'), 'utf8').replaceAll('@v1', `@${references[0]}`)
+    expect(publish).toEqual(parse(template))
     const { parseProjectConfig } = await import(pathToFileURL(resolve(process.env.XOVA_ACTIONS_ROOT, 'dist/project-config.mjs')).href)
     for (const task of ['code', 'docs', 'release', 'recovery', 'deploy'])
       expect(() => parseProjectConfig(config, task)).not.toThrow()
   }
+})
+
+it('wires optional CI reuse to full product fallback and exact-source publication', () => {
+  expect(Object.keys(publish.jobs)).toEqual(['ci', 'ci-status', 'checks', 'release'])
+  expect(publish.jobs.ci.permissions).toEqual({ contents: 'read', actions: 'read' })
+  expect(publish.jobs.ci['continue-on-error']).toBe(true)
+  const lookup = publish.jobs.ci.steps.at(-1)
+  expect(lookup.id).toBe('ci')
+  expect(lookup.uses.split('@')[0]).toBe('xova-dev/actions/actions/checked-ci')
+  expect(lookup.with).toEqual({ 'expected-sha': expression('github.sha') })
+  expect(publish.jobs.ci.outputs).toEqual({
+    'source-sha': expression('steps.ci.outcome == \'success\' && steps.ci.outputs.source-sha || \'\''),
+    'input-error': expression('steps.ci.outputs.input-error'),
+  })
+  const report = publish.jobs['ci-status']
+  expect(report.needs).toBe('ci')
+  expect(report.permissions).toEqual({})
+  expect(report.if).toBe(expression('!cancelled() && (needs.ci.outputs.input-error == \'true\' || needs.ci.result != \'success\' || needs.ci.outputs.source-sha != github.sha)'))
+  expect(report['continue-on-error']).toBe(expression('needs.ci.outputs.input-error != \'true\''))
+  expect(report.steps[0].env.INPUT_ERROR).toBe(expression('needs.ci.outputs.input-error'))
+  expect(publish.jobs.checks.needs).toBe('ci')
+  expect(publish.jobs.checks.if).toBe(expression('!cancelled() && needs.ci.result != \'skipped\' && needs.ci.outputs.input-error != \'true\' && (needs.ci.result != \'success\' || needs.ci.outputs.source-sha != github.sha)'))
+  expect(publish.jobs.release.needs).toEqual(['ci', 'checks'])
+  expect(publish.jobs.release.if).toBe(expression('!cancelled() && needs.ci.result != \'skipped\' && needs.ci.outputs.input-error != \'true\' && ((needs.checks.result == \'success\' && needs.checks.outputs.source-sha == github.sha) || (needs.ci.result == \'success\' && needs.checks.result == \'skipped\' && needs.ci.outputs.source-sha == github.sha))'))
 })
 
 it('retains exact-source product matrices and never exempts releases using parent CI', () => {

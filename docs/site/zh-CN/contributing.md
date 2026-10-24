@@ -26,7 +26,7 @@ mise exec -- pnpm exec release-it 0.4.0 --ci
 ```
 
 准备要求工作区干净，更新包版本和根 `CHANGELOG.md`。预览成功不代表执行了项目检查。审查差异和暂存区：官方插件可能暂存新建的 changelog。失败时保留部分结果。检查记录并补充必要的迁移文档、示例或代码；候选提交不限制为版本和 changelog 文件，标题也不豁免检查。提交、标签、推送和创建 GitHub Release 继续分别遵循授权；创建 GitHub Release 会触发发布。
-CI 和发布共用产品自己的 `checks.yml`，命令和文档参数统一声明在 `.github/xova.json`。质量任务调用共享 `check.yml`；兼容性和 Electron 任务保留产品所有权，在质量检查成功后启动。普通 CI 可以使用共享纯文档判断；Publish 对精确来源 SHA 保持完整检查，之后调用共享 `release.yml`。通用 setup、配置校验、来源/恢复门禁与上游行为回归归 Xova Actions 维护。共享工作流默认读取 .github/xova.json，命令/setup 不提供工作流输入覆盖；文档检查、发布构建和恢复统一使用 check(kind=docs)，自定义任务仍可直接组合操作 actions。
+CI 和发布共用产品自己的 `checks.yml`，命令和文档参数统一声明在 `.github/xova.json`。质量任务调用共享 `check.yml`；兼容性和 Electron 任务保留产品所有权，在质量检查成功后启动。普通 CI 可以使用共享纯文档判断。Publish 先查询精确原生 SHA 的完整成功 CI，包括产品矩阵；没有合格证据时，包括纯文档精简运行、查询失败或超时，执行完整 `checks.yml`；致命查询输入错误阻断发布。只有合格 CI，或成功且返回精确 SHA 的完整回退，才能进入共享 `release.yml`。只有查询任务授予 actions:read 并容忍可恢复故障，完整产品检查和发布不容错。通用 setup、配置校验、来源/恢复门禁与上游行为回归归 Xova Actions 维护。共享工作流默认读取 .github/xova.json，命令/setup 不提供工作流输入覆盖；文档检查、发布构建和恢复统一使用 check(kind=docs)，自定义任务仍可直接组合操作 actions。
 
 共享 setup 在 setup.cache 中仅声明 pnpm 缓存，以 pnpm-lock.yaml 区分；文档直接继承该选择。npm 下载缓存保留在执行 npm 消费验证的兼容性任务中，避免只跑 pnpm 的质量检查先写入空的 npm 缓存。checks.yml 继续维护产品专属的 Electron 二进制缓存。兼容性和 Electron 验收步骤将 TMPDIR/TEMP/TMP 设为 runner.temp，让 Windows 临时消费项目使用检出所在卷和已缓存的 pnpm store。命中后仍执行安装、产品检查和来源校验。
 
@@ -38,7 +38,7 @@ CI 和发布共用产品自己的 `checks.yml`，命令和文档参数统一声�
 
 npm Trusted Publisher 继续标识 `xova-dev/matrix`、入口 `publish.yml` 与环境 `npm-publish`。环境和 Pages 策略仍由管理员配置。消费方测试只覆盖产品矩阵和接线，共享仓库负责通用发布与恢复回归。
 
-四处共享工作流引用统一固定到远端 CI 已通过的同一个工具库完整 SHA。普通 `mise exec -- pnpm check` 不依赖本地工具库绑定；可选使用 `XOVA_ACTIONS_ROOT=../actions mise exec -- pnpm check`，绑定同一工具库修订，额外校验真实工作流契约和配置解析器。绑定验证会在读取契约前拒绝不同 HEAD 或受跟踪文件、暂存区改动。准备预设继续独立固定。工具库 CI 不代表嵌套必需检查名称、Matrix 托管运行、OIDC 或真实部署已经验收。
+全部共享工作流和 action 引用统一固定到远端 CI 已通过的同一个工具库完整 SHA。普通 `mise exec -- pnpm check` 不依赖本地工具库绑定；可选使用 `XOVA_ACTIONS_ROOT=../actions mise exec -- pnpm check`，绑定同一工具库修订，额外校验真实工作流/action 契约、配置解析器和 Publish 示例。绑定验证会在读取契约前拒绝不同 HEAD 或受跟踪文件、暂存区改动。准备预设继续独立固定。工具库 CI 不代表嵌套必需检查名称、Matrix 托管运行、OIDC 或真实部署已经验收。
 
 ## 文档站点
 

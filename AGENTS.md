@@ -28,7 +28,7 @@ Details: [tests and profiles](test/README.md), [contributing](docs/site/en/contr
 ## Releases and Maintenance
 
 - Use native release-it with the pinned shared preparation preset for versions and root `CHANGELOG.md`; docs reference that file.
-- Verify the final tagged candidate, including release notes, migration docs and necessary code. Publish runs the complete compatibility/Electron matrix and package/docs checks on that exact SHA; parent CI and commit titles never exempt a candidate. See [publish workflow](.github/workflows/publish.yml).
+- Verify the final tagged candidate, including release notes, migration docs and necessary code. Publish requires the complete compatibility/Electron matrix on that exact SHA through qualified CI or full fallback, then package/docs checks; parent CI and commit titles never exempt a candidate. See [publish workflow](.github/workflows/publish.yml).
 - Run `pnpm exec release-it <version> --ci --dry-run` to preview and omit `--dry-run` to prepare locally. The preset disables committing, tagging, pushing and publication; the official changelog plugin may stage a new changelog. Git delivery and GitHub Release creation require explicit authorization.
 - Package verification consumes `TARBALL` when supplied and otherwise packs once for local compatibility tests. Publication explicitly builds first, uses pnpm pack without lifecycle scripts and verifies that same tarball before publishing.
 - Declare commands/setup/docs settings once in `.github/xova.json`. `checks.yml` retains product matrices and calls shared `check.yml` for quality; CI/Publish reuse it. Xova Actions owns generic setup/config/source/recovery behavior. Keep only product wiring tests here.
