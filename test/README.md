@@ -65,11 +65,11 @@ Vitest retains its default worker concurrency and per-file isolation. Compare th
 
 All profiles select versions from the same exact-version manifest:
 
-| Profile  | Vite                                | Rollup                              | Webpack                | esbuild                                             | Electron combinations | Total consumers |
-| -------- | ----------------------------------- | ----------------------------------- | ---------------------- | --------------------------------------------------- | --------------------- | --------------- |
-| daily    | Each major's first and last pin (8) | Each major's first and last pin (6) | First and last pin (2) | Last pin of every minor plus the support floor (18) | 3                     | 37              |
-| platform | Overall first and last pin (2)      | Overall first and last pin (2)      | First and last pin (2) | Overall first and last pin (2)                      | 3                     | 11              |
-| full     | 34                                  | 10                                  | 23                     | 32                                                  | 3                     | 102             |
+| Profile  | Vite                                | Rollup                              | Webpack                | esbuild                                                | Electron combinations | Total consumers |
+| -------- | ----------------------------------- | ----------------------------------- | ---------------------- | ------------------------------------------------------ | --------------------- | --------------- |
+| daily    | Each major's first and last pin (8) | Each major's first and last pin (6) | First and last pin (2) | Last pin of each retained minor plus support floor (4) | 3                     | 23              |
+| platform | Overall first and last pin (2)      | Overall first and last pin (2)      | First and last pin (2) | Overall first and last pin (2)                         | 3                     | 11              |
+| full     | 8                                   | 6                                   | 2                      | 6                                                      | 3                     | 25              |
 
 Counts exclude the shared CLI-only consumer and the two Nuxt consumers (native and mixed checks share each installation). Native Vite checks reuse each Vite consumer's installation. First/last refer to the pinned
 manifest, not a dynamically fetched registry version. Support ranges do not
@@ -79,6 +79,28 @@ The host workspace pins `schema-utils` to `4.5.0`, the version in the repository
 lockfile, through `hostWorkspaceOverrides`. This keeps historical Webpack fixtures
 reproducible after `schema-utils@4.8.1` added a `webpack ^5.112.0` peer. Strict peer
 checks remain enabled; published dependencies and host support ranges do not change.
+
+The manifest is a representative sample, not an exhaustive list of supported
+releases. Vite and Rollup retain the lowest and highest previously verified pin
+of each supported major; Webpack retains its support floor and highest verified
+pin. esbuild retains its support floor and highest verified pin plus two API
+boundary pairs used by Matrix's loader-ownership guards:
+
+- `0.14.0` / `0.14.54` straddle the introduction of `onLoad`'s `suffix` field in
+  [esbuild 0.14.3](https://github.com/evanw/esbuild/blob/main/CHANGELOG-2021.md#0143).
+- `0.19.0` / `0.19.12` straddle the introduction of `onLoad`'s `with` import
+  attributes in
+  [esbuild 0.19.7](https://github.com/evanw/esbuild/blob/main/CHANGELOG-2023.md#0197).
+
+These are existing verified pins on either side, not the exact API-introduction
+versions or an evenly spaced sample. The guards tolerate absent fields on old
+hosts. Matrix and its installed Unplugin adapter use the ordinary build/plugin
+API; esbuild's context API is not an additional sampling boundary for this runner.
+Every selected pin keeps the same typecheck and behavioral checks. The sampling
+does not remove any host, change a support range, reduce a fixture's scenarios,
+or change the three Electron combinations or two Nuxt endpoints. `full` runs
+every retained pin; `daily` keeps its existing selection rule over that manifest
+and `platform` keeps the overall endpoints.
 
 - Ubuntu / Node 24: `pnpm test:pack`; Ubuntu / Node 22: `pnpm test:pack --profile daily`.
 - Daily macOS/Windows: `pnpm test:pack --profile platform`.
@@ -100,12 +122,12 @@ Vite and Nuxt share fixture file/output helpers and failure diagnostics in
 consumers. The publication workflow supplies the already packed candidate and runs the daily profile; it never repacks during that check. Host versions coexist in pnpm workspaces with automatic peer
 installation and workspace-root peer resolution disabled.
 
-| Host    | Version lines                                            | Pinned versions | Runner                   |
-| ------- | -------------------------------------------------------- | --------------: | ------------------------ |
-| Vite    | 5.1–5.4, 6.0–6.4, 7.0–7.3, 8.0–8.3                       |              34 | `scripts/pack-vite.mjs`  |
-| Rollup  | 2.68, 2.70, 2.71, 2.79; 3.0, 3.29; 4.0, 4.38, 4.40, 4.64 |              10 | `scripts/pack-hosts.mjs` |
-| Webpack | 5.100–5.111, starting at 5.100.1                         |              23 | `scripts/pack-hosts.mjs` |
-| esbuild | 0.12–0.28                                                |              32 | `scripts/pack-hosts.mjs` |
+| Host    | Version lines                                               | Pinned versions | Runner                   |
+| ------- | ----------------------------------------------------------- | --------------: | ------------------------ |
+| Vite    | 5.1.0 / 5.4.21; 6.0.0 / 6.4.4; 7.0.0 / 7.3.7; 8.0.0 / 8.3.3 |               8 | `scripts/pack-vite.mjs`  |
+| Rollup  | 2.68.0 / 2.79.2; 3.0.0 / 3.29.5; 4.0.0 / 4.64.1             |               6 | `scripts/pack-hosts.mjs` |
+| Webpack | 5.100.1 / 5.111.1                                           |               2 | `scripts/pack-hosts.mjs` |
+| esbuild | 0.12.0; 0.14.0 / 0.14.54; 0.19.0 / 0.19.12; 0.28.2          |               6 | `scripts/pack-hosts.mjs` |
 
 Every version selected by a profile runs its row's checks below. A dash means that the check
 is outside this package matrix; it is not a compatibility claim.

@@ -15,14 +15,25 @@ it('rejects a relative external tarball before packing or installing', () => {
   expect(result.stdout + result.stderr).toContain('TARBALL must be an absolute path')
 })
 
-it('preserves the complete release matrix and Electron combinations', () => {
+it('preserves the complete release matrix, all hosts and framework combinations', () => {
   expect(selectCompatibility('full')).toEqual(compatibility)
-  for (const profile of ['daily', 'platform'])
-    expect(selectCompatibility(profile).electron).toEqual(compatibility.electron)
+  for (const profile of ['full', 'daily', 'platform']) {
+    const selected = selectCompatibility(profile)
+    expect(Object.keys(selected.hosts)).toEqual(Object.keys(compatibility.hosts))
+    expect(selected.electron).toEqual(compatibility.electron)
+    expect(selected.nuxt).toEqual(compatibility.nuxt)
+  }
   expect(() => selectCompatibility('typo')).toThrow('Unknown compatibility profile')
 })
 
-it('covers daily major boundaries and every esbuild minor without adding untested pins', () => {
+it('keeps manifest pins ordered and unique for native config boundary fixtures', () => {
+  for (const pins of Object.values(compatibility.hosts)) {
+    expect(pins.length).toBeGreaterThan(1)
+    expect(pins).toEqual([...new Set(pins)].sort((a, b) => a.localeCompare(b, 'en', { numeric: true })))
+  }
+})
+
+it('covers daily major boundaries and retained esbuild minors without adding untested pins', () => {
   const daily = selectCompatibility('daily')
   for (const [host, pins] of Object.entries(compatibility.hosts)) {
     const selected = daily.hosts[host]
