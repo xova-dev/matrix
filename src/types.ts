@@ -98,6 +98,10 @@ export interface ProjectConfig {
   root?: string
   /** Host config used by prepare, relative to the project root. Does not change target commands. */
   configFile?: string
+  /** Host for an unrecognized configFile name. Standard names, including explicit extensionless paths, infer their host. */
+  configHost?: 'vite' | 'electron-vite' | 'nuxt'
+  /** Set false for native host configuration: skip Matrix type preparation and host discovery. */
+  typegen?: false
   /** Finite commands run once per invocation before this project's first eligible target. */
   prepare?: CommandTarget['command']
   /** Named commands exposed by this project. */

@@ -2,18 +2,21 @@
 
 ## 构建入口
 
-以下入口导出相应宿主使用的默认 `matrix()` 插件工厂。接入步骤、Electron scope 和转换边界见[构建工具接入](../guides/integrations.md)。
+打包器入口导出默认 `matrix()` 插件工厂，Nuxt 入口导出 Module。原生/混合接入步骤、Electron scope 和转换边界见[构建工具接入](../guides/integrations.md)。
 
-| 入口                   | 宿主                 |
-| ---------------------- | -------------------- |
-| `@xova/matrix/vite`    | Vite / electron-vite |
-| `@xova/matrix/rollup`  | Rollup               |
-| `@xova/matrix/webpack` | Webpack              |
-| `@xova/matrix/esbuild` | esbuild              |
+| 入口                   | 宿主                       |
+| ---------------------- | -------------------------- |
+| `@xova/matrix/vite`    | Vite / electron-vite       |
+| `@xova/matrix/nuxt`    | Nuxt Vite SSR / SPA Module |
+| `@xova/matrix/rollup`  | Rollup                     |
+| `@xova/matrix/webpack` | Webpack                    |
+| `@xova/matrix/esbuild` | esbuild                    |
 
 默认虚拟模块为 `virtual:matrix/runtime`，设置 scope 后为 `virtual:matrix/runtime/<scope>`。这些模块由构建插件实现，不是 npm 中可直接解析的文件。
 
 ## 插件选项
+
+Nuxt 入口导出 Module，不是插件工厂；在 `modules` 注册，可用 `['@xova/matrix/nuxt', options]` 传参。支持 SSR 应用与 `ssr: false` SPA，客户端与服务端共享同一公开构建快照，业务公开前缀默认为 `['VITE_', 'NUXT_PUBLIC_']`，显式 `envPrefix` 替换此默认值。不同原始键映射同一 config 字段会报错，值相同也不例外；类型收集还检查跨产品别名。类型由 Nuxt `rootDir` 持有并自动引用，包括自定义输出，绝不另写到 `srcDir`。它不映射或代理 `runtimeConfig`。`project.typegen: false` 配合 Module `types: false` 表示仅使用混合运行时，不禁用虚拟模块。详见[混合 Nuxt 接入](../guides/integrations.md#混合-nuxt-ssr-与-spa-接入)。
 
 将这些选项传给 Vite、Rollup、Webpack 或 esbuild 入口的 `matrix()`。它们属于宿主配置，不放在 `matrix.config.ts` 中。
 
@@ -24,7 +27,7 @@
 | `inline`    | `true`                                    | 将支持的静态读取替换为字面量；`false` 仅保留不可变虚拟 runtime 接入。                                                                 |
 | `types`     | 有 Matrix 上下文时自动开启，Vitest 除外   | `false` 关闭生成；`true` 或对象形式显式开启，包括 Vitest 或缺少 Matrix 上下文时。`{ output: '...' }` 指定自定义路径。                 |
 
-**默认行为变更：**缺少 Matrix CLI 上下文时，所有适配器的自动生成都保留现有声明、不创建输出目录，每个插件实例仅警告一次。请通过 Matrix 启动目标，或运行 `matrix prepare`。运行时配置可能不完整，显式开启类型生成不会补齐上下文。
+**默认行为变更：**缺少 Matrix CLI 上下文时，原始构建工具适配器的自动生成保留现有声明、不创建输出目录，每个插件实例仅警告一次。请通过 Matrix 启动目标，或运行 `matrix prepare`。运行时配置可能不完整，显式开启类型生成不会补齐上下文。
 
 Matrix CLI dev/build 的共享项目声明规则见[类型准备](../guides/integrations.md#类型准备)。
 

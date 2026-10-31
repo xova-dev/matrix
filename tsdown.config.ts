@@ -9,6 +9,7 @@ export default defineConfig({
     'plan': 'src/execution/plan.ts',
     'cli': 'src/cli/index.ts',
     'vite': 'src/unplugin/vite.ts',
+    'nuxt': 'src/nuxt.ts',
     'rollup': 'src/unplugin/rollup.ts',
     'webpack': 'src/unplugin/webpack.ts',
     'webpack-loader': 'src/unplugin/webpack-loader.ts',

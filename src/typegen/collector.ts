@@ -19,3 +19,7 @@ export function collectPreparedTypes(options: GenerateMatrixTypesOptions | undef
 export function isAutomaticTypeCollection(): boolean {
   return context[key]?.automatic ?? false
 }
+
+export function isCollectingTypes(): boolean {
+  return context[key] !== undefined
+}

@@ -47,6 +47,23 @@ describe('matrix runtime snapshot', () => {
   })
 
   it.each([
+    ['VITE_API_BASE', 'NUXT_PUBLIC_API_BASE', 'apiBase'],
+    ['NUXT_PUBLIC_API_BASE', 'NUXT_PUBLIC_API__BASE', 'apiBase'],
+    ['APP_API_BASE', 'VITE_API_BASE', 'apiBase'],
+  ])('rejects strict public aliases %s / %s without leaking values', (first, second, field) => {
+    for (const secondValue of ['FIRST_PRIVATE_VALUE', 'SECOND_PRIVATE_VALUE']) {
+      const env = { [first]: 'FIRST_PRIVATE_VALUE', [second]: secondValue }
+      const create = (): unknown => createMatrixRuntime(env, ['VITE_', 'NUXT_PUBLIC_', 'APP_'], {}, true)
+      expect(create).toThrow(new RegExp(`^Ambiguous environment fields ${[first, second].sort().join(' and ')}: both map to matrix\\.config\\.${field}$`))
+    }
+  })
+
+  it('keeps bare Vite defaults narrow and legacy alias behavior unchanged', () => {
+    expect(createMatrixRuntime({ VITE_API_BASE: 'vite', NUXT_PUBLIC_API_BASE: 'nuxt' }).config).toEqual({ apiBase: 'vite' })
+    expect(createMatrixRuntime({ VITE_API_BASE: 'vite', APP_API_BASE: 'app' }, ['VITE_', 'APP_']).config).toEqual({ apiBase: 'vite' })
+  })
+
+  it.each([
     ['development', true, false, false],
     ['dev', true, false, false],
     ['test', true, false, true],

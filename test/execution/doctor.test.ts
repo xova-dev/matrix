@@ -79,6 +79,9 @@ describe('static doctor', () => {
     const before = await readdir(cwd, { recursive: true })
     expect(await diagnoseWorkspace(input(raw, cwd))).toEqual([])
     expect(await readdir(cwd, { recursive: true })).toEqual(before)
+    raw.projects.app!.typegen = false
+    raw.projects.app!.configFile = 'not-a-matrix-host/nuxt.config.ts'
+    expect(await diagnoseWorkspace(input(raw, cwd))).toEqual([])
   })
 
   it('aggregates project and cleanup errors without changing files', async () => {
@@ -88,7 +91,7 @@ describe('static doctor', () => {
     const before = await readdir(cwd, { recursive: true })
     const raw: MatrixConfig = {
       projects: {
-        missing: { root: 'missing', configFile: 'vite.config.ts', targets: {} },
+        missing: { root: 'missing', typegen: false, configFile: 'vite.config.ts', targets: {} },
         file: { root: 'not-a-directory', configFile: 'vite.config.ts', targets: {} },
         app: { root: 'project', prepare: 'must-not-run', targets: {
           root: { command: 'must-not-run', outputDir: '.', artifacts: {} },

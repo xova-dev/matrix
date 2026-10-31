@@ -4,6 +4,7 @@ export default defineMatrixConfig({
   projects: {
     web: {
       root: './apps/web',
+      typegen: false,
       targets: {
         dev: { command: 'node dev.mjs', readyWhen: { type: 'port', port: 5310 } },
         build: { command: 'node build.mjs', artifacts: { mode: 'archive' } },
@@ -13,6 +14,7 @@ export default defineMatrixConfig({
     },
     desktop: {
       root: './apps/desktop',
+      typegen: false,
       targets: {
         dev: { command: 'node dev.mjs', readyWhen: { type: 'port', port: 5320 } },
         build: { command: ['node build.mjs', 'node test.mjs'], artifacts: { mode: 'move' } },

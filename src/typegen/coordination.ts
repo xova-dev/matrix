@@ -17,6 +17,7 @@ function signature(options: GenerateMatrixTypesOptions): string {
     options.scope ?? '',
     ensureMatrixEnvPrefix(options.envPrefix),
     Object.entries(schema).sort(([a], [b]) => a.localeCompare(b)),
+    !!options.strictPublicFields,
   ])
 }
 

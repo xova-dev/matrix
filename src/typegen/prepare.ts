@@ -10,14 +10,21 @@ import { containsPath, resolveFilesystemPath } from '../utils/path.js'
 import { matrixRuntimeModuleId, matrixTypeEnvKeys, matrixTypeEnvProperties, matrixTypeOutput, renderMatrixTypes } from './generate.js'
 
 export interface TypeHost {
-  name: 'vite' | 'electron-vite'
+  name: 'vite' | 'electron-vite' | 'nuxt'
   configFile: string
+  explicit?: true
 }
 
-const typeHostRules: Array<{ name: TypeHost['name'], pattern: RegExp }> = [
-  { name: 'electron-vite', pattern: /^electron\.vite\.config\.[cm]?[jt]s$/ },
-  { name: 'vite', pattern: /^vite\.config\.[cm]?[jt]s$/ },
+const typeHostRules: Array<{ name: TypeHost['name'], basename: string }> = [
+  { name: 'nuxt', basename: 'nuxt.config' },
+  { name: 'electron-vite', basename: 'electron.vite.config' },
+  { name: 'vite', basename: 'vite.config' },
 ]
+
+function matchesTypeHost(filename: string, basename: string, explicit = false): boolean {
+  return (explicit && filename === basename)
+    || (filename.startsWith(`${basename}.`) && /^[cm]?[jt]s$/.test(filename.slice(basename.length + 1)))
+}
 
 export interface TypePreparationRequest {
   host: TypeHost
@@ -32,18 +39,23 @@ export type TypePreparationResult = { types: GenerateMatrixTypesOptions[] | null
 export class TypePreparationCancelled extends Error {}
 
 /** Inspect only project-root files unless the user explicitly selects another path. */
-export async function findTypeHost(cwd: string, configFile?: string, signal?: AbortSignal): Promise<TypeHost | undefined> {
+export async function findTypeHost(cwd: string, configFile?: string, signal?: AbortSignal, configHost?: TypeHost['name']): Promise<TypeHost | undefined> {
   signal?.throwIfAborted()
+  if (configHost && configFile === undefined)
+    throw new Error('project.configHost requires project.configFile')
   if (configFile !== undefined) {
     const selected = resolveFilesystemPath(cwd, configFile)
-    const rule = typeHostRules.find(rule => rule.pattern.test(path.basename(selected)))
-    if (!rule)
-      throw new Error(`Unsupported host config filename: ${selected}. Use electron.vite.config.* or vite.config.*.`)
+    const rule = typeHostRules.find(rule => matchesTypeHost(path.basename(selected), rule.basename, true))
+    if (configHost && rule && rule.name !== configHost)
+      throw new Error(`project.configHost ${configHost} does not match ${rule.name} config filename: ${selected}`)
+    const name = configHost ?? rule?.name
+    if (!name)
+      throw new Error(`Unsupported host config filename: ${selected}. Use nuxt.config, electron.vite.config or vite.config with an optional JS/TS module extension, or set project.configHost for a custom filename.`)
     const info = await stat(selected)
     signal?.throwIfAborted()
     if (!info.isFile())
       throw new Error(`Host config is not a file: ${selected}`)
-    return { name: rule.name, configFile: selected }
+    return { name, configFile: selected, explicit: true }
   }
   const entries = await readdir(cwd, { withFileTypes: true }).catch((error: NodeJS.ErrnoException) => {
     if (error.code === 'ENOENT')
@@ -55,7 +67,7 @@ export async function findTypeHost(cwd: string, configFile?: string, signal?: Ab
     const candidates: string[] = []
     for (const entry of entries) {
       signal?.throwIfAborted()
-      if (rule.pattern.test(entry.name) && (entry.isFile() || (entry.isSymbolicLink() && (await stat(path.join(cwd, entry.name))).isFile())))
+      if (matchesTypeHost(entry.name, rule.basename) && (entry.isFile() || (entry.isSymbolicLink() && (await stat(path.join(cwd, entry.name))).isFile())))
         candidates.push(entry.name)
     }
     signal?.throwIfAborted()
@@ -81,10 +93,19 @@ export async function resolveHostTypes(cwd: string, env: EnvMap, request: TypePr
     })
     let result: TypePreparationResult | undefined
     let failure: Error | undefined
+    let forceKill: ReturnType<typeof setTimeout> | undefined
     const finish = (error?: Error): void => {
       failure ??= error
       // Configs may leave timers or watchers behind; do not wait for those to drain.
-      child.kill('SIGKILL')
+      if (request.host.name === 'nuxt' && !result) {
+        // Windows terminates SIGTERM recipients without running JS cleanup.
+        if (child.connected)
+          child.send('cancel', error => error && child.kill('SIGKILL'))
+        forceKill ??= setTimeout(() => child.kill('SIGKILL'), 1000)
+      }
+      else {
+        child.kill('SIGKILL')
+      }
     }
     const interrupt = (): void => {
       process.exitCode = 130
@@ -112,6 +133,7 @@ export async function resolveHostTypes(cwd: string, env: EnvMap, request: TypePr
     child.once('error', error => finish(error))
     child.once('close', (code) => {
       clearTimeout(timer)
+      clearTimeout(forceKill)
       if (signal) {
         signal.removeEventListener('abort', abort)
       }
@@ -155,6 +177,7 @@ export function mergePreparedTypes(batches: GenerateMatrixTypesOptions[][]): Gen
         identity,
         ensureMatrixEnvPrefix(options.envPrefix),
         Object.entries(options.envSchema ?? {}).sort(([a], [b]) => a.localeCompare(b)),
+        !!options.strictPublicFields,
       ])
       if (signatures.has(output) && signatures.get(output) !== signature)
         throw new Error(`Conflicting Matrix type contracts at ${output}; keep scope, prefixes, and output stable across products.`)

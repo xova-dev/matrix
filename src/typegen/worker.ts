@@ -25,30 +25,38 @@ process.once('message', async (request: TypePreparationRequest) => {
     }, request.automatic)
     const root = await resolveExistingPath(process.cwd())
     const require = createRequire(path.join(root, 'package.json'))
-    const hostEntry = require.resolve(request.host.name)
-    const viteEntry = request.host.name === 'vite' ? hostEntry : createRequire(hostEntry).resolve('vite')
-    type ViteApi = Pick<typeof import('vite'), 'resolveConfig'>
-    const vite = await import(pathToFileURL(viteEntry).href) as Partial<ViteApi> & { default?: Partial<ViteApi> }
-    const resolveConfig = vite.resolveConfig ?? vite.default?.resolveConfig
-    if (typeof resolveConfig !== 'function')
-      throw new Error(`Vite at ${viteEntry} does not expose resolveConfig`)
-    const inline = { configFile: request.host.configFile, mode: request.mode, logLevel: 'silent' as const }
-    const command = request.command ?? 'serve'
-    const nodeEnv = request.nodeEnv ?? 'development'
-    if (request.host.name === 'vite') {
-      await resolveConfig(inline, command, nodeEnv, nodeEnv)
+    if (request.host.name === 'nuxt') {
+      const { resolveNuxtTypes } = (import.meta.url.endsWith('.ts')
+        ? await import(new URL('./nuxt.ts', import.meta.url).href)
+        : await import('./nuxt.js')) as typeof import('./nuxt.js')
+      await resolveNuxtTypes(root, request)
     }
     else {
-      const electron = await import(pathToFileURL(hostEntry).href) as {
-        resolveConfig: (config: InlineConfig, command: 'serve' | 'build', mode: string) => Promise<{ config?: { main?: InlineConfig, preload?: InlineConfig, renderer?: InlineConfig } }>
+      const hostEntry = require.resolve(request.host.name)
+      const viteEntry = request.host.name === 'vite' ? hostEntry : createRequire(hostEntry).resolve('vite')
+      type ViteApi = Pick<typeof import('vite'), 'resolveConfig'>
+      const vite = await import(pathToFileURL(viteEntry).href) as Partial<ViteApi> & { default?: Partial<ViteApi> }
+      const resolveConfig = vite.resolveConfig ?? vite.default?.resolveConfig
+      if (typeof resolveConfig !== 'function')
+        throw new Error(`Vite at ${viteEntry} does not expose resolveConfig`)
+      const inline = { configFile: request.host.configFile, mode: request.mode, logLevel: 'silent' as const }
+      const command = request.command ?? 'serve'
+      const nodeEnv = request.nodeEnv ?? 'development'
+      if (request.host.name === 'vite') {
+        await resolveConfig(inline, command, nodeEnv, nodeEnv)
       }
-      process.env.NODE_ENV_ELECTRON_VITE = nodeEnv
-      const resolved = await electron.resolveConfig({ ...inline, root }, command, nodeEnv)
-      // Electron's dev lifecycle builds main/preload but serves renderer. Only resolve those configs here.
-      for (const context of ['main', 'preload', 'renderer'] as const) {
-        const config = resolved.config?.[context]
-        if (config)
-          await resolveConfig(config, context === 'renderer' ? command : 'build', nodeEnv, nodeEnv)
+      else {
+        const electron = await import(pathToFileURL(hostEntry).href) as {
+          resolveConfig: (config: InlineConfig, command: 'serve' | 'build', mode: string) => Promise<{ config?: { main?: InlineConfig, preload?: InlineConfig, renderer?: InlineConfig } }>
+        }
+        process.env.NODE_ENV_ELECTRON_VITE = nodeEnv
+        const resolved = await electron.resolveConfig({ ...inline, root }, command, nodeEnv)
+        // Electron's dev lifecycle builds main/preload but serves renderer. Only resolve those configs here.
+        for (const context of ['main', 'preload', 'renderer'] as const) {
+          const config = resolved.config?.[context]
+          if (config)
+            await resolveConfig(config, context === 'renderer' ? command : 'build', nodeEnv, nodeEnv)
+        }
       }
     }
     // Send field names and schema only, never configuration values.

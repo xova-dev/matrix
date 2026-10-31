@@ -73,6 +73,13 @@ This assumes the Web project already has Vite installed and builds independently
 
 <!-- #endregion quick-start -->
 
+## Integration paths
+
+- **Native:** Matrix runs the host's commands and supplies environment variables; application code uses native APIs such as Vite's `import.meta.env` or Nuxt's `useRuntimeConfig()`, with `project.typegen: false`.
+- **Mixed:** explicitly install a Matrix adapter to use the immutable `virtual:matrix/runtime` build snapshot and shared-product types alongside the host's APIs.
+
+See [build tool integration](docs/site/en/guides/integrations.md) for both paths, including [native Nuxt](docs/site/en/guides/integrations.md#native-nuxt-integration) and the optional [Nuxt SSR/SPA Module](docs/site/en/guides/integrations.md#mixed-nuxt-ssr-and-spa-integration).
+
 ## Documentation
 
 The [documentation guide](docs/site/en/index.md) provides topic-based reading paths and a complete reference:
@@ -80,7 +87,7 @@ The [documentation guide](docs/site/en/index.md) provides topic-based reading pa
 - [Core concepts](docs/site/en/concepts.md): projects, products, variants, and targets.
 - [Configuration reference](docs/site/en/reference/configuration.md): fields, defaults, overrides, readiness, dependencies, identity, and versions.
 - [Environments and schemas](docs/site/en/guides/environments.md): precedence, dotenv, and typed public values.
-- [Build tool integration](docs/site/en/guides/integrations.md): Vite/Rollup/Webpack/esbuild, runtime snapshots, Electron scopes, and types.
+- [Build tool integration](docs/site/en/guides/integrations.md): Vite/Nuxt/Rollup/Webpack/esbuild, runtime snapshots, Electron scopes, and types.
 - [Plugin and runtime reference](docs/site/en/reference/plugins.md): adapter options and public runtime fields.
 - [Execution and artifacts](docs/site/en/guides/execution.md): target defaults, preparation, shutdown, and delivery.
 - [CLI reference](docs/site/en/reference/cli.md) and [troubleshooting](docs/site/en/guides/troubleshooting.md).

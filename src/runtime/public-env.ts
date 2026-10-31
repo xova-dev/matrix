@@ -42,25 +42,25 @@ export function publicEnvConfigName(key: string, prefixes: string[]): string {
   return prefix ? camelCase(key.slice(prefix.length).toLowerCase()) : ''
 }
 
-/** Typed fields must have an unambiguous public property; legacy collisions keep their order. */
-export function publicConfigFields(keys: string[], prefixes: string[], schema: EnvSchema): Map<string, string> {
+/** Nuxt rejects all aliases; other adapters preserve legacy untyped collision order. */
+export function publicConfigFields(keys: string[], prefixes: string[], schema: EnvSchema, strictPublicFields = false): Map<string, string> {
   const fields = new Map<string, string>()
   for (const key of keys) {
     const name = publicEnvConfigName(key, prefixes)
     if (!name)
       continue
     const previous = fields.get(name)
-    if (previous && (Object.hasOwn(schema, previous) || Object.hasOwn(schema, key)))
+    if (previous && previous !== key && (strictPublicFields || Object.hasOwn(schema, previous) || Object.hasOwn(schema, key)))
       throw new Error(`Ambiguous environment fields ${previous} and ${key}: both map to matrix.config.${name}`)
     fields.set(name, key)
   }
   return fields
 }
 
-export function createPublicConfig(env: Record<string, string>, prefix: EnvPrefix | undefined = ['VITE_', 'MATRIX_'], schema: EnvSchema = {}): Record<string, Scalar> {
+export function createPublicConfig(env: Record<string, string>, prefix: EnvPrefix | undefined = ['VITE_', 'MATRIX_'], schema: EnvSchema = {}, strictPublicFields = false): Record<string, Scalar> {
   const prefixes = normalizeEnvPrefix(prefix)
   const config: Record<string, Scalar> = {}
-  const fields = publicConfigFields(publicEnvKeys({ ...schema, ...env }, prefixes), prefixes, schema)
+  const fields = publicConfigFields(publicEnvKeys({ ...schema, ...env }, prefixes), prefixes, schema, strictPublicFields)
   for (const [name, key] of fields) {
     const field = Object.hasOwn(schema, key) ? schema[key] : undefined
     const value = Object.hasOwn(env, key) ? env[key] : field?.default

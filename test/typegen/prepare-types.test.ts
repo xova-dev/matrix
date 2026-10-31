@@ -29,9 +29,14 @@ afterEach(async () => {
     await rm(directory, { recursive: true, force: true })
 })
 
-async function workspace(config: string, project: { root?: string, configFile?: string } = {}): Promise<string> {
+async function temporaryWorkspace(): Promise<string> {
   const cwd = path.normalize(await realpath(await mkdtemp(path.join(os.tmpdir(), 'matrix host types-'))))
   directories.push(cwd)
+  return cwd
+}
+
+async function workspace(config: string, project: { root?: string, configFile?: string, configHost?: 'vite' | 'electron-vite' | 'nuxt' } = {}): Promise<string> {
+  const cwd = await temporaryWorkspace()
   await symlink(fileURLToPath(new URL('../../node_modules', import.meta.url)), path.join(cwd, 'node_modules'), 'junction')
   await writeFile(path.join(cwd, 'package.json'), '{"type":"module"}')
   await writeFile(path.join(cwd, 'matrix.config.mjs'), [
@@ -348,7 +353,7 @@ describe('host-aware type preparation', { timeout: 15_000 }, () => {
     await expect(access(path.join(cwd, '.matrix'))).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
-  it('discovers only root files and prefers electron-vite over Vite', async () => {
+  it('discovers only root files in Nuxt, electron-vite, Vite priority order', async () => {
     const cwd = await workspace('throw new Error("Must not evaluate configs during discovery");')
     const nested = path.join(cwd, 'nested')
     await mkdir(path.join(nested, 'config'), { recursive: true })
@@ -362,6 +367,8 @@ describe('host-aware type preparation', { timeout: 15_000 }, () => {
     await expect(findTypeHost(cwd)).rejects.toThrow('Ambiguous vite configuration')
     await writeFile(path.join(cwd, 'electron.vite.config.mjs'), 'export default {};')
     expect(await findTypeHost(cwd)).toEqual({ name: 'electron-vite', configFile: path.join(cwd, 'electron.vite.config.mjs') })
+    await writeFile(path.join(cwd, 'nuxt.config.ts'), 'export default {};')
+    expect(await findTypeHost(cwd)).toEqual({ name: 'nuxt', configFile: path.join(cwd, 'nuxt.config.ts') })
   })
 
   it('uses project.configFile relative to project root instead of automatic candidates', async () => {
@@ -382,6 +389,53 @@ describe('host-aware type preparation', { timeout: 15_000 }, () => {
     await writeFile(path.join(projectRoot, 'config/vite.config.mjs'), 'throw new Error("Selected config failed");')
     await expect(runCli(['prepare'])).rejects.toThrow('Selected config failed')
     expect(await readFile(path.join(projectRoot, '.matrix/types/matrix-runtime-selected.d.ts'), 'utf8')).toBe(declaration)
+  })
+
+  it.each(['vite.config', 'custom.config.mjs'])('loads explicit Vite filename %s without guessing its host', async (configFile) => {
+    const cwd = await workspace('export default { plugins: [matrix({ envPrefix: "APP_" })] };', {
+      configFile,
+      ...(configFile === 'custom.config.mjs' && { configHost: 'vite' as const }),
+    })
+    await rename(path.join(cwd, 'vite.config.mjs'), path.join(cwd, configFile))
+    expect(await findTypeHost(cwd)).toBeUndefined()
+    await runCli(['prepare'])
+    const declaration = await readFile(path.join(cwd, '.matrix/types/matrix-runtime.d.ts'), 'utf8')
+    expect(declaration).toContain('readonly required: number')
+    expect(declaration).toContain('readonly alpha?: string')
+  })
+
+  it.each([
+    ['nuxt', 'nuxt.config'],
+    ['electron-vite', 'electron.vite.config'],
+    ['vite', 'vite.config'],
+  ] as const)('discovers all six %s JS/TS extensions while keeping extensionless configs explicit-only', async (name, basename) => {
+    const cwd = await temporaryWorkspace()
+    const configFile = path.join(cwd, basename)
+    await writeFile(configFile, 'export default {}')
+    expect(await findTypeHost(cwd)).toBeUndefined()
+    expect(await findTypeHost(cwd, basename)).toEqual({ name, configFile, explicit: true })
+    await expect(findTypeHost(cwd, basename, undefined, name === 'vite' ? 'nuxt' : 'vite')).rejects.toThrow(`does not match ${name}`)
+    for (const extension of ['js', 'mjs', 'cjs', 'ts', 'mts', 'cts']) {
+      const filename = `${basename}.${extension}`
+      const selected = path.join(cwd, filename)
+      await writeFile(selected, 'export default {}')
+      expect(await findTypeHost(cwd)).toEqual({ name, configFile: selected })
+      expect(await findTypeHost(cwd, filename)).toEqual({ name, configFile: selected, explicit: true })
+      await rm(selected)
+    }
+    for (const extension of ['ts', 'js'])
+      await writeFile(path.join(cwd, `${basename}.${extension}`), 'export default {}')
+    await expect(findTypeHost(cwd)).rejects.toThrow(`Ambiguous ${name} configuration`)
+    expect(await findTypeHost(cwd, basename)).toEqual({ name, configFile, explicit: true })
+  })
+
+  it.each(['custom.mjs', 'vite.config.txt', 'my-vite.config.ts', 'nuxt.config.js.backup', 'electron.config'])('requires an explicit host for unrecognized filename %s', async (filename) => {
+    const cwd = await temporaryWorkspace()
+    const configFile = path.join(cwd, filename)
+    await writeFile(configFile, 'export default {}')
+    expect(await findTypeHost(cwd)).toBeUndefined()
+    await expect(findTypeHost(cwd, filename)).rejects.toThrow('Unsupported host config filename')
+    expect(await findTypeHost(cwd, filename, undefined, 'vite')).toEqual({ name: 'vite', configFile, explicit: true })
   })
 
   it.each([

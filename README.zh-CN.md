@@ -73,6 +73,13 @@ pnpm exec matrix doctor
 
 <!-- #endregion quick-start -->
 
+## 接入方式
+
+- **原生接入：**Matrix 运行宿主命令并提供环境变量；应用使用 Vite 的 `import.meta.env`、Nuxt 的 `useRuntimeConfig()` 等原生 API，并设置 `project.typegen: false`。
+- **混合接入：**显式安装 Matrix 适配器，在宿主 API 之外使用不可变的 `virtual:matrix/runtime` 构建快照与共享产品类型。
+
+两条路径见[构建工具接入](docs/site/zh-CN/guides/integrations.md)，包括 [Nuxt 原生接入](docs/site/zh-CN/guides/integrations.md#原生-nuxt-接入)与可选的 [Nuxt SSR/SPA Module](docs/site/zh-CN/guides/integrations.md#混合-nuxt-ssr-与-spa-接入)。
+
 ## 文档
 
 [文档导航](docs/site/zh-CN/index.md)提供按主题的阅读路径和完整参考：
@@ -80,7 +87,7 @@ pnpm exec matrix doctor
 - [核心概念](docs/site/zh-CN/concepts.md)：项目、产品、变体与目标。
 - [配置参考](docs/site/zh-CN/reference/configuration.md)：字段、默认值、覆盖、就绪、依赖、身份与版本。
 - [环境与 schema](docs/site/zh-CN/guides/environments.md)：优先级、dotenv 和公开值类型。
-- [构建工具接入](docs/site/zh-CN/guides/integrations.md)：Vite/Rollup/Webpack/esbuild、runtime 快照、Electron scope 与类型。
+- [构建工具接入](docs/site/zh-CN/guides/integrations.md)：Vite/Nuxt/Rollup/Webpack/esbuild、runtime 快照、Electron scope 与类型。
 - [插件与 runtime 参考](docs/site/zh-CN/reference/plugins.md)：适配器选项与公开 runtime 字段。
 - [执行与产物](docs/site/zh-CN/guides/execution.md)：目标默认值、准备、进程关闭与产物交付。
 - [CLI 参考](docs/site/zh-CN/reference/cli.md)与[排错指南](docs/site/zh-CN/guides/troubleshooting.md)。

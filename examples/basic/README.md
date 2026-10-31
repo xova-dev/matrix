@@ -4,6 +4,11 @@ This is a Matrix workspace example with two projects and no framework dependency
 small enough to run locally, while covering the main configuration points used by a multi-target
 application.
 
+Both projects choose `typegen: false`: scripts consume standard `process.env` and
+do not need Matrix runtime modules or declarations. `matrix prepare` therefore
+does not discover a host or generate generic types. Existing mixed consumers
+can omit this option to retain their current preparation behavior.
+
 It demonstrates:
 
 - a Web project and a simulated Desktop project (no Electron)

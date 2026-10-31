@@ -10,6 +10,7 @@ import { execaSync } from 'execa'
 import path from 'pathe'
 import { verifyHostCompatibility } from './pack-hosts.mjs'
 import { selectCompatibility } from './pack-matrix.mjs'
+import { verifyNuxtCompatibility } from './pack-nuxt.mjs'
 import { createPackageTimings } from './pack-timings.mjs'
 import { verifyViteCompatibility } from './pack-vite.mjs'
 
@@ -233,7 +234,7 @@ try {
       const main = await import('@xova/matrix')
       const { createRequire } = await import('node:module')
       const { default: assert } = await import('node:assert/strict')
-      for (const host of ['vite', 'rollup', 'webpack', 'esbuild'])
+      for (const host of ['vite', 'rollup', 'webpack', 'esbuild', 'nuxt'])
         assert.throws(() => createRequire(import.meta.url).resolve(host), { code: 'MODULE_NOT_FOUND' })
       const config = await import('@xova/matrix/config')
       const plan = await import('@xova/matrix/plan')
@@ -367,6 +368,7 @@ try {
   if (shutdownVerified !== null) {
     await verifyViteCompatibility(tarball, path.join(temporaryRoot, 'vite-workspace'), compatibility, concurrency, timings)
     await verifyHostCompatibility(tarball, path.join(temporaryRoot, 'host-workspace'), compatibility, concurrency, timings)
+    await verifyNuxtCompatibility(tarball, path.join(temporaryRoot, 'nuxt-workspace'), compatibility, timings)
   }
 }
 catch (error) {

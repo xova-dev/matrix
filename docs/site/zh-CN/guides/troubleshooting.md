@@ -28,13 +28,15 @@ staging 构建得到 `MATRIX_ENV_NAME=staging` 和 `NODE_ENV=production` 是正�
 
 只有宿主公开前缀内的字段进入 `matrix.config`；声明 `envSchema` 不扩大公开前缀。`VITE_API_BASE` 对应 `matrix.config.apiBase`。boolean 字符串必须精确为 `true` 或 `false`；最终值非法时直接报错，不回退默认值。见[环境说明](environments.md)。
 
+混合 Nuxt 默认使用 `['VITE_', 'NUXT_PUBLIC_']`。`Ambiguous environment fields` 表示不同原始键映射到同一 camelCase config 字段，包括从不同产品收集出的别名；值相同也不消除歧义。请统一原始变量名，或显式设置 `envPrefix` 替换默认前缀以排除别名，不要公开私密前缀。同一原始键的产品／环境覆盖不受影响。
+
 ## 找不到虚拟 runtime 模块或类型
 
 在实际宿主构建中安装并配置 Matrix 插件；仅生成声明不能实现 `virtual:matrix/runtime`。运行 `matrix prepare app`，将 `.matrix/types` 加入消费项目的 `tsconfig.json`，并使 import 后缀与插件 scope 一致。例如 `main` scope 使用 `virtual:matrix/runtime/main`。
 
 Electron main/preload 使用不同 scope；自定义类型输出时也要加入对应路径。Vitest 默认关闭插件自动类型生成，可用 `types: true` 显式开启；`types: false` 也关闭 prepare 输出。没有通过 Matrix 启动的独立构建不接收 Matrix 内部 schema 上下文。
 
-宿主发现失败时，显式设置项目 `configFile`；文件名仍须符合 `vite.config.*` 或 `electron.vite.config.*` 的 JS/TS 模块扩展名规则。其他宿主保留通用类型准备，不解析其宿主配置。旧声明不会自动删除；修改 scope／输出路径后，检查过期文件。见[类型准备](integrations.md#类型准备)。
+宿主发现失败时，显式设置项目 `configFile`。带 JS/TS 模块扩展名的标准文件名，以及显式选中的无扩展名 `nuxt.config`、`electron.vite.config` 和 `vite.config`，均无需 `configHost` 即可识别宿主。只有无法识别的名称才需设置 `configHost`；无扩展名文件不参与自动发现。文件语法由所选宿主加载器及版本决定，即使 Matrix 能识别宿主，加载器仍可能拒绝无扩展名配置。其他宿主保留通用类型准备，不解析其宿主配置。`typegen: false` 的原生项目跳过发现。旧声明不会自动删除；修改 scope／输出路径后，检查过期文件。见[类型准备](integrations.md#类型准备)。
 
 ## 构建后的值不变化，或无法修改快照
 

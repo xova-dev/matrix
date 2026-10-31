@@ -1,6 +1,6 @@
 # Build tool integration
 
-Matrix provides one Unplugin factory and host-specific entrypoints.
+Matrix orchestrates products, variants, environments, tasks, processes, and artifacts. Choose **native integration** (environment variables and the host API) or **mixed integration** (explicitly install an adapter for Matrix's build snapshot and types). Both retain the host's native APIs; mixed integration does not require consuming two APIs for the same field. There is no integration-mode enum.
 
 ## Supported hosts
 
@@ -9,6 +9,7 @@ Node.js `>=22.18.0` is required. Each host is an optional peer dependency instal
 | Host    | Package entrypoint     | Supported range                        |
 | ------- | ---------------------- | -------------------------------------- |
 | Vite    | `@xova/matrix/vite`    | `^5.1.0`, `^6.0.0`, `^7.0.0`, `^8.0.0` |
+| Nuxt    | `@xova/matrix/nuxt`    | `^4.0.3`; Vite SSR / SPA               |
 | Rollup  | `@xova/matrix/rollup`  | `^2.68.0`, `^3.0.0`, `^4.0.0`          |
 | Webpack | `@xova/matrix/webpack` | `^5.100.1`                             |
 | esbuild | `@xova/matrix/esbuild` | `>=0.12.0 <0.29.0`                     |
@@ -17,7 +18,32 @@ Matrix resolves hosts from the consumer; Electron type preparation uses electron
 
 The isolated historical Webpack fixtures pin `schema-utils` to `4.5.0`, matching the repository lockfile, because `4.8.1` requires `webpack ^5.112.0`. Strict peer checks remain enabled. This is a test-fixture pin, not a published dependency override or a change to the supported host ranges.
 
-## Vite integration
+## Native Vite integration
+
+No Matrix plugin, virtual module, or declaration is required:
+
+```ts
+// matrix.config.ts
+import { defineMatrixConfig } from '@xova/matrix'
+
+export default defineMatrixConfig({
+  projects: {
+    web: { typegen: false, targets: { dev: 'vite', build: 'vite build' } },
+  },
+  products: {
+    app: {
+      env: { VITE_API_BASE: 'https://api.example.test' },
+      variants: { web: 'web' },
+    },
+  },
+})
+```
+
+Run `matrix dev app` or `matrix build app`; application code reads `import.meta.env.VITE_API_BASE`. Use Vite's own `vite/client` types and `ImportMetaEnv` augmentation for application-specific fields. Vite owns exposure, string conversion, built-in mode flags, and build-time replacement. Only its configured public prefixes enter the client bundle; Matrix does not automatically expose `MATRIX_*` or `NUXT_*` on this path. A static Vite bundle does not read deployment environment changes after building.
+
+`project.typegen: false` skips Matrix host discovery/loading and all Matrix type preparation, including explicit `matrix prepare`, automatic dev/build collection, generic fallback, and overlapping-project expansion. Project preparation commands still run. Omission preserves the existing mixed preparation behavior; existing consumers do not silently migrate. This option does not remove old declarations or disable a manually installed plugin's own generation: remove that plugin/import and obsolete `.matrix` references when choosing the native path. `target.prepare: false` only skips project commands and is not a substitute.
+
+## Mixed Vite integration
 
 ```ts
 import matrix from '@xova/matrix/vite'
@@ -46,6 +72,106 @@ matrix.isTest
 The mode flags are derived from Matrix's resolved `nodeEnv` (`development`, `production`, or `test`). They are build-time snapshot values; use `matrix.target` for Matrix-specific targets such as `dev`, `build`, `dist`, and `preview`.
 
 The same factory is available from @xova/matrix/rollup, @xova/matrix/webpack, and @xova/matrix/esbuild. The virtual module is a build-time snapshot, not a deployment-time runtime configuration system. Only variables already exposed by the host prefixes are mapped into matrix.config.
+
+## Native Nuxt integration
+
+Nuxt owns its `runtimeConfig` contract, defaults, generated types, and application API. Matrix only supplies matching environment variables to native commands; no Matrix Module, Vite plugin, virtual module, or generated declaration is involved on this path. Native integration remains recommended, not mandatory, for ordinary Nuxt applications. Isolated command integration is tested with Nuxt 4.0.3 and 4.6.3, covering SPA generation and the default Nitro Node server; this is not a claim about every Nuxt minor, builder, or Nitro preset.
+
+```ts
+// nuxt.config.ts (or a shared Nuxt Layer)
+export default defineNuxtConfig({
+  runtimeConfig: {
+    privateToken: '',
+    public: { apiBase: '' },
+  },
+})
+```
+
+```ts
+// matrix.config.ts
+import { defineMatrixConfig } from '@xova/matrix'
+
+export default defineMatrixConfig({
+  projects: {
+    web: {
+      typegen: false,
+      targets: { dev: 'nuxt dev', build: 'nuxt build', generate: 'nuxt generate' },
+    },
+  },
+  products: {
+    app: {
+      env: { NUXT_PUBLIC_API_BASE: 'https://api.example.test' },
+      variants: { web: 'web' },
+    },
+  },
+})
+```
+
+Run native targets through Matrix during development/build: `matrix dev app`, `matrix build app`, or `matrix generate app`. Keep Nuxt's own `nuxt prepare` / `nuxt typecheck` in the application's normal workflow when needed. `matrix prepare` still runs `project.prepare` but does not load Nuxt or generate any Matrix types for this project. `configFile` is a Matrix mixed-typegen setting, not how Nuxt commands select their config; leave it out here. Matrix never infers the framework or reads target command flags.
+
+Application components use only the native API:
+
+```ts
+const config = useRuntimeConfig()
+const apiBase = config.public.apiBase
+```
+
+Nitro server handlers use `useRuntimeConfig(event)`; only `public` fields are exposed to the client. The declaration `public.apiBase` matches **`NUXT_PUBLIC_API_BASE`**, and `privateToken` matches **`NUXT_PRIVATE_TOKEN`**. Declare fields/defaults once in Nuxt config or a Layer, rather than copying `runtimeConfig` into Matrix or introducing a second read API. The `NUXT_*` prefix is not automatically a public Matrix prefix. A shared business package should receive the values or callbacks it needs as parameters; it need not depend on either framework API.
+
+Keep private production secrets out of build-time defaults and product build inputs. Build the Node server with empty/non-secret defaults, then start the same `.output/server/index.mjs` directly (without Matrix) with deployment-provided `NUXT_PRIVATE_TOKEN` and `NUXT_PUBLIC_API_BASE`. Nuxt/Nitro applies matching overrides at server startup; different deployment values do not require rebuilding the artifact. Do not use differently named `process.env` variables as runtimeConfig defaults to emulate this mapping. Never return private fields from server handlers.
+
+For a static SPA (`ssr: false`, `nuxt generate`), public values are baked into the generated payload/assets. Hosting the same files with different environment variables does **not** override them; rebuild per product/environment or design an explicit external configuration service. Build switches such as SSR, presets, and feature elimination belong to build configuration, not mutable runtimeConfig fields. Nuxt retains its own build modes and env handling; the Matrix environment selects Matrix inputs, not a replacement Nuxt mode system.
+
+## Mixed Nuxt SSR and SPA integration
+
+For multiple products sharing one Nuxt application, explicitly install the optional Module:
+
+```ts
+// nuxt.config.ts (also supported in a shared Layer)
+export default defineNuxtConfig({
+  modules: ['@xova/matrix/nuxt'], // SSR by default; ssr: false also supports SPA
+  nitro: { preset: 'node-server' },
+})
+```
+
+Leave `project.typegen` enabled (omit it); targets remain native commands such as `dev: 'nuxt dev'` and `build: 'nuxt build'` (or `nuxt generate` for a static SPA). Run `matrix dev app` / `matrix build app`. The Module installs the virtual runtime and references its types; do not also install Matrix's Vite plugin. Layer/application Module duplication uses Nuxt's native deduplication.
+
+```ts
+import { matrix } from 'virtual:matrix/runtime'
+
+const apiBase = matrix.config.apiBase // NUXT_PUBLIC_API_BASE: build-time snapshot
+const productName = matrix.product.name
+```
+
+Alternatively, register `modules: ['@xova/matrix/nuxt']` and put options in the typed top-level `matrix: { ... }` key. Layer/application options follow Nuxt's normal precedence and deduplication; do not repeat conflicting inline options.
+
+### Public fields and options
+
+Business fields default to **`['VITE_', 'NUXT_PUBLIC_']`**, preserving shared Vite business variables without exposing Nuxt's broad `NUXT_` prefix. This is a Nuxt-only default; the plain Vite adapter does not add `NUXT_PUBLIC_`. Matrix's existing safe product metadata remains available, while internal metadata and private variables remain excluded.
+
+An explicit Module `envPrefix` **replaces** these business defaults: `envPrefix: 'NUXT_PUBLIC_'` excludes `VITE_`. `scope`, `inline`, and `types: { output }` follow the adapter contracts. For example, `modules: [['@xova/matrix/nuxt', { scope: 'web', envPrefix: ['NUXT_PUBLIC_', 'APP_'], types: { output: 'types/matrix.d.ts' } }]]` uses `virtual:matrix/runtime/web`. Never add private prefixes to an override.
+
+Different public variable names must not map to the same `matrix.config` field in Nuxt, even if their values match. Type collection also rejects aliases split across products. For example, `VITE_API_BASE` and `NUXT_PUBLIC_API_BASE` both map to `matrix.config.apiBase` and fail with a diagnostic naming the keys and field, not their values. The same applies to camelCase aliases and schema-only declarations. Choose one original variable name across products, or use explicit prefixes to exclude an alias. Normal Matrix product/environment overrides of the **same** variable name remain supported. Neither prefix is automatically copied into or declared in Nuxt `runtimeConfig`; its native contract stays independent.
+
+### Type ownership and preparation
+
+Nuxt `rootDir` uniquely owns types even with a custom `srcDir`; the Module adds the reference to Nuxt's generated types. Preparation resolves real Nuxt dev/build client configurations, merges all linked products, and retains optional cross-product fields. It stops before starting a Vite server or compiling application code.
+
+The client contract is authoritative: actual dev/build also resolves the server pipeline and requires identical public prefixes and snapshots, then reuses the same snapshot. Server-only public additions, removals, or values fail explicitly instead of silently widening or overwriting types; use native server configuration for private values. Nuxt preparation does not recursively run Matrix preparation. Outputs stay within `project.root`. Environment changes need a restart/rebuild; source HMR does not refresh snapshot inputs.
+
+`project.typegen: false` disables coordinator discovery/generation, not virtual modules. For runtime-only mixed use, also explicitly set Module `types: false`; otherwise a build error prevents silently undoing that setting. `nuxt prepare` / `nuxt typecheck` can consume previously prepared types. Standalone Nuxt dev/build without Matrix context fails with a diagnostic; native applications without the Module remain unaffected.
+
+### Runtime and deployment boundaries
+
+The Module does **not** proxy, copy, infer, or synchronize `runtimeConfig`. `useRuntimeConfig()` remains available for independently owned fields; use one authoritative API for a given field. Snapshot values are not deployment overrides. Using both APIs is optional.
+
+SSR application imports use the same public build snapshot as client imports. SSR HTML therefore contains the selected product values before hydration. The emitted Node server starts directly without Matrix; deployment environment changes do not replace the Matrix snapshot, while independently declared native `runtimeConfig` overrides still work. Never put server secrets in Matrix public prefixes: public snapshot fields can enter HTML, client JavaScript, and payloads.
+
+Direct imports from `server/api` and Nitro plugins are additionally supported for the **`node-server` preset** (and its local development pipeline), using the same scoped module and snapshot, without a second type owner. This is distinct from SSR application support. Other Nitro presets reject direct Matrix imports with a diagnostic; use native `runtimeConfig` there.
+
+### Supported pipelines
+
+Mixed integration supports the Nuxt Vite builder within the declared `^4.0.3` range, with packed 4.0.3 and 4.6.3 consumers covering SSR, static SPA, and Node Nitro, not every intermediate minor or deployment platform. Other builders and `experimental.viteEnvironmentApi` are explicitly rejected, including runtime-only use.
 
 ## Immutable snapshots and tree shaking
 
@@ -105,18 +231,37 @@ electron-vite must support the selected Vite version. Type preparation and real 
 
 ## Type preparation
 
-Run `matrix prepare [product]` to generate declarations without running business targets. The product selects projects; each shared project + scope includes all referring products and variants in the selected `--env`, never other environments. Projects with equal or overlapping physical roots are collected together. `matrix dev` and `matrix build` collect after project preparation, before starting the target.
+Run `matrix prepare [product]` to generate declarations without running business targets. The product selects projects; each shared project + scope includes all referring products and variants in the selected `--env`, never other environments. Mixed projects with equal or overlapping physical roots are collected together; projects with `typegen: false` never join the group. `matrix dev` and `matrix build` collect after project preparation, before starting the target.
 
 ### Configuration and compatibility
 
-- Discovery checks only the project root: `electron.vite.config.*` takes priority over `vite.config.*`. Multiple matches require an explicit choice. Set `projects.desktop.configFile` (for example, `'config/electron.vite.config.ts'`) relative to the project root, using a supported JS/TS config basename. Missing, unsupported, or failing explicit configs are errors. This setting does not change target commands; scope stays in the build plugin config.
-- **Output boundary:** the resolved host root and declaration output must stay within `project.root`, including through symlinks; escaping or dangling links fail before writes. To migrate, set `project.root` to the shared host directory and use `configFile` for a config stored elsewhere. Nested host roots and internal custom outputs work; external outputs are rejected. Standalone explicit generation is unchanged.
-- Shared collection supports standard Vite/electron-vite dev/build targets. Custom targets and other hosts retain existing plugin behavior. Collection does not parse target command flags such as `--mode` or `--config`; an active plugin that adds uncollected fields or changes scope, prefixes, output, or schema fails rather than replacing the contract.
-- Explicit `matrix prepare` falls back to Matrix settings and public environment keys in `.matrix/types/matrix-runtime.d.ts` when no supported config exists or a resolved config has no Matrix plugin. This fallback cannot discover host-specific prefixes or outputs.
+#### Automatic discovery
+
+Discovery checks only the project root: priority is `nuxt.config.*`, `electron.vite.config.*`, then `vite.config.*`, with `.js`, `.mjs`, `.cjs`, `.ts`, `.mts`, and `.cts` extensions. Multiple matches require an explicit choice. Native projects with `typegen: false` skip discovery, including doctor's host-config check.
+
+#### Explicit configFile and configHost
+
+Set `projects.desktop.configFile` (for example, `'config/electron.vite.config.ts'`) relative to the project root to select an exact file. Standard filenames automatically identify the host, including explicitly selected extensionless `nuxt.config`, `electron.vite.config`, and `vite.config`; these extensionless names are not automatic discovery candidates. Only unrecognized names require `configHost: 'vite'`, `'electron-vite'`, or `'nuxt'`; for example, `{ configFile: 'build/custom.mjs', configHost: 'vite' }`.
+
+Identifying a host does not add file-format support: the consumer's host loader/version decides whether it accepts the selected file, including extensionless configs. Matrix does not infer a host from commands or installed dependencies. A host conflicting with a standard filename, a missing file, or a failing config is an error. These settings do not change target commands; scope stays in the build plugin config.
+
+#### Nuxt Layers
+
+Nuxt Layers retain native `nuxt.config` discovery independently of the application's config suffix or explicit path. Nuxt resolves local, nested, installed-package, and remote Layers, merges their options and runs Modules/hooks before Matrix collects the final client Vite config. Explicit root selection does not rename each Layer's config or replace Nuxt's fetch/auth/install behavior. Install required remote-Layer dependencies in the consumer; Matrix does not provision them.
+
+#### Output boundary and collection scope
+
+The resolved host root and declaration output must stay within `project.root`, including through symlinks; escaping or dangling links fail before writes. To migrate, set `project.root` to the shared host directory and use `configFile` for a config stored elsewhere. Nested host roots and internal custom outputs work; external outputs are rejected. Standalone explicit generation is unchanged.
+
+Shared collection supports standard Vite/electron-vite and mixed Nuxt SSR/SPA dev/build contexts. Custom targets and other hosts retain existing plugin behavior. Collection does not parse target command flags such as `--mode` or `--config`; an active plugin that adds uncollected fields or changes scope, prefixes, output, or schema fails rather than replacing the contract.
+
+#### Fallback
+
+Unless `project.typegen: false` is set, explicit `matrix prepare` falls back to Matrix settings and public environment keys in `.matrix/types/matrix-runtime.d.ts` when no supported config exists or a resolved config has no Matrix plugin. This fallback cannot discover host-specific prefixes or outputs.
 
 ### Contract behavior
 
-- The locally installed host resolves each product/variant in both dev (`MATRIX_TARGET=dev`, `command=serve`, `NODE_ENV=development`) and build (`MATRIX_TARGET=build`, `command=build`, `NODE_ENV=production`) contexts. Configured `nodeEnv` overrides apply; `mode` is the selected Matrix environment. Electron main/preload use normal development-time build hooks. Product identity and version follow execution-plan rules.
+- The locally installed host resolves each product/variant in both dev (`MATRIX_TARGET=dev`, `command=serve`, `NODE_ENV=development`) and build (`MATRIX_TARGET=build`, `command=build`, `NODE_ENV=production`) contexts. Configured `nodeEnv` overrides apply; Vite/electron-vite `mode` is the selected Matrix environment. Electron main/preload use normal development-time build hooks. Product identity and version follow execution-plan rules.
 - Configuration code and hooks run for both contexts, adding startup work, with a 30-second timeout per evaluation. Collection itself starts no Electron process, server, or bundle build.
 - Inferred public fields missing from some products, variants, or contexts become optional. Explicit schema types, defaults, optionality, and validation are unchanged; schema fields need no runtime values. Runtime values remain active-product-only, respecting public prefixes and Electron scope boundaries.
 - Duplicate scopes, conflicting outputs/prefixes, changing scope sets, and configuration failures are rejected before writing: across all affected projects for `prepare`, or per collection group for dev/build. Contracts are rebuilt from current sources, so removed fields/products and empty configurations remove obsolete fields. Obsolete output files are not deleted automatically.

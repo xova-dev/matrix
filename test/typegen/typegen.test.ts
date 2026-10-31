@@ -16,6 +16,26 @@ afterEach(async () => {
 })
 
 describe('matrix type generation', () => {
+  it('rejects strict aliases collected from separate products, including schema-only fields', () => {
+    const common = { cwd: '/shared', envPrefix: ['VITE_', 'NUXT_PUBLIC_'], strictPublicFields: true }
+    const batches = [
+      [{ ...common, env: { VITE_API_BASE: 'FIRST_PRIVATE_VALUE' } }],
+      [{ ...common, env: { NUXT_PUBLIC_API_BASE: 'SECOND_PRIVATE_VALUE' } }],
+    ]
+    for (const products of [batches, [...batches].reverse()]) {
+      expect(() => mergePreparedTypes(products)).toThrow('Ambiguous environment fields NUXT_PUBLIC_API_BASE and VITE_API_BASE: both map to matrix.config.apiBase')
+    }
+    expect(() => renderMatrixTypes({
+      ...common,
+      env: { VITE_API_BASE: 'PRIVATE_VALUE' },
+      envSchema: { NUXT_PUBLIC_API_BASE: { type: 'string', optional: true } },
+    })).toThrow('both map to matrix.config.apiBase')
+    expect(renderMatrixTypes(mergePreparedTypes([
+      [{ ...common, env: { VITE_API_BASE: 'alpha' } }],
+      [{ ...common, env: { VITE_API_BASE: 'beta' } }],
+    ])[0]!)).toContain('readonly apiBase: string')
+  })
+
   it('marks inferred fields absent from a product or context optional without weakening schema', () => {
     const common = {
       cwd: '/shared',

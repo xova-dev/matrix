@@ -17,6 +17,8 @@ export interface GenerateMatrixTypesOptions {
   optionalImportMetaEnvKeys?: string[]
   envPrefix?: EnvPrefix
   envSchema?: EnvSchema
+  /** Internal Nuxt contract, retained across isolated collection and product merging. */
+  strictPublicFields?: boolean
   scope?: string
   output?: string
 }
@@ -56,7 +58,7 @@ export function renderMatrixTypes(options: GenerateMatrixTypesOptions): string {
   const schema = options.envSchema ?? {}
   const properties = matrixTypeEnvProperties(options)
   const keys = properties.map(property => property.key)
-  const fields = publicConfigFields(keys, prefixes, schema)
+  const fields = publicConfigFields(keys, prefixes, schema, options.strictPublicFields)
   const configNames = [...fields.keys()].filter(Boolean).sort()
   const field = (key: string): EnvField | undefined => Object.hasOwn(schema, key) ? schema[key] : undefined
   const optionalKeys = new Set(properties.filter(property => property.optional).map(property => property.key))

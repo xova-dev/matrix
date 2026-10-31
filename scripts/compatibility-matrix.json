@@ -151,5 +151,20 @@
   "vite8Dependencies": {
     "@emnapi/core": "1.11.3",
     "@emnapi/runtime": "1.11.3"
+  },
+  "nuxt": {
+    "dependencies": {
+      "giget": "3.3.1",
+      "vue-tsc": "3.3.14"
+    },
+    "versions": [
+      "4.0.3",
+      "4.6.3"
+    ],
+    "overrides": {
+      "4.0.3": {
+        "@nuxt/cli": "3.27.0"
+      }
+    }
   }
 }

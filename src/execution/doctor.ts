@@ -57,7 +57,8 @@ export async function diagnoseWorkspace(input: DoctorInput): Promise<Diagnostic[
       continue
     }
     try {
-      await findTypeHost(root, input.config.projects[name]?.configFile)
+      if (input.config.projects[name]?.typegen !== false)
+        await findTypeHost(root, input.config.projects[name]?.configFile, undefined, input.config.projects[name]?.configHost)
     }
     catch (error) {
       diagnostics.push({
@@ -65,7 +66,7 @@ export async function diagnoseWorkspace(input: DoctorInput): Promise<Diagnostic[
         subject: name,
         path: `projects.${name}.configFile`,
         message: error instanceof Error ? error.message : String(error),
-        suggestion: 'Set configFile to an existing, readable vite.config.* or electron.vite.config.* file, or remove it to use automatic discovery.',
+        suggestion: 'Set configFile to an existing, readable host config (and configHost for a custom filename), or remove it to use automatic discovery.',
       })
     }
   }

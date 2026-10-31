@@ -29,6 +29,75 @@ async function workspace(): Promise<string> {
 }
 
 describe('prepared declaration ownership', { timeout: 20_000 }, () => {
+  it.each(['same', 'ancestor', 'nested'])('excludes native %s roots from explicit and automatic collection without reading their host configs', async (location) => {
+    const cwd = await workspace()
+    const nativeRoot = location === 'same' ? 'app' : location === 'ancestor' ? '.' : 'app/native'
+    await mkdir(path.join(cwd, nativeRoot), { recursive: true })
+    await mkdir(path.join(cwd, 'native-config'))
+    await writeFile(path.join(cwd, 'native-config/vite.config.mjs'), `
+      import { writeFileSync } from 'node:fs';
+      writeFileSync('native-host-loaded', 'yes');
+      throw new Error('Native host must not be loaded by Matrix');
+    `)
+    await writeFile(path.join(cwd, 'matrix.config.mjs'), `export default ${JSON.stringify({
+      projects: {
+        native: { root: nativeRoot, configFile: `${location === 'ancestor' ? '' : location === 'same' ? '../' : '../../'}native-config/vite.config.mjs`, typegen: false, prepare: 'node -e "require(\'node:fs\').appendFileSync(\'prepared\', \'yes;\')"', targets: { build: 'node -e "require(\'node:assert/strict\').equal(process.env.__MATRIX_TYPE_CONTRACT, undefined)"' } },
+        enhanced: { root: 'app', targets: { build: 'node build.mjs' } },
+      },
+      products: {
+        alpha: { env: { VITE_NATIVE: 'native' }, variants: { app: 'native' } },
+        beta: { env: { VITE_ENHANCED: 'enhanced' }, variants: { app: 'enhanced' } },
+      },
+    })}`)
+    await writeFile(path.join(cwd, 'app/vite.config.mjs'), `import matrix from ${JSON.stringify(plugin)};
+      export default { plugins: [matrix({ types: true })], build: { write: false, lib: { entry: 'entry.mjs', formats: ['es'] } } };
+    `)
+    await writeFile(path.join(cwd, 'app/entry.mjs'), 'export const value = 1')
+    await writeFile(path.join(cwd, 'app/build.mjs'), 'import { build } from "vite"; await build();')
+    await runCli(['prepare', 'alpha'])
+    expect(await readFile(path.join(cwd, nativeRoot, 'prepared'), 'utf8')).toBe('yes;')
+    await expect(access(path.join(cwd, 'app/.matrix'))).rejects.toMatchObject({ code: 'ENOENT' })
+    await runCli(['build', 'alpha'])
+    await expect(access(path.join(cwd, 'app/.matrix'))).rejects.toMatchObject({ code: 'ENOENT' })
+    await runCli(['prepare', 'beta'])
+    const declaration = path.join(cwd, 'app/.matrix/types/matrix-runtime.d.ts')
+    const prepared = await readFile(declaration, 'utf8')
+    expect(prepared).toContain('readonly enhanced: string')
+    expect(prepared).not.toContain('VITE_NATIVE')
+    await runCli(['build', 'beta'])
+    expect(await readFile(declaration, 'utf8')).toBe(prepared)
+    await runCli(['prepare'])
+    expect(await readFile(declaration, 'utf8')).toBe(prepared)
+    for (const root of [cwd, path.join(cwd, 'app'), path.join(cwd, nativeRoot)])
+      await expect(access(path.join(root, 'native-host-loaded'))).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('does not resolve unselected native roots when preparing a mixed project', async () => {
+    const cwd = await workspace()
+    await symlink(path.join(cwd, 'not-mounted'), path.join(cwd, 'native'), 'junction')
+    await writeFile(path.join(cwd, 'matrix.config.mjs'), `export default ${JSON.stringify({
+      projects: {
+        native: { root: 'native', typegen: false, targets: { build: 'node -e "process.exit(0)"' } },
+        enhanced: { root: 'app', targets: { build: 'node -e "require(\'node:assert/strict\').ok(process.env.__MATRIX_TYPE_CONTRACT)"' } },
+      },
+      products: {
+        alpha: { env: { VITE_NATIVE: 'native' }, variants: { app: 'native' } },
+        beta: { env: { VITE_ENHANCED: 'enhanced' }, variants: { app: 'enhanced' } },
+      },
+    })}`)
+    await writeFile(path.join(cwd, 'app/vite.config.mjs'), `import matrix from ${JSON.stringify(plugin)};
+      export default { plugins: [matrix({ types: true })] };
+    `)
+    await runCli(['prepare', 'beta'])
+    const declaration = path.join(cwd, 'app/.matrix/types/matrix-runtime.d.ts')
+    const prepared = await readFile(declaration, 'utf8')
+    expect(prepared).toContain('readonly enhanced: string')
+    expect(prepared).not.toContain('VITE_NATIVE')
+    await runCli(['build', 'beta'])
+    expect(await readFile(declaration, 'utf8')).toBe(prepared)
+    await expect(runCli(['build', 'alpha'])).rejects.toThrow()
+  })
+
   it('resolves explicit configs from the configured symlink path before canonicalizing', async () => {
     const cwd = await workspace()
     await mkdir(path.join(cwd, 'links/configs'), { recursive: true })

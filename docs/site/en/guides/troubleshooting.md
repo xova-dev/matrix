@@ -28,13 +28,15 @@ Use `ready` for a running service and `completed` for finite build work. A short
 
 Only fields in public host prefixes enter `matrix.config`; adding an `envSchema` field does not expand those prefixes. `VITE_API_BASE` maps to `matrix.config.apiBase`. Boolean strings must be exactly `true` or `false`; an invalid final value fails rather than falling back. See [environments](environments.md).
 
+Mixed Nuxt defaults to `['VITE_', 'NUXT_PUBLIC_']`. An `Ambiguous environment fields` error means different original keys map to one camelCase config property, including aliases collected from different products. Equal values do not resolve the ambiguity. Keep one original name, or set an explicit `envPrefix` to replace the defaults and exclude the alias; do not expose private prefixes. This does not affect product/environment overrides of the same original key.
+
 ## A virtual runtime import or its types cannot be found
 
 Install/configure the Matrix plugin in the actual host build; declarations alone do not implement `virtual:matrix/runtime`. Run `matrix prepare app`, include `.matrix/types` in the consuming project's `tsconfig.json`, and match the import suffix to the plugin scope. For example, scope `main` uses `virtual:matrix/runtime/main`.
 
 Keep Electron main/preload in different scopes and include custom type-output paths when used. Automatic plugin generation is disabled by default in Vitest; `types: true` enables it explicitly. `types: false` also disables preparation output. Standalone builds not launched through Matrix do not receive Matrix's internal schema context.
 
-If host discovery fails, set project `configFile` explicitly; supported basenames remain `vite.config.*` or `electron.vite.config.*` with JS/TS module extensions. Other hosts retain generic preparation instead of host-config resolution. Old declaration files are not automatically removed; inspect obsolete files when changing scopes/output paths. See [type preparation](integrations.md#type-preparation).
+If host discovery fails, set project `configFile` explicitly. Standard names with JS/TS module extensions, or explicitly selected extensionless `nuxt.config`, `electron.vite.config`, and `vite.config`, identify their host without `configHost`. Only unrecognized filenames require `configHost`; extensionless files are not discovered automatically. The selected host's loader/version determines supported syntax and may reject an extensionless config even when Matrix identifies the host. Other hosts retain generic preparation instead of host-config resolution. Native projects with `typegen: false` skip discovery. Old declaration files are not automatically removed; inspect obsolete files when changing scopes/output paths. See [type preparation](integrations.md#type-preparation).
 
 ## Bundled values do not change or a snapshot cannot be mutated
 

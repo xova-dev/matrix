@@ -47,6 +47,15 @@ async function collectProjectTypes(loaded: LoadedConfig, products: Product[], op
   }
   checkCancellation()
   const affectedProjects = new Set(options.projects ?? products.flatMap(product => Object.values(product.variants).map(variant => variant.project)))
+  for (const name of affectedProjects) {
+    const project = loaded.projects[name]
+    if (!project)
+      throw new Error(`Unknown project ${name}`)
+    if (project.typegen === false)
+      affectedProjects.delete(name)
+  }
+  if (!affectedProjects.size)
+    return []
   // Automatic host discovery belongs to the selected task, not an overlapping neighbor.
   // Non-Vite adapters retain their own generation even when a nested project uses Vite.
   if (options.automatic) {
@@ -54,7 +63,7 @@ async function collectProjectTypes(loaded: LoadedConfig, products: Product[], op
       const project = loaded.projects[name]
       if (!project)
         throw new Error(`Unknown project ${name}`)
-      if (!await findTypeHost(resolveFilesystemPath(loaded.cwd, project.root ?? MATRIX_DEFAULTS.projectRoot), project.configFile, signal))
+      if (!await findTypeHost(resolveFilesystemPath(loaded.cwd, project.root ?? MATRIX_DEFAULTS.projectRoot), project.configFile, signal, project.configHost))
         affectedProjects.delete(name)
     }
     if (!affectedProjects.size)
@@ -62,8 +71,10 @@ async function collectProjectTypes(loaded: LoadedConfig, products: Product[], op
   }
   // Overlapping physical roots can own the same output, including nested project aliases.
   const roots = new Map<string, string>()
-  for (const [name, project] of Object.entries(loaded.projects))
-    roots.set(name, await resolveFuturePath(resolveFilesystemPath(loaded.cwd, project.root ?? MATRIX_DEFAULTS.projectRoot)))
+  for (const [name, project] of Object.entries(loaded.projects)) {
+    if (project.typegen !== false)
+      roots.set(name, await resolveFuturePath(resolveFilesystemPath(loaded.cwd, project.root ?? MATRIX_DEFAULTS.projectRoot)))
+  }
   let expanded = true
   while (expanded) {
     expanded = false
@@ -113,7 +124,7 @@ async function collectProjectTypes(loaded: LoadedConfig, products: Product[], op
       const project = loaded.projects[projectName]!
       let cwd = roots.get(projectName)!
       // Resolve relative config paths before canonicalizing the worker cwd.
-      const host = await findTypeHost(resolveFilesystemPath(loaded.cwd, project.root ?? MATRIX_DEFAULTS.projectRoot), project.configFile, signal)
+      const host = await findTypeHost(resolveFilesystemPath(loaded.cwd, project.root ?? MATRIX_DEFAULTS.projectRoot), project.configFile, signal, project.configHost)
       if (host) {
         options.onHost?.()
         cwd = await resolveExistingPath(cwd)

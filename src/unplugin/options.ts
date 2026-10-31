@@ -1,6 +1,17 @@
+import type { MatrixRuntime } from '../runtime/index.js'
 import type { EnvPrefix } from '../runtime/public-env.js'
 
+/** Internal adapter ownership; never derived from Nuxt's source directory. */
+export const matrixTypeRoot = Symbol('matrix-type-root')
+/** Nuxt owns one public snapshot across its separate Vite pipelines. */
+export const matrixSnapshot = Symbol('matrix-snapshot')
+/** Nuxt's multi-prefix public contract must never silently choose an alias. */
+export const matrixStrictPublicFields = Symbol('matrix-strict-public-fields')
+
 export interface MatrixUnpluginOptions {
+  [matrixTypeRoot]?: string
+  [matrixSnapshot]?: (runtime: MatrixRuntime, prefixes: string[]) => MatrixRuntime
+  [matrixStrictPublicFields]?: boolean
   /** Public prefixes for non-Vite adapters; Vite uses the resolved config. */
   envPrefix?: EnvPrefix
   /** Build scope used to isolate Electron main/preload/renderer runtime modules and types. */

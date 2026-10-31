@@ -126,6 +126,8 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
         contracts.clear()
       if (task.target !== 'dev' && task.target !== 'build')
         return
+      if (selection.loaded.projects[task.project]?.typegen === false)
+        return
       let contract = contracts.get(task.project)
       if (contract === undefined) {
         const prepared: PreparedTypeContract = { strict: false, declarations: [] }

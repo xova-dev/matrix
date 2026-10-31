@@ -37,6 +37,7 @@ catalog:
   eslint-plugin-format: ^2.0.1
   execa: ^10.0.1
   magic-string: ^1.4.2
+  nuxt: 4.6.3
   oxc-parser: ^0.152.0
   oxc-walker: ^1.1.1
   pathe: ^2.0.3

@@ -221,6 +221,25 @@ describe('matrix config', () => {
     })).not.toThrow()
   })
 
+  it('validates project typegen independently of adapter types and strips unknown fields', () => {
+    const config = {
+      projects: { web: { typegen: false, types: false, targets: { build: 'nuxt build' } } },
+      products: { app: { variants: { web: 'web' } } },
+    }
+    expect(assertMatrixConfig(config).projects.web).toEqual({ typegen: false, targets: { build: 'nuxt build' } })
+    expect(() => assertMatrixConfig({ ...config, projects: { web: { ...config.projects.web, typegen: true } } })).toThrow()
+  })
+
+  it('requires an explicit config file before selecting a custom host', () => {
+    const config = {
+      projects: { web: { configFile: 'build/custom.mts', configHost: 'vite', targets: { build: 'vite build --config build/custom.mts' } } },
+      products: { app: { variants: { web: 'web' } } },
+    }
+    expect(assertMatrixConfig(config).projects.web).toMatchObject({ configFile: 'build/custom.mts', configHost: 'vite' })
+    expect(() => assertMatrixConfig({ ...config, projects: { web: { configHost: 'vite', targets: {} } } })).toThrow('configHost requires configFile')
+    expect(() => assertMatrixConfig({ ...config, projects: { web: { ...config.projects.web, configHost: 'unknown' } } })).toThrow()
+  })
+
   it('revalidates variant target overrides after merging defaults', () => {
     expect(() => normalizeMatrixConfig({
       projects: {

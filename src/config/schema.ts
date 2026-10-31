@@ -97,12 +97,14 @@ const targetOverride = v.union([command, v.object({
   artifacts: v.optional(artifactConfig),
   dependsOn: v.optional(v.array(dependency)),
 })])
-const project = v.object({
+const project = v.pipe(v.object({
   root: v.optional(v.string()),
   configFile: v.optional(v.pipe(v.string(), v.check(value => value.trim().length > 0, 'configFile must not be empty'))),
+  configHost: v.optional(v.picklist(['vite', 'electron-vite', 'nuxt'])),
+  typegen: v.optional(v.literal(false)),
   prepare: v.optional(command),
   targets: v.record(v.string(), target),
-})
+}), v.check(value => !value.configHost || value.configFile !== undefined, 'configHost requires configFile'))
 const environment = v.object({ env })
 const variant = v.union([v.string(), v.object({
   project: v.string(),

@@ -17,6 +17,7 @@ import { generateMatrixTypes, matrixRuntimeModuleId, matrixTypeOutput } from '..
 import { currentProcessEnv } from '../utils/env.js'
 import { resolveExistingPath, resolveFuturePath } from '../utils/path.js'
 import { setupMatrixEsbuildTransform } from './esbuild-transform.js'
+import { matrixSnapshot, matrixStrictPublicFields, matrixTypeRoot } from './options.js'
 import { isVueScriptRequest } from './vue.js'
 
 export const MATRIX_RUNTIME_ID = 'virtual:matrix/runtime'
@@ -51,7 +52,7 @@ export const matrixUnpluginFactory: UnpluginFactory<MatrixUnpluginOptions | unde
   let vueScriptsEnabled = false
 
   function snapshot(): MatrixRuntime {
-    return runtime ??= createMatrixRuntime(env, envPrefix, envSchema)
+    return runtime ??= createMatrixRuntime(env, envPrefix, envSchema, options[matrixStrictPublicFields])
   }
 
   function typeOptions(cwd: string): GenerateMatrixTypesOptions {
@@ -60,6 +61,7 @@ export const matrixUnpluginFactory: UnpluginFactory<MatrixUnpluginOptions | unde
       env,
       envPrefix,
       envSchema,
+      ...(options[matrixStrictPublicFields] ? { strictPublicFields: true } : {}),
       ...(options.scope ? { scope: options.scope } : {}),
       ...(typeof options.types === 'object' && options.types.output ? { output: options.types.output } : {}),
     }
@@ -141,10 +143,12 @@ export const matrixUnpluginFactory: UnpluginFactory<MatrixUnpluginOptions | unde
         envPrefix = ensureMatrixEnvPrefix(config.envPrefix)
         env = { ...config.env }
         // Preparation needs the schema, not credentials or values for a runnable build.
-        if (collectPreparedTypes(options.types === false || (options.types === undefined && isVitest() && isAutomaticTypeCollection()) ? undefined : typeOptions(config.root)))
+        const typeRoot = options[matrixTypeRoot] ?? config.root
+        if (collectPreparedTypes(options.types === false || (options.types === undefined && isVitest() && isAutomaticTypeCollection()) ? undefined : typeOptions(typeRoot)))
           return
-        runtime = createMatrixRuntime(env, envPrefix, envSchema)
-        await generateTypes(config.root)
+        runtime = createMatrixRuntime(env, envPrefix, envSchema, options[matrixStrictPublicFields])
+        runtime = options[matrixSnapshot]?.(runtime, envPrefix) ?? runtime
+        await generateTypes(typeRoot)
       },
     },
     async buildStart() {
