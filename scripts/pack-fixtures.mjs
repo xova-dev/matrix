@@ -20,6 +20,7 @@ export async function expectFailure(operation, pattern, phase) {
   const result = await operation.catch(error => error)
   const diagnostic = `${result.stdout ?? ''}\n${result.stderr ?? ''}`
   assert.notEqual(result.exitCode, 0, `${phase} unexpectedly succeeded`)
-  assert.match(diagnostic, pattern, `${phase}: ${diagnostic}`)
+  assert.ok(Number.isInteger(result.exitCode) && result.exitCode > 0, `${phase} did not exit with a failure code: ${result.exitCode}`)
+  assert.match(diagnostic, pattern, `${phase} (exit code ${result.exitCode}): ${diagnostic}`)
   return diagnostic
 }

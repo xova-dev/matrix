@@ -114,7 +114,19 @@ before removing temporary workspaces. Logs record install, prepare, typecheck,
 and build durations, followed by elapsed wall time and the five slowest
 consumers. Phase totals are cumulative and can exceed wall time under concurrency.
 Vite and Nuxt share fixture file/output helpers and failure diagnostics in
-`scripts/pack-fixtures.mjs`; host execution and cleanup remain in their own runners.
+`scripts/pack-fixtures.mjs`. Expected rejections must retain a nonzero process
+exit code and match the asserted diagnostic before timings label them
+`expected rejection`; outcome totals distinguish them from actual failures.
+`test/scripts/pack-timings.test.js` uses real Node subprocesses to cover both native-loader
+outcomes, unexpected success, wrong diagnostics, and non-process failures.
+
+`scripts/pack-smoke.mjs` owns candidate selection, the single pack, isolated CLI
+installation, host orchestration, and final cleanup. `scripts/pack-cli.mjs` owns
+host-free CLI checks and the unchanged POSIX process-group shutdown fixture.
+`scripts/pack-nuxt.mjs` installs each endpoint once and groups native commands,
+mixed integration, and their shared HTTP server/immutable Node-output checks
+as internal functions. Layer/config selection remains in `pack-nuxt-layers.mjs`.
+CLI shutdown and IPC preparation retain their separate lifecycle contracts.
 
 ### Published-package hosts
 

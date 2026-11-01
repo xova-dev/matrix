@@ -1,12 +1,9 @@
-import { copyFileSync, mkdirSync, writeFileSync } from 'node:fs'
+import { copyFileSync, mkdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { execa } from 'execa'
 import path from 'pathe'
+import { writeFixture as write } from './pack-fixtures.mjs'
 import { runConsumers } from './pack-matrix.mjs'
-
-function write(root, name, content) {
-  writeFileSync(path.join(root, name), typeof content === 'string' ? content : JSON.stringify(content))
-}
 
 export async function verifyHostCompatibility(tarball, root, compatibility, concurrency, timings) {
   mkdirSync(root)

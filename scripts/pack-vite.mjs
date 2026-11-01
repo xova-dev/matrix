@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from '
 import process from 'node:process'
 import { execa } from 'execa'
 import path from 'pathe'
-import { expectFailure, fixtureCode, writeFixture as write } from './pack-fixtures.mjs'
+import { fixtureCode, writeFixture as write } from './pack-fixtures.mjs'
 import { runConsumers } from './pack-matrix.mjs'
 
 function fixture(root, tarball, version, electron, compatibility) {
@@ -174,7 +174,7 @@ export async function verifyConfigSelection(root, consumer, timings) {
   const cwd = path.join(root, 'config-selection')
   mkdirSync(cwd)
   write(cwd, 'package.json', { private: true, type: 'module' })
-  const run = (phase, args) => timings.measure(consumer.name, phase, () => execa(process.execPath, [path.join(root, 'node_modules/@xova/matrix/bin/matrix.mjs'), ...args.slice(1)], { cwd, timeout: 60_000 }))
+  const run = (phase, args, expectation) => timings.measure(consumer.name, phase, () => execa(process.execPath, [path.join(root, 'node_modules/@xova/matrix/bin/matrix.mjs'), ...args.slice(1)], { cwd, timeout: 60_000 }), expectation)
   write(cwd, 'index.html', '<script type="module" src="/entry.ts"></script>')
   write(cwd, 'entry.ts', `import { matrix } from 'virtual:matrix/runtime'; console.log(matrix.config.selected)`)
   write(cwd, 'electron-entry.ts', `import { matrix } from 'virtual:matrix/runtime/main'; console.log(matrix.config.selected)`)
@@ -209,7 +209,7 @@ export async function verifyConfigSelection(root, consumer, timings) {
       writeFileSync(path.join(cwd, 'control', filename), 'export default {}')
       const native = await execa(process.execPath, ['control.mjs', `control/${filename}`], { cwd, reject: false })
       if (native.exitCode !== 0) {
-        await expectFailure(run(`config-${filename}-native-rejection`, ['matrix', 'prepare']), /No loader|Unknown file extension|not supported|failed to load config/i, `${host} native rejection of ${filename}`)
+        await run(`config-${filename}-native-rejection`, ['matrix', 'prepare'], { rejection: /No loader|Unknown file extension|not supported|failed to load config/i })
         unlinkSync(path.join(cwd, filename))
         unlinkSync(path.join(cwd, `${basename}.ts`))
         continue
