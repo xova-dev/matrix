@@ -218,6 +218,8 @@ These exact test pins are within the optional Nuxt peer range and do not certify
 
 The automated package suite inspects HTTP/SSR responses and client assets. It is not browser hydration/interaction/navigation acceptance; run those separately against the emitted Node server. The reduced suite does not repeatedly certify static SPA generation. Nuxt application typechecks retain Nuxt's generated compiler settings, not the Matrix contract consumer's independent `skipLibCheck: false` baseline.
 
+Nuxt HTTP-service acceptance logs separate bounded startup, verification and shutdown stages. Each HTTP request, including response-body consumption, has its own deadline. Teardown targets only the launched process tree: POSIX uses its owned process group and SIGTERM; Windows explicitly uses `taskkill /T /F` as resource cleanup, not graceful Matrix cancellation. A failed request, unsuccessful POSIX exit or shutdown timeout remains a failure even if forced cleanup succeeds; original and cleanup errors are retained with a bounded raw service-output tail. `scripts/pack-nuxt-server.test.js` uses real subprocesses to cover normal HTTP/exit, hung readiness, headers/body waits, inherited descendant pipes, unsuccessful POSIX exits, diagnostics and OS-denied cleanup. The independent CLI cancellation regressions retain their own contract.
+
 `typegen/ownership.test.ts` additionally covers `typegen: false` with equal,
 ancestor, and nested roots: no host evaluation or generic fallback, no re-entry
 through overlapping-project expansion, no native-product keys in enhanced

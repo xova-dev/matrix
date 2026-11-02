@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { execaSync } from 'execa'
 import path from 'pathe'
 
-async function withTimeout(promise, milliseconds, message) {
+export async function withTimeout(promise, milliseconds, message) {
   let timeout
   try {
     return await Promise.race([
@@ -22,7 +22,7 @@ async function withTimeout(promise, milliseconds, message) {
   }
 }
 
-function isAlive(pid) {
+export function isAlive(pid) {
   try {
     process.kill(pid, 0)
     return true
@@ -34,9 +34,9 @@ function isAlive(pid) {
   }
 }
 
-function killProcessGroup(pid) {
+export function killProcessGroup(pid, signal = 'SIGKILL') {
   try {
-    process.kill(-pid, 'SIGKILL')
+    process.kill(-pid, signal)
   }
   catch (error) {
     if (error.code !== 'ESRCH')

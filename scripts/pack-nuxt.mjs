@@ -7,6 +7,7 @@ import process from 'node:process'
 import { setTimeout as delay } from 'node:timers/promises'
 import { execa } from 'execa'
 import path from 'pathe'
+import { isAlive, killProcessGroup, withTimeout } from './pack-cli.mjs'
 import { fixtureCode as code, fixtureFiles, writeFixture as write } from './pack-fixtures.mjs'
 import { verifyNuxtLayerSelection } from './pack-nuxt-layers.mjs'
 
@@ -21,36 +22,127 @@ async function freePort() {
   return port
 }
 
-async function withServer(command, args, options, verify) {
+/** HTTP acceptance owns service teardown; it does not assert Matrix's cancellation contract. */
+export async function withServer(command, args, { label = 'Nuxt service', ...options }, verify, timeouts = {}) {
+  const limits = { startup: 60_000, verification: 60_000, request: 10_000, shutdown: 40_000, cleanup: 5_000, ...timeouts }
   const port = await freePort()
-  const child = execa(command, args, { ...options, env: { ...options.env, PORT: String(port), NUXT_PORT: String(port), NUXT_HOST: '127.0.0.1', HOST: '127.0.0.1' }, all: true })
+  const origin = `http://127.0.0.1:${port}`
+  const child = execa(command, args, { ...options, env: { ...options.env, PORT: String(port), NUXT_PORT: String(port), NUXT_HOST: '127.0.0.1', HOST: '127.0.0.1' }, buffer: false, killDescendants: true, forceKillAfterDelay: false })
   const completion = child.catch(error => error)
-  let stopped = false
+  let completed = false
+  let exit
+  let requestedTermination = false
   let diagnostic = ''
-  child.all?.on('data', chunk => diagnostic += chunk.toString())
-  void completion.then((result) => {
-    stopped = true
-    diagnostic = result.all ?? ''
-  })
-  try {
-    const origin = `http://127.0.0.1:${port}`
-    let response
-    const until = Date.now() + 60_000
-    while (Date.now() < until) {
-      if (stopped)
-        break
-      response = await fetch(origin, { signal: AbortSignal.timeout(2000) }).catch(() => undefined)
-      if (response?.ok)
-        break
-      await delay(100)
+  for (const stream of [child.nodeChildProcess.stdout, child.nodeChildProcess.stderr])
+    stream?.on('data', chunk => diagnostic = (diagnostic + chunk.toString()).slice(-16_384))
+  child.nodeChildProcess.once('exit', (code, signal) => exit = { code, signal })
+  void completion.then(() => completed = true)
+  const phase = async (name, milliseconds, operation) => {
+    const controller = new AbortController()
+    console.log(`Package server: ${label} ${name} started (PID ${child.pid ?? 'unspawned'}, ${milliseconds}ms deadline)`)
+    try {
+      const result = await withTimeout(operation(controller.signal), milliseconds, `${label} ${name} timed out after ${milliseconds}ms`)
+      console.log(`Package server: ${label} ${name} passed`)
+      return result
     }
-    assert.ok(response?.ok, `Nuxt server failed to start: ${diagnostic}`)
-    await verify(origin, response)
+    catch (error) {
+      throw new Error(`${label} ${name} failed: ${error.message}\n${diagnostic || '(no service output)'}`, { cause: error })
+    }
+    finally {
+      controller.abort()
+    }
+  }
+  const request = async (resource, format, signal, milliseconds = limits.request) => {
+    try {
+      const response = await fetch(`${origin}${resource}`, { signal: AbortSignal.any([signal, AbortSignal.timeout(milliseconds)]) })
+      const body = await response[format]()
+      assert.ok(response.ok, `HTTP ${response.status}`)
+      return { response, body }
+    }
+    catch (error) {
+      throw new Error(`HTTP ${resource} (${format}, ${milliseconds}ms request/body deadline): ${error.message}`, { cause: error })
+    }
+  }
+  const stop = async (signal, force) => {
+    if (child.pid) {
+      if (process.platform === 'win32') {
+        if (!completed || isAlive(child.pid)) {
+          const systemRoot = process.env.SystemRoot ?? process.env.windir
+          assert.ok(systemRoot && path.win32.isAbsolute(systemRoot), 'Windows tree teardown requires an absolute system directory')
+          const result = await execa(path.join(systemRoot, 'System32/taskkill.exe'), ['/PID', String(child.pid), '/T', '/F'], {
+            reject: false,
+            cancelSignal: signal,
+            timeout: Math.min(force ? limits.cleanup : limits.shutdown, 10_000),
+            maxBuffer: 16_384,
+          })
+          if (result.failed)
+            throw new Error(`Windows owned-tree teardown failed: ${result.shortMessage}\n${result.stderr}`, { cause: result })
+        }
+      }
+      else {
+        if (!force)
+          requestedTermination = !exit && !completed
+        killProcessGroup(child.pid, force ? 'SIGKILL' : 'SIGTERM')
+      }
+    }
+    while (true) {
+      signal.throwIfAborted()
+      if (completed && (!child.pid || !isAlive(process.platform === 'win32' ? child.pid : -child.pid)))
+        break
+      await delay(25, undefined, { signal })
+    }
+    await completion
+    // Matrix reports our requested SIGTERM as the conventional shell exit code 143.
+    const expectedTermination = requestedTermination && (exit?.code === 143 || exit?.signal === 'SIGTERM')
+    if (!force && process.platform !== 'win32' && (exit?.code || exit?.signal) && !expectedTermination)
+      throw new Error(`Service exited unsuccessfully during teardown (${exit.signal ?? exit.code})`)
+  }
+  const failures = []
+  try {
+    const page = await phase('startup', limits.startup, async (signal) => {
+      let lastError
+      while (true) {
+        signal.throwIfAborted()
+        if (exit || completed)
+          throw new Error(`Service exited before readiness (${exit?.signal ?? exit?.code ?? 'spawn failure'}); ${lastError?.message ?? ''}`)
+        try {
+          return await request('/', 'text', signal, Math.min(limits.request, 2000))
+        }
+        catch (error) {
+          lastError = error
+        }
+        await delay(100, undefined, { signal })
+      }
+    })
+    await phase('verification', limits.verification, async (signal) => {
+      await verify(page, (resource, format = 'text') => request(resource, format, signal))
+      if (exit && (exit.code !== 0 || exit.signal))
+        throw new Error(`Service exited during verification (${exit.signal ?? exit.code})`)
+    })
+  }
+  catch (error) {
+    failures.push(error)
   }
   finally {
-    child.kill('SIGTERM')
-    await completion
+    const method = process.platform === 'win32' ? 'Windows owned-tree taskkill /T /F (not graceful cancellation)' : 'owned process-group SIGTERM'
+    console.log(`Package server: ${label} teardown uses ${method}`)
+    try {
+      await phase('shutdown', limits.shutdown, signal => stop(signal, false))
+    }
+    catch (error) {
+      failures.push(error)
+      try {
+        await phase('forced cleanup', limits.cleanup, signal => stop(signal, true))
+      }
+      catch (cleanupError) {
+        failures.push(cleanupError)
+      }
+    }
   }
+  if (failures.length === 1)
+    throw failures[0]
+  if (failures.length)
+    throw new AggregateError(failures, `${label} acceptance/teardown failed`, { cause: failures[0] })
 }
 
 async function verifyNodeOutput(root, project, product) {
@@ -69,8 +161,7 @@ async function verifyNodeOutput(root, project, product) {
       if (key.startsWith('MATRIX_') || key.startsWith('__MATRIX_'))
         delete env[key]
     }
-    await withServer(process.execPath, ['.output/server/index.mjs'], { cwd: project, env, extendEnv: false }, async (origin, response) => {
-      const html = await response.text()
+    await withServer(process.execPath, ['.output/server/index.mjs'], { cwd: project, env, extendEnv: false, label: `Node ${product} ${name} deployment` }, async ({ response, body: html }, request) => {
       assert.match(html, new RegExp(apiBase))
       assert.doesNotMatch(html, /private-deployment|PRIVATE_BUILD_SENTINEL/)
       if (product) {
@@ -81,13 +172,12 @@ async function verifyNodeOutput(root, project, product) {
         assert.equal(response.headers.get('x-matrix-snapshot'), `${product}-snapshot`, 'Nitro plugin must share the app snapshot')
       }
       for (const asset of new Set([...html.matchAll(/(?:src|href)="(\/_nuxt\/[^"]+)"/g)].map(match => match[1]))) {
-        const assetResponse = await fetch(`${origin}${asset}`, { signal: AbortSignal.timeout(10_000) })
+        const { response: assetResponse } = await request(asset, 'arrayBuffer')
         assert.ok(assetResponse.ok, `Nitro failed to serve client asset ${asset}: ${assetResponse.status}`)
-        await assetResponse.arrayBuffer()
       }
-      const server = await (await fetch(`${origin}/api/config`)).json()
+      const { body: server } = await request('/api/config', 'json')
       assert.deepEqual(server, { apiBase, privatePresent: true, privateMatched: true, ...(product ? { snapshot: `${product}-snapshot`, enabled: true, late: 'late-field' } : {}) })
-      const next = await (await fetch(`${origin}/next`)).text()
+      const { body: next } = await request('/next')
       assert.match(next, new RegExp(apiBase))
       if (product)
         assert.match(next, new RegExp(`${product}-snapshot`))
@@ -262,14 +352,14 @@ async function verifyMixedNuxt(cwd, version, run, remote, extended) {
   }
   await withServer(process.execPath, [path.join(cwd, 'node_modules/@xova/matrix/bin/matrix.mjs'), 'dev', 'alpha', '--variant', 'web'], {
     cwd: workspace,
+    label: `nuxt-${version} Matrix dev`,
     env: { PATH: `${path.join(cwd, 'node_modules/.bin')}${delimiter}${process.env.PATH ?? ''}` },
-  }, async (origin, response) => {
-    const html = await response.text()
+  }, async ({ response, body: html }, request) => {
     assert.match(html, /alpha-snapshot/)
     assert.match(html, /alpha-vite/)
     assert.match(html, /7:7/)
     assert.equal(response.headers.get('x-matrix-snapshot'), 'alpha-snapshot')
-    const config = await (await fetch(`${origin}/api/config`)).json()
+    const { body: config } = await request('/api/config', 'json')
     assert.deepEqual(config, { apiBase: 'alpha-native', privatePresent: true, privateMatched: true, snapshot: 'alpha-snapshot', enabled: true, late: 'late-field' })
     assert.equal(readFileSync(output, 'utf8'), declaration, 'Development rewrote the shared type contract')
   })
