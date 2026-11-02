@@ -4,8 +4,23 @@ import { assertNormalProcessExit, expectFailure } from './pack-fixtures.mjs'
 export function createPackageTimings() {
   const started = performance.now()
   const records = []
+  const spans = []
   const seconds = milliseconds => (milliseconds / 1000).toFixed(1)
   return {
+    async span(consumer, phase, operation) {
+      const start = performance.now()
+      let outcome = 'failed'
+      try {
+        const result = await operation()
+        outcome = 'passed'
+        return result
+      }
+      finally {
+        const duration = performance.now() - start
+        spans.push({ consumer, phase, duration, outcome })
+        console.log(`Package wall timing: ${consumer} ${phase} ${seconds(duration)}s (${outcome})`)
+      }
+    },
     async measure(consumer, phase, operation, { rejection, allowSuccess = false } = {}) {
       const start = performance.now()
       let outcome = 'failed'
@@ -47,6 +62,8 @@ export function createPackageTimings() {
       const slowest = [...consumers].sort((a, b) => b[1] - a[1]).slice(0, 5)
       if (slowest.length)
         console.log(`Slowest consumers (excluding install): ${slowest.map(([consumer, duration]) => `${consumer} ${seconds(duration)}s`).join(', ')}`)
+      if (spans.length)
+        console.log(`Package wall spans: ${spans.length} (${spans.filter(span => span.outcome === 'failed').length} failed; inclusive, excluded from command totals and outcomes)`)
     },
   }
 }

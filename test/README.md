@@ -128,6 +128,12 @@ prepare, typecheck, and build phases remain sequential. Failures are collected
 before removing temporary workspaces. Logs record install, prepare, typecheck,
 and build durations, followed by elapsed wall time and the five slowest
 consumers. Phase totals are cumulative and can exceed wall time under concurrency.
+Nuxt additionally records inclusive wall spans for the whole Nuxt suite and
+each endpoint (including installation and remote Layer server cleanup), plus
+Matrix dev and each Node deployment's startup, HTTP verification, shutdown and
+complete lifecycle. Forced cleanup gets its own span when needed. These nested
+wall spans are reported separately and never added to command phase totals,
+slowest-consumer rankings or command outcome counts; do not sum them.
 Vite and Nuxt share fixture file/output helpers and failure diagnostics in
 `scripts/pack-fixtures.mjs`. Expected rejections must retain a nonzero process
 exit code and match the asserted diagnostic before timings label them
@@ -137,6 +143,7 @@ Outcome totals distinguish expected rejections from actual failures.
 `test/scripts/pack-timings.test.js` uses real Node subprocesses to cover both native-loader
 outcomes, unexpected success, wrong diagnostics, and non-process failures, plus
 timeouts and graceful cancellation with zero and nonzero handler exits.
+It also checks nested wall-span accounting and cleanup-error propagation.
 SIGTERM timeout-handler cases run on POSIX; IPC graceful-cancellation cases also run on Windows.
 
 `scripts/pack-smoke.mjs` owns candidate selection, the single pack, isolated CLI
@@ -198,6 +205,13 @@ An explicit extensionless `nuxt.config` omits `configHost` and is compared with 
 `scripts/pack-vite.mjs` also checks real Vite/electron-vite config selection: six native JS/TS extensions, explicit custom names, and extensionless-file acceptance/rejection against each tested native resolver at representative supported versions. Only unrecognized names declare `configHost`; standard names, including explicit extensionless paths, infer the host. Extensionless files do not join automatic discovery or change priority/ambiguity handling. Supported config selection checks perform both preparation and actual host builds, separate from real Electron-window acceptance.
 
 The Nuxt-only default `['VITE_', 'NUXT_PUBLIC_']` is checked with typed schema values, raw string env reads, and shared Vite business variables in real consumers. An explicit single-prefix application excludes both defaults, and Matrix does not synthesize native runtimeConfig fields. `runtime/snapshot.test.ts` checks equal/unequal and camelCase aliases against complete diagnostics. `typegen/typegen.test.ts` composes the real merge/render/generator with filesystem declarations for those aliases plus cross-product and schema-only collisions, including reverse cross-product ordering, value-free diagnostics and preservation of an existing declaration. No Nuxt/Vite framework is mocked for these shared rules.
+
+Full-profile collision-collection rejections retain both products on the main
+application, but temporarily exclude the unrelated custom-prefix SPA. Each
+case restores the complete project/product configuration before subsequent
+checks. Both applications and products remain in normal shared preparation;
+the collision diagnostics, private-value exclusion and valid-declaration
+preservation assertions are unchanged.
 
 In `full`, both Nuxt endpoints retain a real unequal-alias preparation rejection to verify strict collection wiring. The 4.0.3 consumer additionally checks cross-product collection/merging; 4.6.3 checks schema-only collection. These paths use the same Matrix merge/generator tested above, so repeating every input permutation on both host versions is unnecessary. Each retained package rejection still checks both diagnostic keys, excludes collision values and preserves valid declarations. Full runtime-only builds independently reject aliases. Bare Vite defaults and legacy untyped collisions remain covered for other adapters.
 

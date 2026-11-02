@@ -38,6 +38,42 @@ it('keeps ordinary failures rejected and counts both failed and successful phase
   expect(output()).toContain('Package outcomes: passed 1, failed 1')
 })
 
+it('reports inclusive wall spans without counting nested commands twice', async () => {
+  const { timings, output } = captureTimings()
+  const result = await timings.span('nuxt', 'total', () =>
+    timings.span('endpoint', 'total', () =>
+      timings.measure('endpoint', 'prepare', () => command('console.log("prepared")'))))
+  expect(result.stdout).toBe('prepared')
+  timings.report()
+  expect(output()).toContain('Package outcomes: passed 1')
+  expect(output()).toMatch(/Package phase totals[^\n]+: prepare \d+\.\ds\n/)
+  expect(output()).toMatch(/Slowest consumers[^\n]+: endpoint \d+\.\ds\n/)
+  expect(output()).toContain('Package wall spans: 2 (0 failed; inclusive, excluded from command totals and outcomes)')
+})
+
+it('finishes wall spans after cleanup and preserves cleanup failures', async () => {
+  const { timings, output } = captureTimings()
+  const failure = new Error('cleanup failed')
+  let cleaned = false
+  const cleanup = async () => {
+    cleaned = true
+    throw failure
+  }
+  await expect(timings.span('nuxt', 'total', async () => {
+    try {
+      await timings.measure('endpoint', 'prepare', () => command(''))
+    }
+    finally {
+      await cleanup()
+    }
+  })).rejects.toBe(failure)
+  expect(cleaned).toBe(true)
+  timings.report()
+  expect(output()).toMatch(/Package wall timing: nuxt total \d+\.\ds \(failed\)/)
+  expect(output()).toContain('Package outcomes: passed 1')
+  expect(output()).toContain('Package wall spans: 1 (1 failed; inclusive, excluded from command totals and outcomes)')
+})
+
 it.each([
   ['unexpected success', () => command('console.error("expected")'), /expected/],
   ['wrong diagnostic', () => command('console.error("unrelated"); process.exitCode = 1'), /expected/],
@@ -91,7 +127,7 @@ it.skipIf(process.platform === 'win32').each([0, 17])('keeps a timed-out command
   const { timings, output } = captureTimings()
   const { subprocess, ready } = interruptedCommand(exitCode, false)
   const original = subprocess.catch(error => error)
-  const measured = timings.measure('fixture', 'timeout', () => subprocess, { rejection: /expected diagnostic/, allowSuccess: true })
+  const measured = timings.span('fixture', 'total', () => timings.measure('fixture', 'timeout', () => subprocess, { rejection: /expected diagnostic/, allowSuccess: true }))
     .then(result => ({ result }), error => ({ error }))
   expect(await ready).toBe('ready')
   const error = await original
@@ -100,6 +136,7 @@ it.skipIf(process.platform === 'win32').each([0, 17])('keeps a timed-out command
   await expect(expectFailure(subprocess, /expected diagnostic/, 'timeout')).rejects.toBe(error)
   timings.report()
   expect(output()).toContain('Package outcomes: failed 1')
+  expect(output()).toContain('Package wall spans: 1 (1 failed; inclusive, excluded from command totals and outcomes)')
   expect(output()).not.toContain('(expected rejection)')
 }, 10000)
 
@@ -107,7 +144,7 @@ it.each([0, 17])('keeps a gracefully canceled command exiting %i failed', async 
   const { timings, output } = captureTimings()
   const { subprocess, ready, cancel } = interruptedCommand(exitCode, true)
   const original = subprocess.catch(error => error)
-  const measured = timings.measure('fixture', 'cancel', () => subprocess, { rejection: /expected diagnostic/, allowSuccess: true })
+  const measured = timings.span('fixture', 'total', () => timings.measure('fixture', 'cancel', () => subprocess, { rejection: /expected diagnostic/, allowSuccess: true }))
     .then(result => ({ result }), error => ({ error }))
   expect(await ready).toBe('ready')
   cancel()
@@ -118,5 +155,6 @@ it.each([0, 17])('keeps a gracefully canceled command exiting %i failed', async 
   await expect(expectFailure(subprocess, /expected diagnostic/, 'cancel')).rejects.toBe(error)
   timings.report()
   expect(output()).toContain('Package outcomes: failed 1')
+  expect(output()).toContain('Package wall spans: 1 (1 failed; inclusive, excluded from command totals and outcomes)')
   expect(output()).not.toContain('(expected rejection)')
 }, 10000)

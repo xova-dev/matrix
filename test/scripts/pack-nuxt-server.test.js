@@ -6,6 +6,7 @@ import { execa } from 'execa'
 import { afterEach, expect, it, vi } from 'vitest'
 import { verifyShutdown, withTimeout } from '../../scripts/pack-cli.mjs'
 import { terminateWindowsTree, withServer } from '../../scripts/pack-nuxt.mjs'
+import { createPackageTimings } from '../../scripts/pack-timings.mjs'
 import { temporaryDirectory } from '../helpers/temporary-directory.js'
 
 const processes = []
@@ -94,6 +95,7 @@ async function service(mode = 'normal', verify = async () => {}, limits = deadli
     cwd,
     label: 'fixture service',
     env: { SERVICE_MODE: mode },
+    timing: { timings: createPackageTimings(), consumer: 'fixture', phase: 'service' },
   }, verify, limits, startProcess)
   return { cwd, messages, operation }
 }
@@ -114,6 +116,10 @@ it('verifies a real HTTP service and finishes its owned teardown before returnin
   await assertExited(cwd)
   for (const phase of ['startup', 'verification', 'shutdown'])
     expect(messages.some(message => message.includes(`${phase} passed`))).toBe(true)
+  const wallTimings = messages.filter(message => message.startsWith('Package wall timing:'))
+  expect(wallTimings).toHaveLength(4)
+  expect(wallTimings.at(-1)).toMatch(/fixture service-total \d+\.\ds \(passed\)/)
+  expect(messages.indexOf(wallTimings.at(-1))).toBeGreaterThan(messages.findIndex(message => message.includes('shutdown passed')))
   if (process.platform === 'win32')
     expect(messages.some(message => message.includes('taskkill /T /F (not graceful cancellation)'))).toBe(true)
   else
@@ -187,7 +193,7 @@ it.skipIf(process.platform === 'win32')('accepts the conventional exit code for 
 
 it('retains verification and teardown errors when the OS refuses cleanup', async () => {
   const denied = Object.assign(new Error('fixture cleanup denied'), { code: 'EPERM' })
-  const { operation } = await service('stubborn', async (_page, request) => {
+  const { messages, operation } = await service('stubborn', async (_page, request) => {
     vi.spyOn(process, 'kill').mockImplementation(() => {
       throw denied
     })
@@ -198,6 +204,9 @@ it('retains verification and teardown errors when the OS refuses cleanup', async
   expect(error.errors.some(error => error.message.includes('HTTP /body'))).toBe(true)
   expect(error.errors.some(error => error.message.includes('shutdown failed') && error.cause === denied)).toBe(true)
   expect(error.errors.some(error => error.message.includes('forced cleanup failed') && error.cause === denied)).toBe(true)
+  const wallTimings = messages.filter(message => message.startsWith('Package wall timing:'))
+  expect(wallTimings.at(-2)).toMatch(/fixture service-forced-cleanup \d+\.\ds \(failed\)/)
+  expect(wallTimings.at(-1)).toMatch(/fixture service-total \d+\.\ds \(failed\)/)
 })
 
 it('retains a failed Windows tree command after its real root process has closed', async () => {

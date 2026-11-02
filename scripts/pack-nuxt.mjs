@@ -37,6 +37,12 @@ export async function terminateWindowsTree(pid, signal, timeout, runCommand = ex
 
 /** HTTP acceptance owns service teardown; it does not assert Matrix's cancellation contract. */
 export async function withServer(command, args, { label = 'Nuxt service', ...options }, verify, timeouts = {}, startProcess = execa) {
+  const { timing, ...serverOptions } = options
+  const span = (phase, operation) => timing ? timing.timings.span(timing.consumer, `${timing.phase}-${phase}`, operation) : operation()
+  return span('total', () => serve(command, args, { ...serverOptions, label }, verify, timeouts, startProcess, span))
+}
+
+async function serve(command, args, { label, ...options }, verify, timeouts, startProcess, span) {
   const limits = { startup: 60_000, verification: 60_000, request: 10_000, shutdown: 40_000, cleanup: 5_000, ...timeouts }
   const port = await freePort()
   const origin = `http://127.0.0.1:${port}`
@@ -50,7 +56,7 @@ export async function withServer(command, args, { label = 'Nuxt service', ...opt
     stream?.on('data', chunk => diagnostic = (diagnostic + chunk.toString()).slice(-16_384))
   child.nodeChildProcess.once('exit', (code, signal) => exit = { code, signal })
   void completion.then(() => completed = true)
-  const phase = async (name, milliseconds, operation) => {
+  const phase = (name, milliseconds, operation) => span(name.replaceAll(' ', '-'), async () => {
     const controller = new AbortController()
     console.log(`Package server: ${label} ${name} started (PID ${child.pid ?? 'unspawned'}, ${milliseconds}ms deadline)`)
     try {
@@ -64,7 +70,7 @@ export async function withServer(command, args, { label = 'Nuxt service', ...opt
     finally {
       controller.abort()
     }
-  }
+  })
   const request = async (resource, format, signal, milliseconds = limits.request) => {
     try {
       const response = await fetch(`${origin}${resource}`, { signal: AbortSignal.any([signal, AbortSignal.timeout(milliseconds)]) })
@@ -149,7 +155,7 @@ export async function withServer(command, args, { label = 'Nuxt service', ...opt
     throw new AggregateError(failures, `${label} acceptance/teardown failed`, { cause: failures[0] })
 }
 
-async function verifyNodeOutput(root, project, product) {
+async function verifyNodeOutput(root, project, product, timings, consumer) {
   const output = path.join(project, '.output')
   const fingerprint = () => {
     const hash = createHash('sha256')
@@ -165,7 +171,13 @@ async function verifyNodeOutput(root, project, product) {
       if (key.startsWith('MATRIX_') || key.startsWith('__MATRIX_'))
         delete env[key]
     }
-    await withServer(process.execPath, ['.output/server/index.mjs'], { cwd: project, env, extendEnv: false, label: `Node ${product} ${name} deployment` }, async ({ response, body: html }, request) => {
+    await withServer(process.execPath, ['.output/server/index.mjs'], {
+      cwd: project,
+      env,
+      extendEnv: false,
+      label: `Node ${product} ${name} deployment`,
+      timing: { timings, consumer, phase: `mixed-${product}-${name}-deployment` },
+    }, async ({ response, body: html }, request) => {
       assert.match(html, new RegExp(apiBase))
       assert.doesNotMatch(html, /private-deployment|PRIVATE_BUILD_SENTINEL/)
       if (product) {
@@ -216,7 +228,7 @@ async function verifyNativeNuxt(cwd, run) {
   assert.equal(existsSync(path.join(workspace, 'app/.matrix')), false)
 }
 
-async function verifyMixedNuxt(cwd, version, run, remote, extended) {
+async function verifyMixedNuxt(cwd, version, run, remote, extended, timings) {
   const workspace = path.join(cwd, 'mixed')
   const root = path.join(workspace, 'apps/main')
   const second = path.join(workspace, 'apps/second')
@@ -357,6 +369,7 @@ async function verifyMixedNuxt(cwd, version, run, remote, extended) {
   await withServer(process.execPath, [path.join(cwd, 'node_modules/@xova/matrix/bin/matrix.mjs'), 'dev', 'alpha', '--variant', 'web'], {
     cwd: workspace,
     label: `nuxt-${version} Matrix dev`,
+    timing: { timings, consumer: `nuxt-${version}`, phase: 'mixed-dev' },
     env: { PATH: `${path.join(cwd, 'node_modules/.bin')}${delimiter}${process.env.PATH ?? ''}` },
   }, async ({ response, body: html }, request) => {
     assert.match(html, /alpha-snapshot/)
@@ -389,7 +402,7 @@ async function verifyMixedNuxt(cwd, version, run, remote, extended) {
     for (const value of ['local-layer-value', 'package-layer-value', 'remote-layer-value'])
       assert.ok(bundle.includes(value), `Mixed build omitted ${value}`)
     assert.doesNotMatch(bundle, new RegExp(`${product === 'alpha' ? 'beta' : 'alpha'}-snapshot|MIXED_PRIVATE_SENTINEL|MIXED_APP_SENTINEL|__MATRIX_TYPE_CONTRACT|__MATRIX_ENV_SCHEMA`))
-    await verifyNodeOutput(workspace, root, product)
+    await verifyNodeOutput(workspace, root, product, timings, `nuxt-${version}`)
   }
   // Nuxt's default NUXT_ Vite prefix must not expose private business fields.
   assert.doesNotMatch(declaration, /privateToken|appPrivate/)
@@ -422,6 +435,10 @@ async function verifyMixedNuxt(cwd, version, run, remote, extended) {
         continue
       const original = JSON.stringify(matrixConfig)
       try {
+        // Keep both products on the colliding host; the independent SPA is covered above.
+        delete matrixConfig.projects.secondary
+        for (const product of Object.values(matrixConfig.products))
+          delete product.variants.second
         mutate()
         write(workspace, 'matrix.config.mjs', `export default ${JSON.stringify(matrixConfig)}`)
         const diagnostic = await fails(`mixed-collision-${name}`, ['exec', 'matrix', 'prepare'], /both map to matrix\.config\.(?:matrixApi|typedCount)/)
@@ -472,36 +489,42 @@ async function verifyMixedNuxt(cwd, version, run, remote, extended) {
 
 /** Each endpoint shares one installation and one mixed SSR/Layer production chain. */
 export async function verifyNuxtCompatibility(tarball, root, compatibility, timings) {
+  return timings.span('nuxt', 'total', () => verifyNuxtEndpoints(tarball, root, compatibility, timings))
+}
+
+async function verifyNuxtEndpoints(tarball, root, compatibility, timings) {
   mkdirSync(root, { recursive: true })
   for (const version of compatibility.nuxt.versions) {
-    const cwd = path.join(root, `nuxt-${version}`)
-    mkdirSync(cwd)
-    write(cwd, 'package.json', {
-      private: true,
-      type: 'module',
-      dependencies: {
-        '@xova/matrix': `file:${tarball}`,
-        'nuxt': version,
-        ...compatibility.typecheck.dependencies,
-        ...compatibility.vite8Dependencies,
-        ...compatibility.nuxt.dependencies,
-        'matrix-test-layer': 'file:./fixture-layer',
-      },
-    })
-    write(cwd, 'fixture-layer/package.json', { name: 'matrix-test-layer', version: '1.0.0', type: 'module', main: './nuxt.config.mts' })
-    write(cwd, 'fixture-layer/nuxt.config.mts', `export default defineNuxtConfig({
+    await timings.span(`nuxt-${version}`, 'total', async () => {
+      const cwd = path.join(root, `nuxt-${version}`)
+      mkdirSync(cwd)
+      write(cwd, 'package.json', {
+        private: true,
+        type: 'module',
+        dependencies: {
+          '@xova/matrix': `file:${tarball}`,
+          'nuxt': version,
+          ...compatibility.typecheck.dependencies,
+          ...compatibility.vite8Dependencies,
+          ...compatibility.nuxt.dependencies,
+          'matrix-test-layer': 'file:./fixture-layer',
+        },
+      })
+      write(cwd, 'fixture-layer/package.json', { name: 'matrix-test-layer', version: '1.0.0', type: 'module', main: './nuxt.config.mts' })
+      write(cwd, 'fixture-layer/nuxt.config.mts', `export default defineNuxtConfig({
       vite: { plugins: [{ name: 'package-layer-field', configResolved(config) { config.env.LAYER_PACKAGE = config.env.NUXT_PUBLIC_LAYER_PACKAGE = 'package-layer-value' } }] },
     })`)
-    write(cwd, 'pnpm-workspace.yaml', [
-      'autoInstallPeers: false',
-      'resolvePeersFromWorkspaceRoot: false',
-      'allowBuilds:',
-      '  esbuild: true',
-      `overrides: ${JSON.stringify(compatibility.nuxt.overrides?.[version] ?? {})}`,
-    ].join('\n'))
-    const run = (phase, args, directory = cwd, { env, ...expectation } = {}) => timings.measure(`nuxt-${version}`, phase, () => execa('pnpm', args, { cwd: directory, env, timeout: 180_000 }), expectation)
-    await run('install', ['install', '--strict-peer-dependencies'])
-    await verifyNativeNuxt(cwd, run)
-    await verifyNuxtLayerSelection(cwd, version, run, compatibility.nuxt.checks.layers, remote => verifyMixedNuxt(cwd, version, run, remote, compatibility.nuxt.checks.extended))
+      write(cwd, 'pnpm-workspace.yaml', [
+        'autoInstallPeers: false',
+        'resolvePeersFromWorkspaceRoot: false',
+        'allowBuilds:',
+        '  esbuild: true',
+        `overrides: ${JSON.stringify(compatibility.nuxt.overrides?.[version] ?? {})}`,
+      ].join('\n'))
+      const run = (phase, args, directory = cwd, { env, ...expectation } = {}) => timings.measure(`nuxt-${version}`, phase, () => execa('pnpm', args, { cwd: directory, env, timeout: 180_000 }), expectation)
+      await run('install', ['install', '--strict-peer-dependencies'])
+      await verifyNativeNuxt(cwd, run)
+      await verifyNuxtLayerSelection(cwd, version, run, compatibility.nuxt.checks.layers, remote => verifyMixedNuxt(cwd, version, run, remote, compatibility.nuxt.checks.extended, timings))
+    })
   }
 }
