@@ -1,19 +1,12 @@
-import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
-import os from 'node:os'
+import { access, mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'pathe'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { findTypeHost, resolveHostTypes, TypePreparationCancelled } from '../../src/typegen/prepare.js'
 import { currentProcessEnv } from '../../src/utils/env.js'
-
-const directories: string[] = []
-afterEach(async () => {
-  for (const directory of directories.splice(0))
-    await rm(directory, { recursive: true, force: true })
-})
+import { temporaryDirectory } from '../helpers/temporary-directory.js'
 
 async function fixture(settings: Record<string, unknown> = {}): Promise<string> {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'matrix-nuxt-lifecycle-'))
-  directories.push(root)
+  const root = await temporaryDirectory('matrix-nuxt-lifecycle-')
   const write = async (file: string, value: unknown): Promise<void> => {
     const location = path.join(root, file)
     await mkdir(path.dirname(location), { recursive: true })

@@ -6,6 +6,6 @@ import { onTestFinished } from 'vitest'
 /** Register cleanup immediately, including when a later assertion fails. */
 export async function temporaryDirectory(prefix: string): Promise<string> {
   const directory = await mkdtemp(path.join(os.tmpdir(), prefix))
-  onTestFinished(() => rm(directory, { recursive: true, force: true }))
+  onTestFinished(() => rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
   return directory
 }

@@ -1,20 +1,16 @@
-import { mkdtemp, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import process from 'node:process'
 import { execa } from 'execa'
 import { afterEach, expect, it, vi } from 'vitest'
 import { verifyReport } from '../../examples/electron-web/acceptance/verify-report.mjs'
+import { temporaryDirectory } from '../helpers/temporary-directory.js'
 
-const directories = []
-afterEach(async () => {
+afterEach(() => {
   vi.restoreAllMocks()
-  await Promise.all(directories.splice(0).map(directory => rm(directory, { recursive: true, force: true })))
 })
 
 async function launch(report) {
-  const directory = await mkdtemp(join(tmpdir(), 'matrix electron report-'))
-  directories.push(directory)
+  const directory = await temporaryDirectory('matrix electron report-')
   const output = join(directory, 'report.json')
   // A real command can exit successfully despite failing to produce a usable report.
   const result = await execa(process.execPath, ['--input-type=module', '-e', `

@@ -1,6 +1,5 @@
 import type { MatrixConfig } from '../../src/types.js'
-import { mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises'
-import os from 'node:os'
+import { mkdir, readdir, readFile, realpath, writeFile } from 'node:fs/promises'
 import consola from 'consola'
 import path from 'pathe'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -9,6 +8,7 @@ import { loadMatrixConfig } from '../../src/config/index.js'
 import { assertMatrixConfig } from '../../src/config/schema.js'
 import { runExecutionPlan } from '../../src/execution/exec.js'
 import { createExecutionPlan } from '../../src/execution/plan.js'
+import { temporaryDirectory } from '../helpers/temporary-directory.js'
 
 let cwd: string
 let messages: string[]
@@ -18,7 +18,7 @@ beforeEach(async () => {
   vi.spyOn(consola, 'info').mockImplementation((message) => {
     messages.push(String(message))
   })
-  cwd = await mkdtemp(path.join(os.tmpdir(), 'matrix-prepare-'))
+  cwd = await temporaryDirectory('matrix-prepare-')
   await writeFile(path.join(cwd, 'record.mjs'), [
     'import { appendFileSync, writeFileSync } from "node:fs";',
     'const event = process.argv[2];',
@@ -39,10 +39,8 @@ beforeEach(async () => {
   ].join(String.fromCharCode(10)))
 })
 
-afterEach(async () => {
+afterEach(() => {
   vi.restoreAllMocks()
-  // Windows may briefly retain directory handles after process termination.
-  await rm(cwd, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 })
 })
 
 async function execution(config: MatrixConfig, productNames = ['app']) {

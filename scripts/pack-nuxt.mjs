@@ -22,12 +22,25 @@ async function freePort() {
   return port
 }
 
+export async function terminateWindowsTree(pid, signal, timeout, runCommand = execa) {
+  const systemRoot = process.env.SystemRoot ?? process.env.windir
+  assert.ok(systemRoot && path.win32.isAbsolute(systemRoot), 'Windows tree teardown requires an absolute system directory')
+  const result = await runCommand(path.join(systemRoot, 'System32/taskkill.exe'), ['/PID', String(pid), '/T', '/F'], {
+    reject: false,
+    cancelSignal: signal,
+    timeout: Math.min(timeout, 10_000),
+    maxBuffer: 16_384,
+  })
+  if (result.failed)
+    throw new Error(`Windows owned-tree teardown failed: ${result.shortMessage}\n${result.stderr}`, { cause: result })
+}
+
 /** HTTP acceptance owns service teardown; it does not assert Matrix's cancellation contract. */
-export async function withServer(command, args, { label = 'Nuxt service', ...options }, verify, timeouts = {}) {
+export async function withServer(command, args, { label = 'Nuxt service', ...options }, verify, timeouts = {}, startProcess = execa) {
   const limits = { startup: 60_000, verification: 60_000, request: 10_000, shutdown: 40_000, cleanup: 5_000, ...timeouts }
   const port = await freePort()
   const origin = `http://127.0.0.1:${port}`
-  const child = execa(command, args, { ...options, env: { ...options.env, PORT: String(port), NUXT_PORT: String(port), NUXT_HOST: '127.0.0.1', HOST: '127.0.0.1' }, buffer: false, killDescendants: true, forceKillAfterDelay: false })
+  const child = startProcess(command, args, { ...options, env: { ...options.env, PORT: String(port), NUXT_PORT: String(port), NUXT_HOST: '127.0.0.1', HOST: '127.0.0.1' }, buffer: false, killDescendants: true, forceKillAfterDelay: false })
   const completion = child.catch(error => error)
   let completed = false
   let exit
@@ -67,16 +80,7 @@ export async function withServer(command, args, { label = 'Nuxt service', ...opt
     if (child.pid) {
       if (process.platform === 'win32') {
         if (!completed || isAlive(child.pid)) {
-          const systemRoot = process.env.SystemRoot ?? process.env.windir
-          assert.ok(systemRoot && path.win32.isAbsolute(systemRoot), 'Windows tree teardown requires an absolute system directory')
-          const result = await execa(path.join(systemRoot, 'System32/taskkill.exe'), ['/PID', String(child.pid), '/T', '/F'], {
-            reject: false,
-            cancelSignal: signal,
-            timeout: Math.min(force ? limits.cleanup : limits.shutdown, 10_000),
-            maxBuffer: 16_384,
-          })
-          if (result.failed)
-            throw new Error(`Windows owned-tree teardown failed: ${result.shortMessage}\n${result.stderr}`, { cause: result })
+          await terminateWindowsTree(child.pid, signal, force ? limits.cleanup : limits.shutdown)
         }
       }
       else {

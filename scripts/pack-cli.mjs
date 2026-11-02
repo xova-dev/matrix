@@ -44,7 +44,7 @@ export function killProcessGroup(pid, signal = 'SIGKILL') {
   }
 }
 
-async function verifyShutdown(cli, cwd) {
+export async function verifyShutdown(cli, cwd) {
   if (process.platform === 'win32') {
     return false
   }
@@ -116,6 +116,7 @@ async function verifyShutdown(cli, cwd) {
       if (!names.every(name => existsSync(path.join(cwd, `${name}.closed`))) || pids.some(isAlive) || isAlive(-command.pid))
         throw new Error('Packaged CLI exited without fully cleaning up its children')
     }
+    const failures = []
     try {
       await withTimeout(Promise.race([verify(), interrupted]), 10_000, 'Packaged CLI shutdown timed out')
     }
@@ -123,15 +124,29 @@ async function verifyShutdown(cli, cwd) {
       if (!interruption) {
         if (output)
           console.error(output.trimEnd())
-        throw error
+        failures.push(error)
       }
     }
     finally {
       stopped = true
-      if (command.pid)
-        killProcessGroup(command.pid)
-      await withTimeout(closed.catch(() => undefined), 2000, 'Smoke process group did not close after cleanup')
+      try {
+        if (command.pid)
+          killProcessGroup(command.pid)
+      }
+      catch (error) {
+        failures.push(error)
+      }
+      try {
+        await withTimeout(closed, 2000, 'Smoke process group did not close after cleanup')
+      }
+      catch (error) {
+        failures.push(error)
+      }
     }
+    if (failures.length === 1)
+      throw failures[0]
+    if (failures.length > 1)
+      throw new AggregateError(failures, 'Packaged CLI verification and cleanup failed', { cause: failures[0] })
   }
   finally {
     process.removeListener('SIGINT', onSigint)
