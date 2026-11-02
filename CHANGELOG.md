@@ -1,5 +1,38 @@
 # Changelog
 
+## [0.4.0](https://github.com/xova-dev/matrix/compare/v0.3.0...v0.4.0) (2026-11-02)
+
+### Highlights and migration notes
+
+- Add the optional `@xova/matrix/nuxt` Module for Nuxt's Vite builder (`^4.0.3`), including SSR, SPA and shared public snapshots. Direct Nitro imports support the `node-server` preset and local development, not other deployment presets.
+- Choose native host integration with `project.typegen: false`, or retain Matrix virtual modules and shared types for mixed integration. Existing projects keep their current behavior by default. Project `typegen` and adapter/Module `types` are separate controls; runtime-only mixed Nuxt requires both to be disabled.
+- Nuxt mixed integration exposes `VITE_` and `NUXT_PUBLIC_` business variables by default and rejects conflicting field aliases. Virtual-module values are public build-time snapshots, not private or deployment-time configuration; use native Nuxt `runtimeConfig` for those needs.
+- Configuration discovery supports standard host filenames and explicit paths, with `configHost` needed only for ambiguous custom names. Nuxt retains native Layer loading, including package and remote Layers. Working directories are validated before execution.
+- See the [English integration guide](docs/site/en/guides/integrations.md) or [Chinese integration guide](docs/site/zh-CN/guides/integrations.md) for setup, type ownership and deployment boundaries.
+
+### Features
+
+- **ci:** integrate pinned xova project workflows ([8c29bf3](https://github.com/xova-dev/matrix/commit/8c29bf3762ef50971c366b67036b7456d8811891))
+- **ci:** unify code and docs checks with shared caches ([e5f5716](https://github.com/xova-dev/matrix/commit/e5f57168a9d361c569ecc49a089637163f2fd886))
+- **integrations:** support native hosts and mixed Nuxt ([5375906](https://github.com/xova-dev/matrix/commit/53759064966007ac3d816232268adae79d1f1732))
+
+### Bug Fixes
+
+- **ci:** restore complete frozen dependency snapshots ([76466ec](https://github.com/xova-dev/matrix/commit/76466ecb887aabcd2def782eab053e345eeb779c))
+- **ci:** reuse dependency caches for temporary consumers ([e458c53](https://github.com/xova-dev/matrix/commit/e458c5353ac23bcd4f4245e548368014b2cb47fb))
+- **execution:** validate working directories and streamline Nuxt checks ([993d8ef](https://github.com/xova-dev/matrix/commit/993d8ef2e27d566107e378e6e8517901ce497768))
+- **scripts:** reject abnormal process outcomes before classification ([18653f3](https://github.com/xova-dev/matrix/commit/18653f300b5f622c247699482e888e136ded2ab9))
+- **test:** bound Nuxt service lifecycle and preserve cleanup failures ([00babe6](https://github.com/xova-dev/matrix/commit/00babe6b8d22ebc10ae04edd10dadac3a231fa61))
+- **test:** normalize Windows paths and tier Nuxt checks ([9b147f1](https://github.com/xova-dev/matrix/commit/9b147f1250a9974b3152b217d9a370cfcf22f9cb))
+- **test:** unify process ownership and bounded fixture cleanup ([ad725a7](https://github.com/xova-dev/matrix/commit/ad725a76fe4a062ccf4db57e4347ffb2003c67e0))
+
+### Performance Improvements
+
+- **ci:** focus platform checks on Matrix contracts ([a4f8c9f](https://github.com/xova-dev/matrix/commit/a4f8c9f8503dc5e87fc5227e25a3e8cc0088ce63))
+- **ci:** narrow root installation for Electron checks ([4378a46](https://github.com/xova-dev/matrix/commit/4378a4628502282ffc7657ea2d448ffa7ec424de))
+- **ci:** reuse complete CI checks before publishing ([2985d43](https://github.com/xova-dev/matrix/commit/2985d435e7bdd2ab27d1f4b18c10295a605ed039))
+- **test:** narrow Nuxt collision fixtures and report wall timings ([e5a458f](https://github.com/xova-dev/matrix/commit/e5a458f0ce5384371f62a0efdc1d6b76e3e94218))
+- **test:** reduce compatibility matrix version sampling ([e9f7667](https://github.com/xova-dev/matrix/commit/e9f76675cdcf418f20a8aa39f717f720faf09687))
 
 ## v0.3.0
 
@@ -100,7 +133,7 @@
 
 ### 🚀 Enhancements
 
-- **cli:** ⚠️  Streamline selection and config loading ([eaeef71](https://github.com/xova-dev/matrix/commit/eaeef71))
+- **cli:** ⚠️ Streamline selection and config loading ([eaeef71](https://github.com/xova-dev/matrix/commit/eaeef71))
 - **prepare:** Add project preparation lifecycle ([8129da9](https://github.com/xova-dev/matrix/commit/8129da9))
 
 ### 🩹 Fixes
@@ -117,7 +150,7 @@
 
 #### ⚠️ Breaking Changes
 
-- **cli:** ⚠️  Streamline selection and config loading ([eaeef71](https://github.com/xova-dev/matrix/commit/eaeef71))
+- **cli:** ⚠️ Streamline selection and config loading ([eaeef71](https://github.com/xova-dev/matrix/commit/eaeef71))
 
 ### ❤️ Contributors
 
