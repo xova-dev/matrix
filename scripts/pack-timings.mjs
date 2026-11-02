@@ -1,5 +1,5 @@
 import { performance } from 'node:perf_hooks'
-import { expectFailure } from './pack-fixtures.mjs'
+import { assertNormalProcessExit, expectFailure } from './pack-fixtures.mjs'
 
 export function createPackageTimings() {
   const started = performance.now()
@@ -12,6 +12,8 @@ export function createPackageTimings() {
       try {
         const pending = operation()
         const result = await (rejection ? pending.catch(error => error) : pending)
+        if (rejection)
+          assertNormalProcessExit(result)
         if (rejection && !(allowSuccess && result.exitCode === 0)) {
           await expectFailure(Promise.resolve(result), rejection, phase)
           outcome = 'expected rejection'

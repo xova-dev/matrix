@@ -16,8 +16,26 @@ export function fixtureCode(root, pattern = /\.(?:html|m?js|json)$/) {
   return fixtureFiles(root).filter(file => pattern.test(file)).map(file => readFileSync(file, 'utf8')).join('\n')
 }
 
+export function assertNormalProcessExit(result) {
+  // A timeout or cancellation can still let a signal handler exit with a code.
+  if (!Number.isInteger(result?.exitCode)
+    || result.exitCode < 0
+    || result.timedOut
+    || result.isCanceled
+    || result.isGracefullyCanceled
+    || result.isTerminated
+    || result.isForcefullyTerminated
+    || result.isMaxBuffer
+    || result.signal !== undefined
+    || result.code !== undefined
+    || result.cause !== undefined) {
+    throw result
+  }
+}
+
 export async function expectFailure(operation, pattern, phase) {
   const result = await operation.catch(error => error)
+  assertNormalProcessExit(result)
   const diagnostic = `${result.stdout ?? ''}\n${result.stderr ?? ''}`
   assert.notEqual(result.exitCode, 0, `${phase} unexpectedly succeeded`)
   assert.ok(Number.isInteger(result.exitCode) && result.exitCode > 0, `${phase} did not exit with a failure code: ${result.exitCode}`)

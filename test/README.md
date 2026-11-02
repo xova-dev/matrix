@@ -116,9 +116,13 @@ consumers. Phase totals are cumulative and can exceed wall time under concurrenc
 Vite and Nuxt share fixture file/output helpers and failure diagnostics in
 `scripts/pack-fixtures.mjs`. Expected rejections must retain a nonzero process
 exit code and match the asserted diagnostic before timings label them
-`expected rejection`; outcome totals distinguish them from actual failures.
+`expected rejection`; timeout, cancellation, signal, buffer, and other execution
+errors remain failures even if a handler exits with code zero or an expected diagnostic.
+Outcome totals distinguish expected rejections from actual failures.
 `test/scripts/pack-timings.test.js` uses real Node subprocesses to cover both native-loader
-outcomes, unexpected success, wrong diagnostics, and non-process failures.
+outcomes, unexpected success, wrong diagnostics, and non-process failures, plus
+timeouts and graceful cancellation with zero and nonzero handler exits.
+SIGTERM timeout-handler cases run on POSIX; IPC graceful-cancellation cases also run on Windows.
 
 `scripts/pack-smoke.mjs` owns candidate selection, the single pack, isolated CLI
 installation, host orchestration, and final cleanup. `scripts/pack-cli.mjs` owns
