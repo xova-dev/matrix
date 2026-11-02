@@ -1,3 +1,4 @@
+import type { GenerateMatrixTypesOptions } from '../../src/typegen/generate.js'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import { fileURLToPath } from 'node:url'
@@ -16,20 +17,38 @@ afterEach(async () => {
 })
 
 describe('matrix type generation', () => {
-  it('rejects strict aliases collected from separate products, including schema-only fields', () => {
-    const common = { cwd: '/shared', envPrefix: ['VITE_', 'NUXT_PUBLIC_'], strictPublicFields: true }
-    const batches = [
-      [{ ...common, env: { VITE_API_BASE: 'FIRST_PRIVATE_VALUE' } }],
-      [{ ...common, env: { NUXT_PUBLIC_API_BASE: 'SECOND_PRIVATE_VALUE' } }],
-    ]
-    for (const products of [batches, [...batches].reverse()]) {
-      expect(() => mergePreparedTypes(products)).toThrow('Ambiguous environment fields NUXT_PUBLIC_API_BASE and VITE_API_BASE: both map to matrix.config.apiBase')
+  it.each(['different-values', 'same-values', 'camel-case', 'cross-product', 'schema'])('rejects strict %s aliases without replacing valid declarations or leaking values', async (scenario) => {
+    const cwd = await mkdtemp(path.join(os.tmpdir(), 'matrix-strict-types-'))
+    temporaryDirectories.push(cwd)
+    const common = { cwd, envPrefix: ['VITE_', 'NUXT_PUBLIC_'], strictPublicFields: true }
+    const first = scenario === 'camel-case' ? 'NUXT_PUBLIC_API_BASE' : 'VITE_API_BASE'
+    const second = scenario === 'camel-case' ? 'NUXT_PUBLIC_API__BASE' : 'NUXT_PUBLIC_API_BASE'
+    const output = await generateMatrixTypes({ ...common, env: { [first]: 'FIRST_PRIVATE_VALUE' } })
+    const declaration = await readFile(output, 'utf8')
+    const secondValue = scenario === 'same-values' ? 'FIRST_PRIVATE_VALUE' : 'SECOND_PRIVATE_VALUE'
+    const batches: GenerateMatrixTypesOptions[][] = scenario === 'cross-product'
+      ? [[{ ...common, env: { [first]: 'FIRST_PRIVATE_VALUE' } }], [{ ...common, env: { [second]: secondValue } }]]
+      : [[{
+          ...common,
+          env: { [first]: 'FIRST_PRIVATE_VALUE', ...(scenario !== 'schema' && { [second]: secondValue }) },
+          ...(scenario === 'schema' && { envSchema: { [second]: { type: 'string', optional: true } } }),
+        }]]
+    const diagnostic = new RegExp(`^Ambiguous environment fields ${[first, second].sort().join(' and ')}: both map to matrix\\.config\\.apiBase$`)
+    for (const products of scenario === 'cross-product' ? [batches, [...batches].reverse()] : [batches]) {
+      await expect(async () => {
+        for (const options of mergePreparedTypes(products))
+          await generateMatrixTypes(options)
+      }).rejects.toThrow(diagnostic)
+      expect(await readFile(output, 'utf8')).toBe(declaration)
     }
-    expect(() => renderMatrixTypes({
-      ...common,
-      env: { VITE_API_BASE: 'PRIVATE_VALUE' },
-      envSchema: { NUXT_PUBLIC_API_BASE: { type: 'string', optional: true } },
-    })).toThrow('both map to matrix.config.apiBase')
+    if (scenario !== 'cross-product') {
+      await expect(generateMatrixTypes(batches[0]![0]!)).rejects.toThrow(diagnostic)
+      expect(await readFile(output, 'utf8')).toBe(declaration)
+    }
+  })
+
+  it('merges the same strict public field across products', () => {
+    const common = { cwd: '/shared', envPrefix: ['VITE_', 'NUXT_PUBLIC_'], strictPublicFields: true }
     expect(renderMatrixTypes(mergePreparedTypes([
       [{ ...common, env: { VITE_API_BASE: 'alpha' } }],
       [{ ...common, env: { VITE_API_BASE: 'beta' } }],

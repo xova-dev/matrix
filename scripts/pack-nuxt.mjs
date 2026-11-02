@@ -76,6 +76,7 @@ async function verifyNodeOutput(root, project, product) {
       if (product) {
         assert.match(html, new RegExp(`${product}-snapshot`))
         assert.match(html, /late-field/)
+        assert.match(html, /local-layer-value:package-layer-value:remote-layer-value/)
         assert.doesNotMatch(html, /DEPLOYMENT_MUST_NOT_CHANGE_SNAPSHOT|MIXED_PRIVATE_SENTINEL|MIXED_APP_SENTINEL|__MATRIX_TYPE_CONTRACT|__MATRIX_ENV_SCHEMA/)
         assert.equal(response.headers.get('x-matrix-snapshot'), `${product}-snapshot`, 'Nitro plugin must share the app snapshot')
       }
@@ -96,96 +97,32 @@ async function verifyNodeOutput(root, project, product) {
   assert.equal(existsSync(path.join(root, '.matrix')), false)
 }
 
-function writeNativeNuxtFixture(cwd) {
-  write(cwd, 'matrix.config.mjs', `export default ${JSON.stringify({
-    projects: Object.fromEntries(['spa', 'server'].map(name => [name, {
-      root: name,
-      typegen: false,
-      prepare: 'node ../prepared.mjs',
-      targets: { build: 'node ../build.mjs', dev: 'nuxt dev' },
-    }])),
-    products: Object.fromEntries(['alpha', 'beta'].map(name => [name, {
-      env: { NUXT_PUBLIC_API_BASE: `${name}-public`, PRIVATE_BUILD_TOKEN: 'PRIVATE_BUILD_SENTINEL' },
-      variants: { spa: 'spa', server: 'server' },
-    }])),
+/** Native projects remain host-free to Matrix, but Nuxt still prepares their own types. */
+async function verifyNativeNuxt(cwd, run) {
+  const workspace = path.join(cwd, 'native')
+  write(workspace, 'matrix.config.mjs', `export default ${JSON.stringify({
+    projects: { app: { root: 'app', typegen: false, prepare: 'node ../prepared.mjs', targets: { build: 'nuxt prepare' } } },
+    products: { alpha: { env: { NUXT_PUBLIC_API_BASE: 'alpha-native' }, variants: { web: 'app' } } },
   })}`)
-  write(cwd, 'prepared.mjs', 'import { appendFileSync } from "node:fs"; appendFileSync("prepared", "once;")')
-  write(cwd, 'build.mjs', `
-    import assert from 'node:assert/strict'
-    import { existsSync, readFileSync } from 'node:fs'
-    import { spawnSync } from 'node:child_process'
-    import { fileURLToPath } from 'node:url'
+  write(workspace, 'prepared.mjs', 'import assert from "node:assert/strict"; import { appendFileSync } from "node:fs"; assert.equal(process.env.__MATRIX_TYPE_CONTRACT, undefined); appendFileSync("prepared", "once;")')
+  write(workspace, 'app/nuxt.config.ts', `import assert from 'node:assert/strict'
+    import { appendFileSync } from 'node:fs'
     assert.equal(process.env.__MATRIX_TYPE_CONTRACT, undefined)
-    const loads = existsSync('../host-loads') ? readFileSync('../host-loads', 'utf8') : ''
-    assert.equal(loads, process.env.NATIVE_EXPECTED_LOADS, 'Matrix automatic prepare evaluated Nuxt config')
-    const cli = fileURLToPath(new URL('./bin/nuxt.mjs', import.meta.resolve('nuxt/package.json')))
-    const result = spawnSync(process.execPath, [cli, process.env.MATRIX_PROJECT === 'spa' ? 'generate' : 'build'], { stdio: 'inherit' })
-    if (result.error) throw result.error
-    process.exitCode = result.status ?? 1
-  `)
-  write(cwd, 'base/nuxt.config.ts', `export default defineNuxtConfig({
-    runtimeConfig: { privateToken: '', public: { apiBase: '' } },
-    app: { head: { title: 'Matrix Native Nuxt' } },
-  })`)
-  for (const name of ['spa', 'server']) {
-    write(cwd, `${name}/nuxt.config.ts`, `
-      import { appendFileSync } from 'node:fs'
-      appendFileSync('../host-loads', '${name};')
-      export default defineNuxtConfig({
-        extends: ['../base'],
-        ssr: ${name === 'server'},
-        devtools: { enabled: false },
-        nitro: { preset: 'node-server' },
-      })
-    `)
-    write(cwd, `${name}/app/app.vue`, '<template><NuxtPage /></template>')
-    write(cwd, `${name}/app/pages/index.vue`, `<script setup lang="ts">
-      const config = useRuntimeConfig()
-      const apiBase: string = config.public.apiBase
-      const count = ref(0)
-    </script>
-    <template><main><h1>Native Nuxt</h1><p id="api-base">{{ apiBase }}</p><button id="increment" @click="count++">Count {{ count }}</button><NuxtLink id="next" to="/next">Next page</NuxtLink></main></template>`)
-    write(cwd, `${name}/app/pages/next.vue`, `<script setup lang="ts">const config = useRuntimeConfig()</script>
-      <template><main><h1>Next page</h1><p id="api-base">{{ config.public.apiBase }}</p><NuxtLink to="/">Home</NuxtLink></main></template>`)
-    write(cwd, `${name}/server/api/config.get.ts`, `export default defineEventHandler((event) => {
-      const config = useRuntimeConfig(event)
-      const privateToken: string = config.privateToken
-      return { apiBase: config.public.apiBase, privatePresent: Boolean(privateToken), privateMatched: privateToken === process.env.NUXT_PRIVATE_TOKEN }
-    })`)
-    write(cwd, `${name}/tsconfig.json`, { extends: './.nuxt/tsconfig.json' })
-  }
+    assert.equal(process.env.NUXT_PUBLIC_API_BASE, 'alpha-native')
+    appendFileSync('../host-loads', 'nuxt;')
+    export default defineNuxtConfig({ ssr: false, devtools: { enabled: false } })`)
+  await run('native-matrix-prepare', ['exec', 'matrix', 'prepare'], workspace)
+  assert.equal(existsSync(path.join(workspace, 'host-loads')), false, 'Explicit prepare loaded native Nuxt configuration')
+  assert.equal(readFileSync(path.join(workspace, 'app/prepared'), 'utf8'), 'once;')
+  await run('native-nuxt-prepare', ['exec', 'matrix', 'build', 'alpha'], workspace)
+  assert.equal(readFileSync(path.join(workspace, 'app/prepared'), 'utf8'), 'once;once;')
+  assert.ok(readFileSync(path.join(workspace, 'host-loads'), 'utf8').includes('nuxt;'))
+  assert.doesNotMatch(code(path.join(workspace, 'app/.nuxt')), /virtual:matrix\/runtime|\.matrix\/types/)
+  assert.equal(existsSync(path.join(workspace, '.matrix')), false)
+  assert.equal(existsSync(path.join(workspace, 'app/.matrix')), false)
 }
 
-/** Native Nuxt commands consume standard env; Matrix never loads a Nuxt builder. */
-async function verifyNativeNuxt(cwd, version, run, timings) {
-  await run('matrix-prepare', ['exec', 'matrix', 'prepare'])
-  assert.equal(existsSync(path.join(cwd, 'host-loads')), false, 'Explicit prepare loaded Nuxt configuration')
-  for (const name of ['spa', 'server']) {
-    const project = path.join(cwd, name)
-    assert.equal(readFileSync(path.join(project, 'prepared'), 'utf8'), 'once;')
-    assert.equal(existsSync(path.join(project, '.matrix')), false)
-    await run(`${name}-types`, ['exec', 'nuxt', 'typecheck'], project)
-    const types = code(path.join(project, '.nuxt'))
-    assert.doesNotMatch(types, /virtual:matrix\/runtime|\.matrix\/types/)
-  }
-  for (const name of ['alpha', 'beta']) {
-    const loads = readFileSync(path.join(cwd, 'host-loads'), 'utf8')
-    await run(`spa-${name}`, ['exec', 'matrix', 'build', name, '--variant', 'spa'], cwd, { env: { NATIVE_EXPECTED_LOADS: loads } })
-    const publicRoot = path.join(cwd, 'spa/.output/public')
-    const output = code(publicRoot)
-    assert.match(output, new RegExp(`${name}-public`))
-    assert.doesNotMatch(output, new RegExp(`${name === 'alpha' ? 'beta' : 'alpha'}-public|PRIVATE_BUILD_SENTINEL|virtual:matrix/runtime`))
-    assert.equal(existsSync(path.join(cwd, 'spa/.matrix')), false)
-  }
-  const loads = readFileSync(path.join(cwd, 'host-loads'), 'utf8')
-  await run('server-build', ['exec', 'matrix', 'build', 'alpha', '--variant', 'server'], cwd, { env: { NATIVE_EXPECTED_LOADS: loads } })
-  assert.doesNotMatch(code(path.join(cwd, 'server/.output')), /PRIVATE_BUILD_SENTINEL|private-deployment/)
-  assert.equal(existsSync(path.join(cwd, 'server/.matrix')), false)
-  await timings.measure(`nuxt-${version}`, 'node-runtime', () => verifyNodeOutput(cwd, path.join(cwd, 'server')))
-  console.log(`Package native Nuxt command integration passed: nuxt-${version}`)
-}
-
-async function verifyMixedNuxt(cwd, version, run) {
+async function verifyMixedNuxt(cwd, version, run, remote) {
   const workspace = path.join(cwd, 'mixed')
   const root = path.join(workspace, 'apps/main')
   const second = path.join(workspace, 'apps/second')
@@ -235,11 +172,15 @@ async function verifyMixedNuxt(cwd, version, run) {
     modules: [['@xova/matrix/nuxt', ${JSON.stringify(moduleOptions)}]],
     nitro: { preset: 'node-server' },
     runtimeConfig: { privateToken: '', public: { nativeApi: '' } },
+    vite: { plugins: [{ name: 'local-layer-field', configResolved(config) { config.env.NUXT_PUBLIC_LAYER_LOCAL = 'local-layer-value' } }] },
   })`)
-  write(root, 'nuxt.config.ts', `export default defineNuxtConfig({
+  write(root, 'nuxt.config.ts', `import { dirname } from 'node:path'
+  import { fileURLToPath } from 'node:url'
+  export default defineNuxtConfig({
+    rootDir: dirname(fileURLToPath(import.meta.url)),
     ssr: true,
     srcDir: 'src',
-    extends: ['../../../mixed-layer'],
+    extends: ['../../../mixed-layer', 'matrix-test-layer', ${JSON.stringify(remote)}],
     modules: [['@xova/matrix/nuxt', ${JSON.stringify(moduleOptions)}]],
     devtools: { enabled: false },
     hooks: {
@@ -264,6 +205,7 @@ async function verifyMixedNuxt(cwd, version, run) {
   <template><main><h1>Mixed Nuxt</h1><p id="snapshot">{{ matrix.config.matrixApi }}</p>
   <p id="native">{{ native.public.nativeApi }}</p><p id="enabled">{{ enabled }}</p>
   <p id="compat">{{ matrix.config.compatLabel }}</p><p id="typed">{{ typedCount }}:{{ rawCount }}</p>
+  <p id="layers">{{ matrix.config.layerLocal }}:{{ matrix.config.layerPackage }}:{{ matrix.config.layerRemote }}</p>
   <p id="late">{{ matrix.config.lateField }}</p><p id="optional">{{ optional }}</p>
   <button id="increment" @click="count++">Count {{ count }}</button>
   <NuxtLink id="next" to="/next">Next page</NuxtLink></main></template>`)
@@ -286,7 +228,7 @@ async function verifyMixedNuxt(cwd, version, run) {
   await run('mixed-prepare', ['exec', 'matrix', 'prepare'], workspace)
   const output = path.join(root, 'types/snapshot.d.ts')
   const declaration = readFileSync(output, 'utf8')
-  for (const field of ['alphaOnly?: string', 'betaOnly?: string', 'enabled: boolean', 'lateField: string', 'compatLabel: string', 'typedCount: number', 'VITE_TYPED_COUNT: string'])
+  for (const field of ['alphaOnly?: string', 'betaOnly?: string', 'enabled: boolean', 'lateField: string', 'compatLabel: string', 'typedCount: number', 'VITE_TYPED_COUNT: string', 'layerLocal: string', 'layerPackage: string', 'layerRemote: string'])
     assert.ok(declaration.includes(`readonly ${field}`), `Nuxt declaration missing ${field}`)
   assert.doesNotMatch(declaration, /MIXED_PRIVATE_SENTINEL|PRIVATE_TOKEN|APP_PRIVATE|MIXED_APP_SENTINEL/)
   const secondary = readFileSync(path.join(second, '.matrix/types/matrix-runtime.d.ts'), 'utf8')
@@ -329,7 +271,18 @@ async function verifyMixedNuxt(cwd, version, run) {
     assert.deepEqual(config, { apiBase: 'alpha-native', privatePresent: true, privateMatched: true, snapshot: 'alpha-snapshot', enabled: true, late: 'late-field' })
     assert.equal(readFileSync(output, 'utf8'), declaration, 'Development rewrote the shared type contract')
   })
+  const configFile = path.join(root, 'nuxt.config.ts')
+  const config = readFileSync(configFile, 'utf8')
+  const runtimeOnlyConfig = config.replace(JSON.stringify(moduleOptions), runtimeOnlyOptions)
+  const layerFile = path.join(cwd, 'mixed-layer/nuxt.config.ts')
+  const layer = readFileSync(layerFile, 'utf8')
   for (const product of ['alpha', 'beta']) {
+    if (product === 'beta') {
+      matrixConfig.projects.web.typegen = false
+      write(workspace, 'matrix.config.mjs', `export default ${JSON.stringify(matrixConfig)}`)
+      write(root, 'nuxt.config.ts', runtimeOnlyConfig)
+      write(cwd, 'mixed-layer/nuxt.config.ts', layer.replace(JSON.stringify(moduleOptions), runtimeOnlyOptions))
+    }
     await run(`mixed-${product}`, ['exec', 'matrix', 'build', product, '--variant', 'web'], workspace)
     assert.equal(readFileSync(output, 'utf8'), declaration, 'Active product overwrote the complete type contract')
     const bundle = code(path.join(root, '.output'))
@@ -337,19 +290,13 @@ async function verifyMixedNuxt(cwd, version, run) {
     assert.match(bundle, new RegExp(`${product}-native`))
     assert.match(bundle, new RegExp(`${product}-vite`))
     assert.match(bundle, /late-field/)
+    for (const value of ['local-layer-value', 'package-layer-value', 'remote-layer-value'])
+      assert.ok(bundle.includes(value), `Mixed build omitted ${value}`)
     assert.doesNotMatch(bundle, new RegExp(`${product === 'alpha' ? 'beta' : 'alpha'}-snapshot|MIXED_PRIVATE_SENTINEL|MIXED_APP_SENTINEL|__MATRIX_TYPE_CONTRACT|__MATRIX_ENV_SCHEMA`))
     await verifyNodeOutput(workspace, root, product)
   }
   // Nuxt's default NUXT_ Vite prefix must not expose private business fields.
   assert.doesNotMatch(declaration, /privateToken|appPrivate/)
-  await run('mixed-second-build', ['exec', 'matrix', 'build', 'alpha', '--variant', 'second'], workspace)
-  assert.match(code(path.join(second, '.output/public')), /alpha-custom/)
-  assert.doesNotMatch(code(path.join(second, '.output/public')), /MIXED_PRIVATE_SENTINEL|MIXED_APP_SENTINEL|alpha-snapshot|alpha-vite/)
-  const configFile = path.join(root, 'nuxt.config.ts')
-  const config = readFileSync(configFile, 'utf8')
-  const runtimeOnlyConfig = config.replace(JSON.stringify(moduleOptions), runtimeOnlyOptions)
-  const layerFile = path.join(cwd, 'mixed-layer/nuxt.config.ts')
-  const layer = readFileSync(layerFile, 'utf8')
   const fails = async (phase, args, rejection) => {
     const result = await run(phase, args, args[1] === 'matrix' ? workspace : root, { rejection })
     return `${result.stdout}\n${result.stderr}`
@@ -358,17 +305,21 @@ async function verifyMixedNuxt(cwd, version, run) {
     write(root, 'nuxt.config.ts', config)
     write(cwd, 'mixed-layer/nuxt.config.ts', layer)
   }
+  delete matrixConfig.projects.web.typegen
+  write(workspace, 'matrix.config.mjs', `export default ${JSON.stringify(matrixConfig)}`)
+  restoreHostConfigs()
   try {
     for (const [name, mutate, expectedKeys] of [
       ['different-values', () => { matrixConfig.products.alpha.env.VITE_MATRIX_API = 'COLLISION_PRIVATE_VALUE' }, ['NUXT_PUBLIC_MATRIX_API', 'VITE_MATRIX_API']],
-      ['same-values', () => { matrixConfig.products.alpha.env.VITE_MATRIX_API = 'alpha-snapshot' }, ['NUXT_PUBLIC_MATRIX_API', 'VITE_MATRIX_API']],
-      ['camel-case', () => { matrixConfig.products.alpha.env.NUXT_PUBLIC_MATRIX__API = 'COLLISION_PRIVATE_VALUE' }, ['NUXT_PUBLIC_MATRIX_API', 'NUXT_PUBLIC_MATRIX__API']],
       ['cross-product', () => {
         delete matrixConfig.products.beta.env.NUXT_PUBLIC_MATRIX_API
         matrixConfig.products.beta.env.VITE_MATRIX_API = 'COLLISION_PRIVATE_VALUE'
       }, ['NUXT_PUBLIC_MATRIX_API', 'VITE_MATRIX_API']],
       ['schema', () => { matrixConfig.envSchema.NUXT_PUBLIC_TYPED_COUNT = { type: 'number', optional: true } }, ['NUXT_PUBLIC_TYPED_COUNT', 'VITE_TYPED_COUNT']],
     ]) {
+      // Both hosts exercise strict collection; the shared merge/schema rules run in Vitest.
+      if ((name === 'cross-product' && version !== '4.0.3') || (name === 'schema' && version !== '4.6.3'))
+        continue
       const original = JSON.stringify(matrixConfig)
       try {
         mutate()
@@ -392,8 +343,6 @@ async function verifyMixedNuxt(cwd, version, run) {
     await fails('mixed-project-types-rejected', ['exec', 'matrix', 'build', 'alpha', '--variant', 'web'], /also set the Nuxt module option types:false/)
     write(root, 'nuxt.config.ts', runtimeOnlyConfig)
     write(cwd, 'mixed-layer/nuxt.config.ts', layer.replace(JSON.stringify(moduleOptions), runtimeOnlyOptions))
-    await run('mixed-runtime-only', ['exec', 'matrix', 'build', 'alpha', '--variant', 'web'], workspace)
-    assert.equal(readFileSync(output, 'utf8'), declaration, 'runtime-only integration must not rewrite declarations')
     matrixConfig.products.alpha.env.VITE_MATRIX_API = 'COLLISION_PRIVATE_VALUE'
     write(workspace, 'matrix.config.mjs', `export default ${JSON.stringify(matrixConfig)}`)
     await fails('mixed-runtime-collision-rejected', ['exec', 'matrix', 'build', 'alpha', '--variant', 'web'], /NUXT_PUBLIC_MATRIX_API and VITE_MATRIX_API: both map to matrix.config.matrixApi/)
@@ -418,10 +367,10 @@ async function verifyMixedNuxt(cwd, version, run) {
     delete matrixConfig.projects.web.typegen
     write(workspace, 'matrix.config.mjs', `export default ${JSON.stringify(matrixConfig)}`)
   }
-  console.log(`Package mixed Nuxt SSR/SPA and Node Nitro integration passed: nuxt-${version}`)
+  console.log(`Package mixed Nuxt SSR, Layers and Node Nitro integration passed: nuxt-${version}`)
 }
 
-/** Each endpoint shares one isolated installation across native, mixed and Layer checks. */
+/** Each endpoint shares one installation and one mixed SSR/Layer production chain. */
 export async function verifyNuxtCompatibility(tarball, root, compatibility, timings) {
   mkdirSync(root, { recursive: true })
   for (const version of compatibility.nuxt.versions) {
@@ -441,7 +390,7 @@ export async function verifyNuxtCompatibility(tarball, root, compatibility, timi
     })
     write(cwd, 'fixture-layer/package.json', { name: 'matrix-test-layer', version: '1.0.0', type: 'module', main: './nuxt.config.mts' })
     write(cwd, 'fixture-layer/nuxt.config.mts', `export default defineNuxtConfig({
-      vite: { plugins: [{ name: 'package-layer-field', configResolved(config) { config.env.LAYER_PACKAGE = 'package-layer-value' } }] },
+      vite: { plugins: [{ name: 'package-layer-field', configResolved(config) { config.env.LAYER_PACKAGE = config.env.NUXT_PUBLIC_LAYER_PACKAGE = 'package-layer-value' } }] },
     })`)
     write(cwd, 'pnpm-workspace.yaml', [
       'autoInstallPeers: false',
@@ -450,11 +399,9 @@ export async function verifyNuxtCompatibility(tarball, root, compatibility, timi
       '  esbuild: true',
       `overrides: ${JSON.stringify(compatibility.nuxt.overrides?.[version] ?? {})}`,
     ].join('\n'))
-    writeNativeNuxtFixture(cwd)
     const run = (phase, args, directory = cwd, { env, ...expectation } = {}) => timings.measure(`nuxt-${version}`, phase, () => execa('pnpm', args, { cwd: directory, env, timeout: 180_000 }), expectation)
     await run('install', ['install', '--strict-peer-dependencies'])
-    await verifyNativeNuxt(cwd, version, run, timings)
-    await verifyMixedNuxt(cwd, version, run)
-    await verifyNuxtLayerSelection(cwd, version, run)
+    await verifyNativeNuxt(cwd, run)
+    await verifyNuxtLayerSelection(cwd, version, run, remote => verifyMixedNuxt(cwd, version, run, remote))
   }
 }

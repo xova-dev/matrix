@@ -161,6 +161,12 @@ The client contract is authoritative: actual dev/build also resolves the server 
 
 `project.typegen: false` disables coordinator discovery/generation, not virtual modules. For runtime-only mixed use, also explicitly set Module `types: false`; otherwise a build error prevents silently undoing that setting. `nuxt prepare` / `nuxt typecheck` can consume previously prepared types. Standalone Nuxt dev/build without Matrix context fails with a diagnostic; native applications without the Module remain unaffected.
 
+Package verification uses a mixed SSR application with an explicit application `rootDir` and local, installed-package and controlled HTTP remote Layers at both tested Nuxt endpoints. Two product builds check client assets, SSR and direct Node Nitro startup; deployment runtimeConfig overrides do not change the Matrix snapshot or artifact. Native no-Module integration, `ssr: false`, config suffixes and explicit paths retain lightweight real preparation/typecheck/load checks rather than repeating production builds. HTTP/SSR checks do not establish browser hydration or interaction acceptance.
+
+Alias permutations are checked through shared runtime/type-generation rules, with representative real preparation rejections at both Nuxt endpoints. Layer selection uses one automatically prepared Matrix target before native loading, keeping Matrix context and failure-preservation checks without collecting the same contract twice.
+
+A native reproduction on Nuxt 4.0.3 with a `.ts` root config, custom `srcDir` and object-exported remote Layer changed the default application root to the remote cache during repeated same-process config loading, without Matrix. The same reproduction retained the root on 4.6.3. The mixed package fixture explicitly sets `rootDir`; its result does not certify that affected default-root combination.
+
 ### Runtime and deployment boundaries
 
 The Module does **not** proxy, copy, infer, or synchronize `runtimeConfig`. `useRuntimeConfig()` remains available for independently owned fields; use one authoritative API for a given field. Snapshot values are not deployment overrides. Using both APIs is optional.

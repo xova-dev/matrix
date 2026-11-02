@@ -2,6 +2,7 @@ import type { ExecutionPlan, ExecutionTask } from '../../src/types.js'
 import { Buffer } from 'node:buffer'
 import { existsSync } from 'node:fs'
 import fs from 'node:fs/promises'
+import { syncBuiltinESMExports } from 'node:module'
 import net from 'node:net'
 import { fileURLToPath } from 'node:url'
 import consola from 'consola'
@@ -99,6 +100,30 @@ function summary(): string {
   return summaries[0]!
 }
 
+function holdDirectoryCheck(cwd: string) {
+  let checking!: () => void
+  const entered = new Promise<void>(resolve => checking = resolve)
+  let release!: () => void
+  const resumed = new Promise<void>(resolve => release = resolve)
+  const originalStat = fs.stat
+  const stat = vi.spyOn(fs, 'stat').mockImplementation(async (...args: unknown[]) => {
+    if (args[0] === cwd) {
+      checking()
+      await resumed
+    }
+    return Reflect.apply(originalStat, fs, args)
+  })
+  syncBuiltinESMExports()
+  return {
+    entered,
+    release,
+    restore() {
+      stat.mockRestore()
+      syncBuiltinESMExports()
+    },
+  }
+}
+
 describe('runExecutionPlan', () => {
   it('identifies a failing ordered step without echoing commands or dumping environments', async () => {
     const cwd = await temporaryDirectory('matrix-exec-steps-')
@@ -136,6 +161,138 @@ describe('runExecutionPlan', () => {
     expect(summary()).toContain('app:missing:test: failed')
     expect(summary()).toContain('command, project project, step 1/1')
     expect(messages.join(' ')).not.toContain('spawn-secret-fixture')
+  })
+
+  it.each(['missing', 'dangling-junction', 'file'])('rejects an invalid %s cwd before the shell can run elsewhere', async (kind) => {
+    const root = await temporaryDirectory('matrix-exec-cwd-')
+    const cwd = path.join(root, 'selected')
+    const marker = path.join(root, 'unexpected-command')
+    if (kind === 'dangling-junction')
+      await fs.symlink(path.join(root, 'not-mounted'), cwd, 'junction')
+    else if (kind === 'file')
+      await fs.writeFile(cwd, 'not a directory')
+    const command = scriptedTask('app:invalid:test', 'require("node:fs").writeFileSync(process.env.MATRIX_TEST_MARKER, process.cwd())', {
+      cwd,
+      env: { MATRIX_TEST_MARKER: marker },
+    })
+    await expect(runExecutionPlan(plan([command]))).rejects.toThrow(kind === 'file' ? 'not a directory' : 'ENOENT')
+    expect(existsSync(marker)).toBe(false)
+    expect(summary()).toContain('app:invalid:test: failed')
+    expect(summary()).toContain('command, project project, step 1/1')
+  })
+
+  it('checks preparation cwd at startup, after preceding commands can create it', async () => {
+    const root = await temporaryDirectory('matrix-exec-prepare-cwd-')
+    const cwd = path.join(root, 'created')
+    const setup = scriptedTask('app:setup:test', 'require("node:fs").mkdirSync(process.env.MATRIX_TEST_DIRECTORY)', {
+      env: { MATRIX_TEST_DIRECTORY: cwd },
+    })
+    const prepared = scriptedTask('prepare:project', 'require("node:fs").writeFileSync("prepared", process.cwd())', { cwd })
+    const target = scriptedTask('app:target:test', 'require("node:fs").writeFileSync("target", process.cwd())', { cwd })
+    await runExecutionPlan({
+      ...plan([setup, target]),
+      preparations: [{ ...prepared, beforeTask: target.id }],
+    })
+    expect(await fs.readFile(path.join(cwd, 'prepared'), 'utf8')).toBe(await fs.realpath(cwd))
+    expect(await fs.readFile(path.join(cwd, 'target'), 'utf8')).toBe(await fs.realpath(cwd))
+  })
+
+  it('reports invalid preparation cwd and leaves the target unstarted', async () => {
+    const root = await temporaryDirectory('matrix-exec-prepare-missing-')
+    const marker = path.join(root, 'unexpected-command')
+    const command = scriptedTask('app:target:test', 'require("node:fs").writeFileSync(process.env.MATRIX_TEST_MARKER, "ran")', {
+      env: { MATRIX_TEST_MARKER: marker },
+    })
+    await expect(runExecutionPlan({
+      ...plan([command]),
+      preparations: [{ ...command, id: 'prepare:project', cwd: path.join(root, 'missing'), beforeTask: command.id }],
+    })).rejects.toThrow('ENOENT')
+    expect(existsSync(marker)).toBe(false)
+    expect(summary()).toContain('preparation, project project')
+    expect(summary()).toContain('app:target:test: not run')
+  })
+
+  it.each(['SIGINT', 'SIGTERM'] as const)('never starts a command cancelled during its cwd check (%s)', async (signal) => {
+    const cwd = await temporaryDirectory('matrix-exec-cwd-cancel-')
+    const marker = path.join(cwd, 'unexpected-command')
+    const command = scriptedTask('app:target:test', 'require("node:fs").writeFileSync(process.env.MATRIX_TEST_MARKER, "ran")', {
+      cwd,
+      env: { MATRIX_TEST_MARKER: marker },
+    })
+    const listeners = { SIGINT: process.listenerCount('SIGINT'), SIGTERM: process.listenerCount('SIGTERM') }
+    const check = holdDirectoryCheck(cwd)
+    const execution = runExecutionPlan(plan([command]))
+    try {
+      await check.entered
+      process.emit(signal)
+      check.release()
+      const result = await execution
+      // On regression, wait for the real escaped child before checking its side effect.
+      await Promise.allSettled(result.children.values())
+      expect(existsSync(marker)).toBe(false)
+      expect(result.children.size).toBe(0)
+      expect(result.cancelled).toBe(signal)
+      expect(summary()).toContain(`Execution cancelled (${signal})`)
+      expect(summary()).toContain('app:target:test: cancelled')
+      expect(summary()).not.toContain('Failure:')
+      expect(process.listenerCount('SIGINT')).toBe(listeners.SIGINT)
+      expect(process.listenerCount('SIGTERM')).toBe(listeners.SIGTERM)
+    }
+    finally {
+      check.release()
+      check.restore()
+      await execution
+    }
+  })
+
+  it('does not start a command when a service aborts execution during its cwd check', async () => {
+    const cwd = await temporaryDirectory('matrix-exec-cwd-service-')
+    const targetRoot = path.join(cwd, 'target')
+    await fs.mkdir(targetRoot)
+    const ready = path.join(cwd, 'ready.pid')
+    const exit = path.join(cwd, 'exit')
+    const marker = path.join(cwd, 'unexpected-command')
+    const service = scriptedTask('app:service:test', [
+      'const fs = require("node:fs")',
+      'fs.watch(process.cwd(), () => { if (fs.existsSync(process.env.MATRIX_TEST_EXIT)) process.exit(9) })',
+      'fs.writeFileSync(process.env.MATRIX_TEST_READY, String(process.pid))',
+    ].join('\n'), { cwd, continuous: true, env: { MATRIX_TEST_READY: ready, MATRIX_TEST_EXIT: exit } })
+    const target = scriptedTask('app:target:test', 'require("node:fs").writeFileSync(process.env.MATRIX_TEST_MARKER, "ran")', {
+      cwd: targetRoot,
+      env: { MATRIX_TEST_MARKER: marker },
+    })
+    const listeners = { SIGINT: process.listenerCount('SIGINT'), SIGTERM: process.listenerCount('SIGTERM') }
+    const check = holdDirectoryCheck(targetRoot)
+    let targetSignal!: AbortSignal
+    let settled = false
+    const execution = runExecutionPlan(plan([service, target]), {
+      beforeTask: async (task, signal) => {
+        if (task.id === target.id)
+          targetSignal = signal
+      },
+    }).finally(() => settled = true)
+    void execution.catch(() => undefined)
+    try {
+      await check.entered
+      const aborted = new Promise<void>(resolve => targetSignal.addEventListener('abort', () => resolve(), { once: true }))
+      await waitForFile(ready, 2000)
+      await fs.writeFile(exit, '')
+      await aborted
+      check.release()
+      await expect(execution).rejects.toThrow('app:service:test exited with code 9')
+      expect(existsSync(marker)).toBe(false)
+      expect(messages).not.toContain('app:target:test [1/1]')
+      expect(summary()).toContain('app:service:test: failed')
+      expect(process.listenerCount('SIGINT')).toBe(listeners.SIGINT)
+      expect(process.listenerCount('SIGTERM')).toBe(listeners.SIGTERM)
+    }
+    finally {
+      if (!settled)
+        process.emit('SIGINT')
+      check.release()
+      check.restore()
+      await execution.catch(() => undefined)
+    }
   })
 
   it('identifies artifact failures and does not complete a task whose artifact was not delivered', async () => {

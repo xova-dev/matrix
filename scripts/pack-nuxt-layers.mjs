@@ -4,13 +4,13 @@ import { existsSync, readFileSync, symlinkSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { TarArchive } from 'archiver'
 import path from 'pathe'
-import { fixtureCode as code, writeFixture as write } from './pack-fixtures.mjs'
+import { writeFixture as write } from './pack-fixtures.mjs'
 
 async function verifyNuxtExtensionlessSelection(cwd, run) {
   const root = path.join(cwd, 'extensionless-selection')
   write(root, 'package.json', { private: true, type: 'module' })
   write(root, 'matrix.config.mjs', `export default ${JSON.stringify({
-    projects: { web: { configFile: 'nuxt.config', targets: { build: 'node control.mjs build' } } },
+    projects: { web: { configFile: 'nuxt.config', targets: { build: 'node control.mjs --ready' } } },
     products: { app: { env: { VITE_SELECTED: 'extensionless-selected' }, variants: { web: 'web' } } },
   })}`)
   write(root, 'nuxt.config', `export default defineNuxtConfig({
@@ -23,15 +23,12 @@ async function verifyNuxtExtensionlessSelection(cwd, run) {
   write(root, 'control.mjs', `
     import assert from 'node:assert/strict'
     import { resolve } from 'node:path'
-    import { loadNuxt, buildNuxt } from 'nuxt/kit'
+    import { loadNuxt } from 'nuxt/kit'
     let nuxt
     try {
       nuxt = await loadNuxt({ cwd: process.cwd(), configFile: resolve('nuxt.config'), dev: false, ready: false })
       assert.equal(nuxt.options.app.head.title, 'extensionless-selected')
-      if (process.argv[2] === 'build') {
-        await nuxt.ready()
-        await buildNuxt(nuxt)
-      }
+      if (process.argv.includes('--ready')) await nuxt.ready()
     } finally { await nuxt?.close() }
   `)
   const rejection = /Unknown file extension|No loader|not supported|Cannot find module/i
@@ -41,14 +38,12 @@ async function verifyNuxtExtensionlessSelection(cwd, run) {
     assert.equal(existsSync(path.join(root, '.matrix/types/matrix-runtime.d.ts')), false)
     return
   }
-  await run('extensionless-prepare', ['exec', 'matrix', 'prepare'], root)
+  await run('extensionless-load', ['exec', 'matrix', 'build', 'app'], root)
   const output = path.join(root, '.matrix/types/matrix-runtime.d.ts')
   const declaration = readFileSync(output, 'utf8')
   assert.match(declaration, /readonly selected: string/)
-  await run('extensionless-build', ['exec', 'matrix', 'build', 'app'], root)
-  assert.equal(readFileSync(output, 'utf8'), declaration)
 }
-export async function verifyNuxtLayerSelection(cwd, version, run) {
+export async function verifyNuxtLayerSelection(cwd, version, run, verifyMixed) {
   await verifyNuxtExtensionlessSelection(cwd, run)
   const archive = new TarArchive({ gzip: true })
   const chunks = []
@@ -58,7 +53,7 @@ export async function verifyNuxtLayerSelection(cwd, version, run) {
     archive.once('error', reject)
   })
   archive.append(`export default defineNuxtConfig({
-    vite: { plugins: [{ name: 'remote-layer-field', configResolved(config) { config.env.LAYER_REMOTE = 'remote-layer-value' } }] },
+    vite: { plugins: [{ name: 'remote-layer-field', configResolved(config) { config.env.LAYER_REMOTE = config.env.NUXT_PUBLIC_LAYER_REMOTE = 'remote-layer-value' } }] },
   })`, { name: 'layer/nuxt.config.mjs' })
   await archive.finalize()
   await completed
@@ -76,6 +71,7 @@ export async function verifyNuxtLayerSelection(cwd, version, run) {
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
   const remote = `http://127.0.0.1:${server.address().port}/layer.tar.gz`
   try {
+    await verifyMixed(remote)
     for (const scenario of ['ts-mjs', 'mjs-ts', 'explicit-candidates', 'explicit-outside', 'explicit-symlink']) {
       const root = path.join(cwd, 'layer-selection', scenario)
       const mainExtension = scenario === 'mjs-ts' ? 'mjs' : 'ts'
@@ -89,7 +85,7 @@ export async function verifyNuxtLayerSelection(cwd, version, run) {
         envSchema: { LAYER_ENABLED: { type: 'boolean' }, LAYER_COUNT: { type: 'number' } },
         projects: { web: {
           ...(explicit && { configFile, ...(scenario === 'explicit-symlink' && { configHost: 'nuxt' }) }),
-          targets: { build: 'node build.mjs' },
+          targets: { build: 'node load.mjs' },
         } },
         products: { app: { env: { LAYER_ENABLED: 'true', LAYER_COUNT: '9', LAYER_MARKER: 'selected-layer-value', PRIVATE_TOKEN: 'LAYER_PRIVATE_SENTINEL' }, variants: { web: 'web' } } },
       }
@@ -130,12 +126,8 @@ export async function verifyNuxtLayerSelection(cwd, version, run) {
         write(root, 'nuxt.config.ts', 'throw new Error("Unselected root config must not load")')
       // Nuxt must win over a Vite neighbor without evaluating it.
       write(root, 'vite.config.ts', 'throw new Error("Nuxt Vite neighbor must not load")')
-      write(root, 'app/app.vue', `<script setup>
-        import { matrix } from 'virtual:matrix/runtime'
-      </script><template><main>{{ matrix.config.marker }}:{{ matrix.config.enabled }}:{{ matrix.config.count }}:
-        {{ matrix.config.nested }}:{{ matrix.config.package }}:{{ matrix.config.remote }}</main></template>`)
-      write(root, 'build.mjs', `
-        import { loadNuxt, buildNuxt } from 'nuxt/kit'
+      write(root, 'load.mjs', `
+        import { loadNuxt } from 'nuxt/kit'
         import { renameSync, writeFileSync, unlinkSync } from 'node:fs'
         import { resolve } from 'node:path'
         import { pathToFileURL } from 'node:url'
@@ -150,27 +142,22 @@ export async function verifyNuxtLayerSelection(cwd, version, run) {
         try {
           nuxt = await loadNuxt({ cwd: root, dev: false, ready: false })
           await nuxt.ready()
-          await buildNuxt(nuxt)
+          if (nuxt.options.app.head.title !== 'selected-root-title' || nuxt.options.ssr !== false)
+            throw new Error('Native Nuxt selected the wrong root configuration')
         } finally {
           await nuxt?.close()
           if (link) unlinkSync('nuxt.config.mjs')
           if (selected) renameSync('unselected-config.saved', 'nuxt.config.ts')
         }
       `)
-      // The build control uses native discovery, not Matrix's root-file adapter.
-      await run(`layers-${scenario}-prepare`, ['exec', 'matrix', 'prepare'], root)
+      // One automatic collection supplies the contract and Matrix context to native loading.
+      await run(`layers-${scenario}-load`, ['exec', 'matrix', 'build', 'app'], root)
       const output = path.join(root, '.matrix/types/matrix-runtime.d.ts')
       const declaration = readFileSync(output, 'utf8')
       for (const field of ['enabled: boolean', 'count: number', 'marker: string', 'nested: string', 'package: string', 'remote: string', 'second: string'])
         assert.ok(declaration.includes(`readonly ${field}`), `${scenario} omitted Layer field ${field}`)
       assert.equal(declaration.includes('readonly first: string'), version === '4.6.3', 'Root env merging must use the selected Nuxt version')
       assert.doesNotMatch(declaration, /LAYER_PRIVATE_SENTINEL|privateToken/)
-      await run(`layers-${scenario}-build`, ['exec', 'matrix', 'build', 'app'], root)
-      assert.equal(readFileSync(output, 'utf8'), declaration, `${scenario} changed the prepared contract`)
-      const outputCode = code(path.join(root, '.output/public'))
-      for (const value of ['selected-layer-value', 'nested-layer-value', 'package-layer-value', 'remote-layer-value', 'selected-root-title'])
-        assert.ok(outputCode.includes(value), `${scenario} build omitted ${value}`)
-      assert.doesNotMatch(outputCode, /LAYER_PRIVATE_SENTINEL/)
       write(root, `local/nuxt.config.${layerExtension}`, 'throw new Error("Layer config failure")')
       await run(`layers-${scenario}-failure`, ['exec', 'matrix', 'prepare'], root, { rejection: /Layer config failure/ })
       assert.equal(readFileSync(output, 'utf8'), declaration, 'Failed Layer load replaced declarations')

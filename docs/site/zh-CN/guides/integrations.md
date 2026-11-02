@@ -161,6 +161,12 @@ Nuxt 中不同公开变量名不能映射到同一 `matrix.config` 字段，即�
 
 `project.typegen: false` 关闭 coordinator 的宿主发现与类型生成，不等于关闭虚拟模块。仅需混合运行时时，还要显式设置 Module `types: false`；否则构建明确报错，避免暗中推翻关闭类型的意愿。`nuxt prepare` / `nuxt typecheck` 可使用之前准备的类型；脱离 Matrix 上下文直接运行 Nuxt dev/build 会得到诊断。没有安装 Module 的原生应用不受影响。
 
+包验收在两个已测试的 Nuxt 端点使用同一条混合 SSR 应用主链，显式设置应用 `rootDir`，接入本地、已安装包和受控 HTTP 远程 Layer。两个产品构建检查客户端资源、SSR 和直接 Node Nitro 启动；部署时 runtimeConfig 覆盖不改变 Matrix 快照或构建产物。无 Module 的原生接入、`ssr: false`、配置后缀和显式路径保留真实 prepare/typecheck/load 轻量回归，不重复执行生产构建。HTTP/SSR 检查不等于浏览器 hydration 或交互验收。
+
+别名输入组合由共享 runtime/类型生成规则检查，两个 Nuxt 端点各保留代表性的真实 prepare 拒绝。Layer 选择通过一次自动准备的 Matrix 目标执行原生加载，保留 Matrix 上下文和失败保护检查，不重复收集相同声明契约。
+
+原生复现中，Nuxt 4.0.3 在 `.ts` 根配置、自定义 `srcDir` 和对象式远程 Layer 组合下，同进程重复加载配置会将默认应用根目录变为远程缓存目录，此过程没有 Matrix 参与；相同复现在 4.6.3 保持根目录不变。混合包验收 fixture 显式设置 `rootDir`，不代表受影响的默认根目录组合已通过。
+
 ### 运行时与部署边界
 
 Module **不代理、复制、推断或同步** `runtimeConfig`。原生 `useRuntimeConfig()` 始终保留，可独立管理其他字段；同一字段应选择一个权威消费口，Matrix 快照不是部署覆盖。是否同时使用两套 API 由应用决定。

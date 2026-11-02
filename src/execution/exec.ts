@@ -1,6 +1,6 @@
 import type { ExecutionPlan, ExecutionTask } from '../types.js'
 import type { FailureContext } from './report.js'
-import { mkdir, rm } from 'node:fs/promises'
+import { mkdir, rm, stat } from 'node:fs/promises'
 import net from 'node:net'
 import process from 'node:process'
 import consola from 'consola'
@@ -133,6 +133,11 @@ export async function runExecutionPlan(plan: ExecutionPlan, options: { report?: 
       report.start(task.id)
       const stepContext = { ...context, step: index + 1, steps: commands.length }
       await inPhase(stepContext, async () => {
+        // Validate cwd explicitly instead of relying on platform-specific spawn/shell failures.
+        const directory = await stat(task.cwd)
+        controller.signal.throwIfAborted()
+        if (!directory.isDirectory())
+          throw new Error(`Execution working directory is not a directory: ${task.cwd}`)
         consola.info(`${task.id} [${index + 1}/${commands.length}]`)
         const child = execa(command, {
           cwd: task.cwd,

@@ -129,7 +129,8 @@ installation, host orchestration, and final cleanup. `scripts/pack-cli.mjs` owns
 host-free CLI checks and the unchanged POSIX process-group shutdown fixture.
 `scripts/pack-nuxt.mjs` installs each endpoint once and groups native commands,
 mixed integration, and their shared HTTP server/immutable Node-output checks
-as internal functions. Layer/config selection remains in `pack-nuxt-layers.mjs`.
+as internal functions. `pack-nuxt-layers.mjs` supplies the controlled remote Layer
+to the mixed production chain and owns lightweight config-selection checks.
 CLI shutdown and IPC preparation retain their separate lifecycle contracts.
 
 ### Published-package hosts
@@ -169,17 +170,23 @@ process shutdown.
 
 ### Native host integration
 
-`scripts/pack-nuxt.mjs` verifies optional mixed Nuxt SSR/SPA integration at 4.0.3 and 4.6.3: a shared Layer plus repeated application Module registration, custom `srcDir`, scope/output, cross-product optional declarations, independent application/prefix isolation, late Nuxt hooks, two product SSR builds, and a small static SPA. The actual client/server Vite pipelines must expose identical public snapshots and prefixes; explicit divergence tests reject both value and prefix changes. Preparation retains its config-only client contract, without starting a Vite server or compiling the app; actual dev/build validates the server against that authoritative contract.
+`scripts/pack-nuxt.mjs` runs one mixed SSR/Layer production chain per Nuxt endpoint (4.0.3 and 4.6.3). It covers repeated Layer/application Module registration, custom `srcDir`, scope/output, cross-product optional declarations, late Nuxt hooks and two product builds. Alpha uses generated types; Beta explicitly combines `project.typegen: false` with Module `types: false`, retaining the shared prepared contract. Both builds include local, installed-package and controlled HTTP remote Layers, and verify emitted Layer values and product/private isolation. Actual client/server Vite pipelines must expose identical snapshots/prefixes; value/prefix divergence still needs real build rejection. Preparation remains config-only, without compiling the app or starting a Vite server.
 
-The same isolated Nuxt installations cover both `.ts` application / `.mjs` Layer and the reverse, nested `.cts` Layers, a file-installed package Layer (`.mts`), and a fixed tarball served over local HTTP through Nuxt's own remote loader. The isolated fixture declares the manifest's `giget` dependency; it never installs tools globally. Explicit same-directory selection, outside-root configs and config symlinks retain exact root selection without changing Layer discovery. Each case checks Module/custom-prefix/schema fields in prepared declarations, a real native Nuxt build with the same contract, emitted Layer values, and failure preservation rather than accepting an empty generic fallback. HTTP checks use no public service or credentials and do not certify real external authentication or network failures.
+The main fixture explicitly declares its application `rootDir`. A standalone native reproduction with a `.ts` root config, custom `srcDir` and object-exported HTTP Layer observed Nuxt 4.0.3 change the default `rootDir` to its remote cache on repeated same-process `loadNuxt` calls, even with `ready: false` and no Matrix Module. Nuxt 4.6.3 retained the application root in that reproduction. This suite verifies the explicit-root combination; it does not certify the affected default-root combination or fix upstream config caching.
 
-An explicit extensionless `nuxt.config` omits `configHost` and is compared with native Nuxt loading. Native loader rejection must remain an error instead of falling back to generic types; if accepted, preparation and a real native build must retain the same declaration contract.
+The same installation retains an independent `ssr: false` custom-prefix application through real preparation and Nuxt typecheck, not a second static production build. Native no-Module/typegen-disabled integration runs Matrix preparation and a native `nuxt prepare` target: filesystem markers prove Matrix does not evaluate its host, while Nuxt owns its generated types and receives the product environment. Native SPA generation and a separate native SSR build are not repeated; the mixed chain owns runtimeConfig coexistence, public/private output and immutable Node deployment coverage.
+
+Config selection covers `.ts` application / `.mjs` Layer and the reverse, nested `.cts` Layers, a file-installed package Layer (`.mts`), and Nuxt's real remote loader. Explicit same-directory, outside-root and directory-symlink selection preserve exact root selection. Each case uses one Matrix target: automatic preparation supplies the contract and Matrix environment before loading/readying real Nuxt through native discovery. The resulting custom-prefix/schema/Layer declarations form the baseline for subsequent Layer-load and remote-fetch failures, which must preserve it. There is no additional standalone prepare or production build for each suffix/path. The isolated fixture declares `giget`; no global tool or public service is used. These HTTP checks do not certify external authentication or network behavior.
+
+An explicit extensionless `nuxt.config` omits `configHost` and is compared with native Nuxt loading. Native loader rejection remains an error rather than a generic fallback; accepted files use one automatically prepared Matrix target and real Nuxt load/readiness, without another production build.
 
 `scripts/pack-vite.mjs` also checks real Vite/electron-vite config selection: six native JS/TS extensions, explicit custom names, and extensionless-file acceptance/rejection against each tested native resolver at representative supported versions. Only unrecognized names declare `configHost`; standard names, including explicit extensionless paths, infer the host. Extensionless files do not join automatic discovery or change priority/ambiguity handling. Supported config selection checks perform both preparation and actual host builds, separate from real Electron-window acceptance.
 
-The Nuxt-only default `['VITE_', 'NUXT_PUBLIC_']` is checked with typed schema values, raw string env reads, and shared Vite business variables in real consumers. An explicit single-prefix application excludes both defaults, and Matrix does not synthesize native runtimeConfig fields. Equal/unequal aliases, camelCase aliases, cross-product collisions and schema-only aliases fail without exposing values or replacing valid declarations; runtime-only builds reject aliases too. Runtime/typegen regressions retain bare Vite defaults and legacy untyped collision semantics for other adapters.
+The Nuxt-only default `['VITE_', 'NUXT_PUBLIC_']` is checked with typed schema values, raw string env reads, and shared Vite business variables in real consumers. An explicit single-prefix application excludes both defaults, and Matrix does not synthesize native runtimeConfig fields. `runtime/snapshot.test.ts` checks equal/unequal and camelCase aliases against complete diagnostics. `typegen/typegen.test.ts` composes the real merge/render/generator with filesystem declarations for those aliases plus cross-product and schema-only collisions, including reverse cross-product ordering, value-free diagnostics and preservation of an existing declaration. No Nuxt/Vite framework is mocked for these shared rules.
 
-The default Nitro Node server is tested separately: `server/api` and Nitro plugins directly import the scoped virtual module and reuse the app snapshot. A real development run verifies the snapshot is initialized before Nitro handles requests. Each emitted product artifact starts directly with Node, twice with different deployment env, without Matrix context. SSR HTML, client assets, API responses and a Nitro-plugin response header verify selected-product values, public/private separation, immutable build snapshots and independent native runtimeConfig overrides. Other Nitro presets reject direct Matrix imports; a Cloudflare negative fixture checks the diagnostic, not Cloudflare deployment support. SPA generation without direct Nitro imports remains supported.
+Both Nuxt endpoints retain a real unequal-alias preparation rejection to verify strict collection wiring. The 4.0.3 consumer additionally checks cross-product collection/merging; 4.6.3 checks schema-only collection. These paths use the same Matrix merge/generator tested above, so repeating every input permutation on both host versions is unnecessary. Each retained package rejection still checks both diagnostic keys, excludes collision values and preserves valid declarations. Runtime-only builds independently reject aliases. Bare Vite defaults and legacy untyped collisions remain covered for other adapters.
+
+The mixed production chain includes the default Nitro Node server: `server/api` and Nitro plugins directly import the scoped virtual module and reuse the app snapshot. A real development run verifies the snapshot is initialized before Nitro handles requests. Each emitted product artifact starts directly with Node, twice with different deployment env, without Matrix context. SSR HTML, client assets, API responses and a Nitro-plugin response header verify selected-product values, public/private separation, immutable build snapshots and independent native runtimeConfig overrides. Other Nitro presets reject direct Matrix imports; a Cloudflare negative fixture checks the diagnostic, not Cloudflare deployment support. SPA generation without direct Nitro imports remains supported.
 
 Nuxt application typecheck retains Nuxt's generated compiler settings; a separate Matrix contract consumer uses `strict: true` and `skipLibCheck: false`, checking optional fields, scalar types, private-field exclusion and immutability. Forcing `skipLibCheck: false` fails on Nuxt 4.0.3's own ambient declarations; this does not relax the separate Matrix contract check. Existing duplicate installation, missing context, runtime-only and unsupported-builder/environment-API boundaries remain covered. `test/typegen/nuxt-preparation.test.ts` exercises complete hook dispatch, single cleanup after readiness/config failure, original-plus-close diagnostics, and bounded IPC cancellation including hung cleanup, without relying on OS signal handlers.
 
@@ -190,35 +197,15 @@ checks public/private isolation. Real host-config filesystem side effects prove
 that explicit prepare and automatic collection do not load the host before the
 native build command. Existing enhanced fixtures run unchanged before this path.
 
-All profiles additionally test native Nuxt commands using Nuxt 4.0.3 (the tested lower
+All profiles retain both Nuxt endpoints: 4.0.3 (the tested lower
 bound) and 4.6.3 (a representative later minor), with exact pins and vue-tsc in
 `compatibility-matrix.json`. The historical 4.0.3 fixture pins its compatible
 `@nuxt/cli` to 3.27.0 instead of installing the later CLI's incompatible schema
 peer; strict peer checks remain enabled. Nuxt fixtures also install the manifest's
 WASM runtime peers. These are test-only settings, not published dependency overrides.
-These exact test pins are within the optional Nuxt peer range and do not certify every intervening minor or Nitro preset. `scripts/pack-nuxt.mjs` installs the tarball without direct Vite or
-Matrix adapters, declares runtimeConfig in a shared Nuxt Layer, and checks:
+These exact test pins are within the optional Nuxt peer range and do not certify every intervening minor or Nitro preset. The mixed chain keeps native runtimeConfig fields alongside Matrix's immutable snapshot. Each product's identical Node artifact starts twice without Matrix context, consumes distinct deployment `NUXT_PUBLIC_NATIVE_API` and private-token overrides, and retains its file fingerprint. SSR HTML, every referenced client asset, API responses and the Nitro-plugin header must deliver the product snapshot without private/internal fields. Runtime-only, missing-context, duplicate-plugin, collision, unsupported preset and environment-API guards retain their meaningful real-process regressions; Vite/Nitro-only failures still execute builds where preparation cannot detect them.
 
-- Explicit Matrix prepare runs project commands without Nuxt config side effects,
-  fallback declarations, or host-generated scaffolding; automatic prepare also
-  does not evaluate Nuxt before entering the native build command.
-- Native Nuxt typecheck owns runtimeConfig types; generated Nuxt files contain
-  no Matrix virtual modules or declaration references.
-- Static SPA generation for two products isolates public values and excludes
-  private build inputs, without adding `NUXT_*` to Matrix's public prefixes.
-- A Node SSR/Nitro build starts directly with Node, without Matrix context; the
-  same unchanged artifact serves two deployment `NUXT_PUBLIC_API_BASE` values
-  and consumes private overrides only in a native server handler.
-- SSR HTML, its referenced client assets, and server responses are checked for
-  successful delivery and public/private boundaries. Static SPA
-  assets retain their build-time values; deployment env is not a static-file
-  configuration mechanism.
-
-The automated package suite inspects HTTP/SSR responses and static assets. It
-is not browser hydration/interaction/navigation acceptance; perform that
-separately against the emitted SPA and Node server. Native Nuxt typechecks use
-Nuxt's generated compiler settings, not the enhanced adapters' independent
-`skipLibCheck: false` baseline.
+The automated package suite inspects HTTP/SSR responses and client assets. It is not browser hydration/interaction/navigation acceptance; run those separately against the emitted Node server. The reduced suite does not repeatedly certify static SPA generation. Nuxt application typechecks retain Nuxt's generated compiler settings, not the Matrix contract consumer's independent `skipLibCheck: false` baseline.
 
 `typegen/ownership.test.ts` additionally covers `typegen: false` with equal,
 ancestor, and nested roots: no host evaluation or generic fallback, no re-entry
@@ -226,7 +213,8 @@ through overlapping-project expansion, no native-product keys in enhanced
 contracts, and unchanged project preparation commands. `execution/doctor.test.ts`
 covers skipping native host discovery while retaining ordinary filesystem checks.
 An unselected native project's dangling root also stays outside mixed type-output
-ownership resolution, so it cannot block another project's prepare/build.
+ownership resolution, so it cannot block another project's prepare/build. `execution/exec.test.ts` checks missing/dangling-junction/file working directories before real shell commands, including preparation failures and no command side effects. A preceding command may still create a later task/preparation directory: validation follows actual startup, not a plan-wide preflight.
+An explicitly gated filesystem check also verifies SIGINT/SIGTERM cancellation and service-failure abort before command startup, with real child commands, side-effect checks, cancellation reports and restored signal listeners.
 
 ### Electron combinations
 
