@@ -8,7 +8,7 @@
 - Choose native host integration with `project.typegen: false`, or retain Matrix virtual modules and shared types for mixed integration. Existing projects keep their current behavior by default. Project `typegen` and adapter/Module `types` are separate controls; runtime-only mixed Nuxt requires both to be disabled.
 - Nuxt mixed integration exposes `VITE_` and `NUXT_PUBLIC_` business variables by default and rejects conflicting field aliases. Virtual-module values are public build-time snapshots, not private or deployment-time configuration; use native Nuxt `runtimeConfig` for those needs.
 - Configuration discovery supports standard host filenames and explicit paths, with `configHost` needed only for ambiguous custom names. Nuxt retains native Layer loading, including package and remote Layers. Working directories are validated before execution.
-- See the [English integration guide](docs/site/en/guides/integrations.md) or [Chinese integration guide](docs/site/zh-CN/guides/integrations.md) for setup, type ownership and deployment boundaries.
+- See the [English integration guide](https://github.com/xova-dev/matrix/blob/v0.4.0/docs/site/en/guides/integrations.md) or [Chinese integration guide](https://github.com/xova-dev/matrix/blob/v0.4.0/docs/site/zh-CN/guides/integrations.md) for setup, type ownership and deployment boundaries.
 
 ### Features
 
