@@ -14,7 +14,7 @@ pnpm lint:fix
 
 `pnpm lint:fix` 通过 ESLint 格式化 JavaScript、TypeScript 和 Markdown。`pnpm check` 会依次执行 lint、类型检查、测试和生产构建，不启动示例服务。
 
-`pnpm test:pack` 在隔离消费项目中验证安装后的 tarball，默认运行 full；本地可用 `--profile daily` 或 `--profile platform` 缩小范围。所有 profile 都保留两个 Nuxt 端点及混合 SSR/平台敏感核心集，full 补充选项、类型检查及配置排列覆盖。手动触发 CI 并启用 `full`，会在所有 OS/Node 组合运行全部宿主 pin 和 Nuxt 场景。支持范围由 `package.json` 声明，覆盖边界与组合定义见[测试指南](https://github.com/xova-dev/matrix/blob/main/test/README.md)。
+`pnpm test:pack` 在隔离消费项目中验证安装后的 tarball。full 保留全部采样宿主、electron-vite 准备和两个 Nuxt 端点；daily 保留精简宿主/Nuxt 覆盖，用于发布时验证同一 tarball。platform 复用无宿主 CLI 和一个真实的固定版本 Vite 消费者，不安装隔离的 Nuxt/Electron 包验收消费者。手动触发 CI 并启用 `full`，会在受管的三个 Linux/Windows 组合运行完整套件，不增加 macOS 或真实 Electron 应用任务。支持范围由 `package.json` 声明，覆盖边界与组合定义见[测试指南](https://github.com/xova-dev/matrix/blob/main/test/README.md)。
 
 ## 发布准备与交付
 
@@ -26,13 +26,13 @@ mise exec -- pnpm exec release-it 0.4.0 --ci
 ```
 
 准备要求工作区干净，更新包版本和根 `CHANGELOG.md`。预览成功不代表执行了项目检查。审查差异和暂存区：官方插件可能暂存新建的 changelog。失败时保留部分结果。检查记录并补充必要的迁移文档、示例或代码；候选提交不限制为版本和 changelog 文件，标题也不豁免检查。提交、标签、推送和创建 GitHub Release 继续分别遵循授权；创建 GitHub Release 会触发发布。
-CI 和发布共用产品自己的 `checks.yml`，命令和文档参数统一声明在 `.github/xova.json`。质量任务调用共享 `check.yml`；兼容性和 Electron 任务保留产品所有权，在质量检查成功后启动。普通 CI 可以使用共享纯文档判断。Publish 先查询精确原生 SHA 的完整成功 CI，包括产品矩阵；没有合格证据时，包括纯文档精简运行、查询失败或超时，执行完整 `checks.yml`；致命查询输入错误阻断发布。只有合格 CI，或成功且返回精确 SHA 的完整回退，才能进入共享 `release.yml`。只有查询任务授予 actions:read 并容忍可恢复故障，完整产品检查和发布不容错。通用 setup、配置校验、来源/恢复门禁与上游行为回归归 Xova Actions 维护。共享工作流默认读取 .github/xova.json，命令/setup 不提供工作流输入覆盖；文档检查、发布构建和恢复统一使用 check(kind=docs)，自定义任务仍可直接组合操作 actions。
+CI 和发布共用产品自己的 `checks.yml`，命令和文档参数统一声明在 `.github/xova.json`。质量任务调用共享 `check.yml`；必需的 Linux/Windows 兼容性任务保留产品所有权，在质量检查成功后启动。普通 CI 可以使用共享纯文档判断。Publish 先查询精确原生 SHA 的完整成功 CI，包括这些产品任务；没有合格证据时，包括纯文档精简运行、查询失败或超时，执行完整 `checks.yml`；致命查询输入错误阻断发布。只有合格 CI，或成功且返回精确 SHA 的完整回退，才能进入共享 `release.yml`。只有查询任务授予 actions:read 并容忍可恢复故障，完整产品检查和发布不容错。通用 setup、配置校验、来源/恢复门禁与上游行为回归归 Xova Actions 维护。共享工作流默认读取 .github/xova.json，命令/setup 不提供工作流输入覆盖；文档检查、发布构建和恢复统一使用 check(kind=docs)，自定义任务仍可直接组合操作 actions。
 
-标准 CI 和 Publish 回退保持 Ubuntu / Node 24 使用 full，其余组合使用 daily/platform；成功的标准 CI 可以复用。完整产品任务覆盖不等于每个平台重复全部 Nuxt 排列。手动 `full: true` 会扩展全部平台，但不是新增的发布前置要求。
+标准 CI 和 Publish 回退在 Ubuntu / Node 24 跑 full，在 Ubuntu / Node 22.18.0 和 Windows / Node 24 跑 platform smoke。三个组合都执行完整 Vitest。Linux 负责宿主接入与 Node 下限，Windows 负责 OS 契约，不重复 Nuxt SSR 产品构建或 Electron 打包；默认不设 macOS 任务或重复的 Windows Node 22 任务。这不改变声明的支持范围，也不证明平台等价：涉及 macOS 时仍需单独验收。手动 `full: true` 只扩展这三个组合的场景，不扩展平台集合。
 
-共享 setup 在 setup.cache 中仅声明 pnpm 缓存，以 pnpm-lock.yaml 区分；文档直接继承该选择。npm 下载缓存保留在执行 npm 消费验证的兼容性任务中，避免只跑 pnpm 的质量检查先写入空的 npm 缓存。checks.yml 继续维护产品专属的 Electron 二进制缓存。兼容性和 Electron 验收步骤将 TMPDIR/TEMP/TMP 设为 runner.temp，让 Windows 临时消费项目使用检出所在卷和已缓存的 pnpm store。命中后仍执行安装、产品检查和来源校验。
+共享 setup 在 setup.cache 中仅声明 pnpm 缓存，以 pnpm-lock.yaml 区分；文档直接继承该选择。npm 下载缓存保留在执行 npm 消费验证的兼容性任务中，避免只跑 pnpm 的质量检查先写入空的 npm 缓存。兼容性步骤将 TMPDIR/TEMP/TMP 设为 runner.temp，让 Windows 临时消费项目使用检出所在卷和已缓存的 pnpm store。命中后仍执行安装、产品检查和来源校验。
 
-仅 Electron 任务通过 `pnpm --filter @xova/matrix --fail-if-no-match install --frozen-lockfile` 安装根包，保留构建工具和开发依赖。独立的 tarball 消费项目仍安装完整、锁定的 Electron 依赖，验证准备阶段、两个产品的开发启动和三种打包应用。质量与兼容性任务继续完整安装 workspace。Vitest 保持默认 worker 并发与文件隔离；只有目标 runner 上的重复测量证实收益后才降低并发，并保留全部用例。
+真实 Electron 应用验收是按需的示例检查，不是默认 CI 或发布门禁：涉及其开发、打包或启动时，运行现有 `pnpm test:electron-web`。它在隔离 tarball 消费项目中安装完整的锁定依赖，检查准备、两个产品的开发和三种打包应用；Linux 图形验收需要 Xvfb 等显示服务。Linux full 仍验证 electron-vite 配置、类型和虚拟模块 scope，但不启动 Electron；示例配置/类型与普通文件产物归档仍属于 Matrix 检查。Vitest 保持默认 worker 并发与文件隔离；只有目标 runner 上的重复测量证实收益后才降低并发，并保留全部用例。
 
 发布选择 pnpm 打包。在同一 SHA 的完整产品检查成功后，发布器只执行 `pnpm build`，不重复 lint、类型和示例检查；随后使用提供的绝对路径 `TARBALL` 执行 `pnpm test:pack --profile daily`，直接消费该文件、不重新打包，发布前再次检查源码和 tarball 字节。未提供 `TARBALL` 时本地 `test:pack` 仍先打包一次。发布工具使用 Node 24，产品的 Node 22.18.0 兼容性检查保持独立。
 

@@ -16,7 +16,7 @@ export function selectCompatibility(profile) {
     if (profile === 'full')
       return [host, versions]
     if (profile === 'platform')
-      return [host, [...new Set([versions[0], versions.at(-1)])]]
+      return [host, host === 'vite' ? [versions.at(-1)] : []]
     const groups = Map.groupBy(versions, version => version.split('.').slice(0, host === 'esbuild' ? 2 : 1).join('.'))
     const selected = [...groups.values()].flatMap(group => host === 'esbuild' ? [group.at(-1)] : [group[0], group.at(-1)])
     return [host, [...new Set([versions[0], ...selected])]]
@@ -25,11 +25,16 @@ export function selectCompatibility(profile) {
   return {
     ...compatibility,
     hosts,
+    electron: {
+      ...compatibility.electron,
+      combinations: profile === 'platform' ? [] : compatibility.electron.combinations,
+    },
     nuxt: {
       ...compatibility.nuxt,
+      versions: profile === 'platform' ? [] : compatibility.nuxt.versions,
       checks: {
         extended,
-        layers: nuxtLayers.filter(scenario => extended || scenario.platform).map(scenario => scenario.name),
+        layers: profile === 'platform' ? [] : nuxtLayers.filter(scenario => extended || scenario.platform).map(scenario => scenario.name),
       },
     },
   }

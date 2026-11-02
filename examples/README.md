@@ -62,10 +62,12 @@ following a configuration factory. Example URLs are public dummy data, not secre
   real builds, not by this standalone config typecheck: the workspace intentionally
   contains both Vite 7 and Vite 8 host types.
 - `pnpm test:pack` verifies the published package surface and CLI shutdown.
-- `pnpm test:electron-web` installs the current tarball outside the workspace
+- On-demand `pnpm test:electron-web` installs the current tarball outside the workspace
   and runs real development/build/startup acceptance. Registry versions and
   integrity records are projected from the root lockfile, then installed with
   `--frozen-lockfile`; only the Matrix workspace link becomes the tarball.
+  This is not a default CI or publication gate; Linux full retains electron-vite
+  configuration/types/virtual-module checks without launching the application.
 
 The exact `semver@5.7.2` and `semver@6.3.1` trust-policy exceptions preserve
 dependencies from the former Electron npm lockfile. They do not exempt all semver

@@ -82,7 +82,7 @@ it('wires optional CI reuse to full product fallback and exact-source publicatio
   expect(publish.jobs.release.if).toBe(expression('!cancelled() && needs.ci.result != \'skipped\' && needs.ci.outputs.input-error != \'true\' && ((needs.checks.result == \'success\' && needs.checks.outputs.source-sha == github.sha) || (needs.ci.result == \'success\' && needs.checks.result == \'skipped\' && needs.ci.outputs.source-sha == github.sha))'))
 })
 
-it('retains exact-source product matrices and never exempts releases using parent CI', () => {
+it('gates exact-source Linux hosts and Windows contracts without default app acceptance', () => {
   for (const call of [ci.jobs.code, publish.jobs.checks]) {
     expect(call.uses).toBe('./.github/workflows/checks.yml')
     expect(call.with['source-sha']).toBe(expression('github.sha'))
@@ -91,9 +91,13 @@ it('retains exact-source product matrices and never exempts releases using paren
   expect(ci.jobs.code.with['detect-changes']).toBe(true)
   expect(publish.jobs.checks.with['detect-changes']).toBeUndefined()
   expect(checks.jobs.quality.with['source-sha']).toBe(expression('inputs.source-sha'))
-  expect(checks.jobs.compatibility.strategy.matrix).toEqual({ os: ['ubuntu-latest', 'macos-latest', 'windows-latest'], node: ['22.18.0', '24.x'] })
-  expect(checks.jobs.electron.strategy.matrix.os).toEqual(['ubuntu-latest', 'macos-latest', 'windows-latest'])
-  for (const job of [checks.jobs.compatibility, checks.jobs.electron]) {
+  const rows = checks.jobs.compatibility.strategy.matrix.include
+  expect(rows).toHaveLength(3)
+  expect(rows.filter(row => row.profile === 'full')).toEqual([{ os: 'ubuntu-latest', node: '24.x', profile: 'full' }])
+  expect(rows.filter(row => row.os === 'windows-latest')).toEqual([{ os: 'windows-latest', node: '24.x', profile: 'platform' }])
+  expect(rows).toContainEqual({ os: 'ubuntu-latest', node: '22.18.0', profile: 'platform' })
+  expect(checks.jobs.electron).toBeUndefined()
+  for (const job of [checks.jobs.compatibility]) {
     expect(job['continue-on-error']).toBeUndefined()
     expect(job.needs).toBe('quality')
     expect(job.if).toBe('needs.quality.outputs.code-changed == \'true\'')
@@ -103,22 +107,23 @@ it('retains exact-source product matrices and never exempts releases using paren
     expect(job['continue-on-error']).toBeUndefined()
   expect(checks.jobs.compatibility.steps.map(step => step.run)).toContain('pnpm test')
   expect(checks.jobs.compatibility.steps.map(step => step.run)).toContain('pnpm install --frozen-lockfile')
-  expect(checks.jobs.electron.steps.filter(step => step.run?.startsWith('pnpm ') && step.run.includes('install')).map(step => step.run))
-    .toEqual(['pnpm --filter @xova/matrix --fail-if-no-match install --frozen-lockfile'])
-  expect(checks.jobs.electron.steps.filter(step => step.run?.includes('test:electron-web'))).toHaveLength(2)
+  const pack = checks.jobs.compatibility.steps.find(step => step.run?.includes('pnpm test:pack'))
+  expect(pack.run).toBe(`pnpm test:pack --profile ${expression('inputs.full && \'full\' || matrix.profile')}`)
+  expect(ci.jobs.code.with.full).toBe(expression('inputs.full || false'))
+  expect(Object.values(checks.jobs).flatMap(job => job.steps || []).some(step => step.run?.includes('test:electron-web'))).toBe(false)
+  const manifest = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'))
+  expect(manifest.scripts['test:electron-web']).toBe('node scripts/electron-web.mjs')
   expect(ci.jobs.changes).toBeUndefined()
 })
 
-it('uses the runner temporary directory for package and Electron consumers', () => {
+it('uses the runner temporary directory for installed package consumers', () => {
   const root = mkdtempSync(join(tmpdir(), 'matrix-ci-temp-'))
   const runnerTemporary = join(root, 'runner')
   const systemTemporary = join(root, 'system')
   try {
     const compatibility = checks.jobs.compatibility.steps.filter(step => step.run?.includes('pnpm test:pack'))
-    const electron = checks.jobs.electron.steps.filter(step => step.run?.includes('pnpm test:electron-web'))
     expect(compatibility).toHaveLength(1)
-    expect(electron).toHaveLength(2)
-    for (const step of [...compatibility, ...electron]) {
+    for (const step of compatibility) {
       for (const key of ['TMPDIR', 'TEMP', 'TMP'])
         expect(step.env?.[key]).toBe(expression('runner.temp'))
       const env = Object.fromEntries(Object.entries(step.env || {}).map(([key, value]) => [key, value.replaceAll(expression('runner.temp'), runnerTemporary)]))

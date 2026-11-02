@@ -1,6 +1,6 @@
 # 双 Web / 共享 Electron 示例
 
-这是一个真实消费项目：两个独立 Vite 页面、一个使用 electron-vite 构建 main/preload 的共享 Electron 工程、两个 Matrix Product。保留 `../basic` 作为无框架入门示例，本例负责框架集成与跨平台验收。
+这是一个真实消费项目：两个独立 Vite 页面、一个使用 electron-vite 构建 main/preload 的共享 Electron 工程、两个 Matrix Product。保留 `../basic` 作为无框架入门示例，本例用于按需的框架集成与平台应用验收。
 
 | Product | Web 项目  | Desktop 项目 | 应用标识         |
 | ------- | --------- | ------------ | ---------------- |
@@ -64,11 +64,11 @@ pnpm test:electron-web
 
 应用自检通过 `EXAMPLE_SMOKE_OUTPUT` 启用：窗口隐藏，但页面确实由 Electron 加载并执行。普通启动仍显示窗口。验收使用 electron-builder 的 dir 目标，不制作安装器、不发布、不使用分发签名证书。
 
-Linux 的图形验收需要显示服务器，CI 使用 Xvfb。所有平台的自检启动（开发态和打包后）均在启动命令中传入 `--no-sandbox`，不验证沙箱配置；普通手动启动不传该参数，保留 sandbox。窗口始终启用 context isolation，禁用 node integration。API 地址是示例数据，不会发起外部 API 请求。
+Linux 的按需图形验收需要显示服务器，可使用 `xvfb-run --auto-servernum pnpm test:electron-web`。所有平台的自检启动（开发态和打包后）均在启动命令中传入 `--no-sandbox`，不验证沙箱配置；普通手动启动不传该参数，保留 sandbox。窗口始终启用 context isolation，禁用 node integration。API 地址是示例数据，不会发起外部 API 请求。
 
 ## CI 边界
 
-- 三平台 × Node 22.18.0 / 24.x：运行 Matrix 核心测试与安装包 smoke。
-- Node 24 的三个平台额外执行本例的真实开发、构建和启动验收。
-- POSIX 的信号回调／超时强杀测试只在 macOS/Linux 运行；Windows 保留取消、进程终止、后续任务不执行等平台自身可观察结果的测试。
+- 默认 Ubuntu / Node 24 运行完整宿主包验收，Ubuntu / Node 22.18.0 与 Windows / Node 24 运行 CLI/Vite 平台 smoke；三个组合均跑完整 Matrix 单测。
+- Linux full 保留 electron-vite 配置、类型和虚拟模块验收；真实 Electron 开发、构建和应用启动只通过现有 `pnpm test:electron-web` 按需运行，不再是默认 CI 或发布门禁。
+- POSIX 信号回调／超时强杀测试在 Linux 和本地 macOS 运行；Windows 保留取消、进程终止、后续任务不执行等可观察结果。macOS 无默认 CI 实机证据，不因此宣称平台等价。
 - 本例不验证安装器、自动更新、签名／公证、移动端或多产品并行打包。GitHub runner 的实际结果才是该平台验收依据。

@@ -15,11 +15,11 @@ it('rejects a relative external tarball before packing or installing', () => {
   expect(result.stdout + result.stderr).toContain('TARBALL must be an absolute path')
 })
 
-it('preserves the complete release matrix, all hosts and framework combinations', () => {
+it('preserves full host coverage and daily framework endpoints', () => {
   const { nuxt: { checks, ...nuxt }, ...full } = selectCompatibility('full')
   expect({ ...full, nuxt }).toEqual(compatibility)
   expect(checks.extended).toBe(true)
-  for (const profile of ['full', 'daily', 'platform']) {
+  for (const profile of ['full', 'daily']) {
     const selected = selectCompatibility(profile)
     expect(Object.keys(selected.hosts)).toEqual(Object.keys(compatibility.hosts))
     expect(selected.electron).toEqual(compatibility.electron)
@@ -29,11 +29,12 @@ it('preserves the complete release matrix, all hosts and framework combinations'
   expect(() => selectCompatibility('typo')).toThrow('Unknown compatibility profile')
 })
 
-it('shares one reduced Nuxt suite without dropping endpoints or platform paths from full coverage', () => {
+it('keeps daily Nuxt paths within full coverage while platform needs no Nuxt installation', () => {
   const full = selectCompatibility('full').nuxt.checks
   const daily = selectCompatibility('daily').nuxt.checks
   const platform = selectCompatibility('platform').nuxt.checks
-  expect(daily).toEqual(platform)
+  expect(platform.layers).toEqual([])
+  expect(platform.extended).toBe(false)
   expect(daily.extended).toBe(false)
   expect(daily.layers).toContain('explicit-outside')
   expect(daily.layers).toContain('explicit-symlink')
@@ -69,9 +70,12 @@ it('covers daily major boundaries and retained esbuild minors without adding unt
   }
 })
 
-it('keeps both overall host boundaries in the platform matrix', () => {
-  for (const [host, pins] of Object.entries(compatibility.hosts))
-    expect(selectCompatibility('platform').hosts[host]).toEqual([pins[0], pins.at(-1)])
+it('selects one real Vite consumer without repeated framework matrices for platform contracts', () => {
+  const selected = selectCompatibility('platform')
+  expect(selected.hosts.vite).toEqual([compatibility.hosts.vite.at(-1)])
+  expect(Object.values(selected.hosts).flat()).toHaveLength(1)
+  expect(selected.electron.combinations).toEqual([])
+  expect(selected.nuxt.versions).toEqual([])
 })
 
 it('bounds concurrency and finishes every consumer before reporting failures', async () => {

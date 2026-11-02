@@ -24,7 +24,7 @@ console.log('Package compatibility:', values.profile, 'concurrency:', concurrenc
 const timings = createPackageTimings()
 const temporaryRoot = mkdtempSync(path.join(os.tmpdir(), 'xova-matrix-pack-'))
 const packageRoot = process.cwd()
-const consumerRoot = path.join(temporaryRoot, 'consumer')
+const consumerRoot = path.join(temporaryRoot, 'consumer with spaces')
 const packRoot = path.join(temporaryRoot, 'pack')
 const failures = []
 let shutdownVerified
@@ -70,7 +70,7 @@ try {
 
   shutdownVerified = await verifyCli(consumerRoot)
   if (shutdownVerified !== null) {
-    await verifyViteCompatibility(tarball, path.join(temporaryRoot, 'vite-workspace'), compatibility, concurrency, timings)
+    await verifyViteCompatibility(tarball, path.join(temporaryRoot, 'vite workspace'), compatibility, concurrency, timings)
     await verifyHostCompatibility(tarball, path.join(temporaryRoot, 'host-workspace'), compatibility, concurrency, timings)
     await verifyNuxtCompatibility(tarball, path.join(temporaryRoot, 'nuxt-workspace'), compatibility, timings)
   }

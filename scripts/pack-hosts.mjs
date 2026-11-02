@@ -6,6 +6,9 @@ import { writeFixture as write } from './pack-fixtures.mjs'
 import { runConsumers } from './pack-matrix.mjs'
 
 export async function verifyHostCompatibility(tarball, root, compatibility, concurrency, timings) {
+  const consumers = Object.entries(compatibility.hosts).filter(([host]) => host !== 'vite').flatMap(([host, versions]) => versions.map(version => ({ host, version })))
+  if (!consumers.length)
+    return
   mkdirSync(root)
   write(root, 'package.json', { private: true })
   write(root, 'pnpm-workspace.yaml', [
@@ -18,7 +21,6 @@ export async function verifyHostCompatibility(tarball, root, compatibility, conc
     'allowBuilds:',
     '  esbuild: true',
   ].join('\n'))
-  const consumers = Object.entries(compatibility.hosts).filter(([host]) => host !== 'vite').flatMap(([host, versions]) => versions.map(version => ({ host, version })))
   for (const { host, version } of consumers) {
     const cwd = path.join(root, `${host}-${version}`)
     mkdirSync(cwd)

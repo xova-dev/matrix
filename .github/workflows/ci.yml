@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       full:
-        description: Run all host pins and Nuxt scenarios on every OS / Node combination
+        description: Run all host pins and Nuxt scenarios on all three managed Linux/Windows combinations
         type: boolean
         default: false
 permissions:

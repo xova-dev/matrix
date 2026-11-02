@@ -13,26 +13,26 @@ programs stay in `fixtures/`.
 Supported host ranges are declared in [package.json](../package.json).
 [compatibility-matrix.json](../scripts/compatibility-matrix.json) is the single
 source of exact package-test versions, Electron combinations, and typecheck
-settings. Both package test runners use profiles selected from this file.
+settings. The package smoke runner selects profiles from this file; the
+on-demand Electron example retains its own lockfile-pinned dependencies.
 
 ### CI environments
 
 The [CI workflow](../.github/workflows/ci.yml) runs independent code/docs jobs on one source SHA. The docs job always checks/builds a read-only artifact; the code job retains these checks for code changes:
 
-| OS                     | Node           | Checks                                                      |
-| ---------------------- | -------------- | ----------------------------------------------------------- |
-| Ubuntu                 | 24.x           | Unit tests and packaged consumers with the full profile     |
-| Ubuntu                 | 22.18.0        | Unit tests and packaged consumers with the daily profile    |
-| macOS, Windows         | 22.18.0 / 24.x | Unit tests and packaged consumers with the platform profile |
-| Ubuntu, macOS, Windows | 24.x           | Real Electron/Web acceptance in three independent jobs      |
+| OS      | Node    | Checks                                                            |
+| ------- | ------- | ----------------------------------------------------------------- |
+| Ubuntu  | 24.x    | Complete Vitest suite and full packed host compatibility          |
+| Ubuntu  | 22.18.0 | Complete Vitest suite and platform packed smoke at the Node floor |
+| Windows | 24.x    | Complete Vitest suite and platform packed CLI/Vite smoke          |
 
 Documentation-only changes run lint, product wiring checks and relevant
 site checks. Commit titles never skip CI or documentation builds. Manual CI always
-runs code checks; `full` expands all host pins and Nuxt scenarios on every OS/Node combination.
+runs code checks; `full` expands all host pins and Nuxt scenarios on these three managed combinations. It does not add macOS or real Electron app jobs.
 
-CI and Publish share `checks.yml` rather than duplicate product matrices. Publish first queries successful complete CI at the exact native SHA, including all six compatibility and three Electron jobs. Without qualifying evidence it runs the complete product workflow before calling shared release orchestration. Missing or documentation-only CI, query failure and timeout require source-check fallback; fatal lookup inputs block publication. Complete fallback must succeed and return the native SHA. Necessary code, release notes and migration files are allowed; no version-only commit or parent-CI exception remains.
+CI and Publish share `checks.yml` rather than duplicate product responsibilities. Publish first queries successful complete CI at the exact native SHA, including all three required Linux/Windows compatibility jobs. Without qualifying evidence it runs the complete product workflow before calling shared release orchestration. Missing or documentation-only CI, query failure and timeout require source-check fallback; fatal lookup inputs block publication. Complete fallback must succeed and return the native SHA. Necessary code, release notes and migration files are allowed; no version-only commit or parent-CI exception remains.
 
-Standard CI and Publish fallback use Ubuntu / Node 24's full profile plus the other combinations' daily/platform profiles. Both standard and manually expanded successful CI remain eligible for exact-SHA reuse. This is complete product-job coverage, not a claim that every platform repeats every Nuxt option/permutation. Manual CI with `full: true` runs all host pins and all Nuxt scenarios on every OS/Node combination; publication does not introduce a new requirement for that expanded mode.
+Standard CI and Publish fallback use Ubuntu / Node 24's full profile plus platform smoke on the other two combinations. Both standard and manually expanded successful CI remain eligible for exact-SHA reuse. Linux owns host-version integration; Windows owns platform contracts rather than repeating Nuxt SSR products or Electron packaging. macOS has no default hosted evidence: removing its jobs does not establish platform equivalence or change runtime support. Run checks on macOS when that platform needs acceptance. Real Electron application acceptance is on demand, not a CI/publication prerequisite.
 
 The shared flow checks the native candidate, builds documentation, runs `pnpm build` after complete product checks on that SHA, packs with pnpm lifecycle scripts disabled and tests that same TARBALL using the daily profile before publication. It does not repeat lint/types/examples in the publishing job. Provider policy runs inside the configured environment/concurrency gate. Publish/recovery read identical settings from `.github/xova.json`; manual Publish does not deploy.
 
@@ -44,22 +44,22 @@ Native release-it uses the pinned preparation preset in `.release-it.json`. Prev
 
 All shared workflow and action calls pin the same full toolkit SHA whose remote CI has passed. Normal `mise exec -- pnpm check` needs no local toolkit binding. Optionally use `XOVA_ACTIONS_ROOT=../actions mise exec -- pnpm check` with that toolkit revision to validate the actual workflow/action contracts and configuration parser as well. Binding verification rejects a different HEAD or modified tracked files/index before reading contracts. Preparation remains independently pinned. Local fixtures and toolkit CI do not prove nested required-check names, Matrix-hosted execution, OIDC or deployment acceptance.
 
-The first three rows expand to six jobs. Every package profile includes the
-host-free CLI consumer and all three Electron type-preparation combinations.
-POSIX process-group shutdown assertions run on Ubuntu and macOS; Windows runs
-the remaining checks. The separate Node 24 quality job runs lint, typecheck,
-build, and example checks. Electron acceptance starts independently of host tests.
+Every package profile includes the host-free CLI consumer. Full/daily include
+all three electron-vite type-preparation combinations, without launching Electron.
+The packaged POSIX process-group shutdown fixture runs on Linux and local macOS;
+its Windows skip is unchanged. Windows instead runs real cancellation, process-tree
+teardown, junction/cwd and side-effect regressions in the complete Vitest suite.
+The separate Node 24 quality job runs lint, typecheck, build and example checks.
 Compatibility jobs include the lockfile and compatibility manifest in their
 cache keys. Shared setup selects only pnpm from setup.cache and documentation inherits it; cache paths and lock patterns are owned by the shared toolkit. Full host verification runs on Ubuntu / Node 24 for every code change.
-Compatibility jobs also cache npm's download store for the CLI consumer;
-Electron jobs cache the binary archives used by the explicit Electron installer.
+Compatibility jobs also cache npm's download store for the CLI consumer.
 These caches use OS / architecture and dependency-manifest keys, with same-platform
 fallbacks. Installation, checksum validation, builds, and tests still run on cache
 hits. Consumer directories, node_modules, and build outputs are not cached.
 
-Compatibility and Electron acceptance steps set TMPDIR/TEMP/TMP to runner.temp so Windows temporary consumers stay on the checkout volume and reuse its pnpm store. Workflow wiring tests execute Node's real temporary-directory selection with conflicting system defaults. Local checks do not establish Windows cache transport or download counts; those require a hosted Windows run. Shared quality checks do not select npm caching because they run pnpm commands; actual npm consumers retain their product-owned download cache.
+Compatibility steps set TMPDIR/TEMP/TMP to runner.temp so Windows temporary consumers stay on the checkout volume and reuse its pnpm store. CLI and Vite consumers use paths containing spaces. Workflow wiring tests execute Node's real temporary-directory selection with conflicting system defaults. Local checks do not establish Windows cache transport or download counts; those require a hosted Windows run. Shared quality checks do not select npm caching because they run pnpm commands; actual npm consumers retain their product-owned download cache.
 
-Only Electron jobs narrow the root install with `pnpm --filter @xova/matrix --fail-if-no-match install --frozen-lockfile`. This retains root build tools and development dependencies without installing documentation or example workspaces there. `test:electron-web` still packs the current source and installs the example's complete locked dependencies in a separate consumer before preparation, both development runs and all three packaged application runs. Quality and compatibility jobs retain full workspace installation. Workflow wiring tests guard this distinction.
+Quality and compatibility jobs install the workspace, including example type/config checks but not real app startup. The existing on-demand `pnpm test:electron-web` command still packs the current source and installs the example's complete locked dependencies in a separate consumer before preparation, both development runs and all three packaged application runs. No default job or release fallback runs that command.
 
 Vitest retains its default worker concurrency and per-file isolation. Compare the same heavy files with `pnpm exec vitest run <files> --isolate`, then repeat with `--maxWorkers 2` or `--maxWorkers 1` in alternating order. Keep the pool, test cases and dependencies unchanged and run comparisons sequentially. Lower concurrency must show a repeatable benefit on the target runner before adoption; local macOS timings do not establish hosted performance.
 
@@ -70,10 +70,10 @@ All profiles select versions from the same exact-version manifest:
 | Profile  | Vite                                | Rollup                              | Webpack                | esbuild                                                | Electron combinations | Total consumers |
 | -------- | ----------------------------------- | ----------------------------------- | ---------------------- | ------------------------------------------------------ | --------------------- | --------------- |
 | daily    | Each major's first and last pin (8) | Each major's first and last pin (6) | First and last pin (2) | Last pin of each retained minor plus support floor (4) | 3                     | 23              |
-| platform | Overall first and last pin (2)      | Overall first and last pin (2)      | First and last pin (2) | Overall first and last pin (2)                         | 3                     | 11              |
+| platform | Latest pinned Vite (1)              | —                                   | —                      | —                                                      | —                     | 1               |
 | full     | 8                                   | 6                                   | 2                      | 6                                                      | 3                     | 25              |
 
-Counts exclude the shared CLI-only consumer and the two Nuxt consumers (native and mixed checks share each installation). Native Vite checks reuse each Vite consumer's installation. First/last refer to the pinned
+Counts exclude the shared CLI-only consumer and, for full/daily, the two Nuxt consumers (native and mixed checks share each installation). Platform installs no Nuxt or Electron consumer. Native Vite checks reuse each Vite consumer's installation. First/last refer to the pinned
 manifest, not a dynamically fetched registry version. Support ranges do not
 change with the selected profile. Vite 8 consumers explicitly install the WASM
 runtime peers pinned in the manifest, with strict peer checks still enabled.
@@ -99,26 +99,30 @@ versions or an evenly spaced sample. The guards tolerate absent fields on old
 hosts. Matrix and its installed Unplugin adapter use the ordinary build/plugin
 API; esbuild's context API is not an additional sampling boundary for this runner.
 Every selected Vite/Rollup/Webpack/esbuild pin keeps the same typecheck and behavioral checks. Host sampling
-does not remove any host, change a support range, or change the three Electron combinations or two Nuxt endpoints. Nuxt scenario selection is separate from host-version sampling, as described below. `full` runs
-every retained pin; `daily` keeps its existing selection rule over that manifest
-and `platform` keeps the overall endpoints.
+does not change a support range. `full` runs every retained pin and all three electron-vite combinations; `daily` keeps its existing selection rule and both Nuxt endpoints.
+`platform` is an installed-package contract smoke, not another host-version matrix:
+it reuses the latest pinned Vite fixture for preparation, strict types, dev transforms,
+builds, native integration and config selection, alongside the host-free CLI's
+exports/config/preparation/doctor checks.
+The CLI consumer also retains its existing packed Webpack-loader smoke against
+the repository's Webpack; it does not install Webpack into the host-free consumer.
 
-- Ubuntu / Node 24: `pnpm test:pack`; Ubuntu / Node 22: `pnpm test:pack --profile daily`.
-- Daily macOS/Windows: `pnpm test:pack --profile platform`.
+- Ubuntu / Node 24: `pnpm test:pack`; Ubuntu / Node 22 and Windows / Node 24: `pnpm test:pack --profile platform`.
+- Exact-tarball publication verification and intermediate local host checks: `pnpm test:pack --profile daily`.
 - Full local verification: `pnpm test:pack` (defaults to `full`).
-- Full cross-platform verification: manually dispatch CI with `full` enabled.
+- Expanded CI verification: manually dispatch CI with `full` enabled on the same three managed combinations; macOS and Electron app acceptance remain on demand.
 
-Both Nuxt endpoints run in every profile. `full` runs the complete suite; `daily` and `platform` share one reduced suite selected in `pack-matrix.mjs`, without a new profile or independent version list:
+Both Nuxt endpoints run in full/daily. `full` runs the complete suite; `daily` retains the reduced suite selected in `pack-matrix.mjs`. Platform does not install Nuxt:
 
-| Nuxt coverage          | Every profile                                                                                                                                                                   | Additional checks in `full`                                                                                                                      |
+| Nuxt coverage          | Full and daily                                                                                                                                                                  | Additional checks in `full`                                                                                                                      |
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Main chain             | Native/typegen-disabled commands; mixed prepare/declarations; strict Matrix contract typecheck; dev; two product SSR builds; client assets; immutable Node deployment overrides | Nuxt application and independent SPA application typechecks                                                                                      |
 | Config/Layer selection | Explicit same-directory, outside-root and directory-junction paths; local/package/remote Layers; native extensionless acceptance/rejection control                              | Default discovery with `.ts`/`.mjs` root/Layer permutations                                                                                      |
 | Failures               | Each selected Layer path preserves declarations on load failure; remote-fetch failure at the first selected path                                                                | Collision collection, duplicate plugin, typegen/runtime options, client/server divergence, unsupported Nitro/environment API and missing context |
 
-All CI compatibility jobs still run the entire Vitest suite, including invalid/junction cwd and cancellation/service-abort regressions. The package CLI shutdown fixture and each Nuxt server's cleanup remain active in every profile. Full-only option/permutation checks remain part of Ubuntu / Node 24's standard job; reduced profiles are not a reduced support claim.
+All CI compatibility jobs still run the entire Vitest suite, including invalid/junction cwd, Nuxt collection lifecycle, HTTP/process-tree cleanup and cancellation/service-abort regressions. The packaged POSIX CLI shutdown fixture remains active where supported; real Nuxt server cleanup runs with full/daily, not platform. Full-only option/permutation checks remain part of Ubuntu / Node 24's standard job; reduced profiles are not a reduced support claim.
 
-CI and Publish each run the full profile on their own Ubuntu / Node 24 candidate. Consumers run with concurrency 2;
+The required Ubuntu / Node 24 job runs full in CI or Publish fallback; qualified exact-SHA reuse avoids repeating it. Consumers run with concurrency 2;
 `--concurrency 1` runs serially and values up to 4 are supported. Each consumer's
 prepare, typecheck, and build phases remain sequential. Failures are collected
 before removing temporary workspaces. Logs record install, prepare, typecheck,
@@ -185,7 +189,7 @@ process shutdown.
 
 The main fixture explicitly declares its application `rootDir`. A standalone native reproduction with a `.ts` root config, custom `srcDir` and object-exported HTTP Layer observed Nuxt 4.0.3 change the default `rootDir` to its remote cache on repeated same-process `loadNuxt` calls, even with `ready: false` and no Matrix Module. Nuxt 4.6.3 retained the application root in that reproduction. This suite verifies the explicit-root combination; it does not certify the affected default-root combination or fix upstream config caching.
 
-The same installation retains an independent `ssr: false` custom-prefix application's declaration preparation in every profile, and its Nuxt typecheck in `full`, not a second static production build. Native no-Module/typegen-disabled integration runs Matrix preparation and a native `nuxt prepare` target: filesystem markers prove Matrix does not evaluate its host, while Nuxt owns its generated types and receives the product environment. Native SPA generation and a separate native SSR build are not repeated; the mixed chain owns runtimeConfig coexistence, public/private output and immutable Node deployment coverage.
+The same installation retains an independent `ssr: false` custom-prefix application's declaration preparation in full/daily, and its Nuxt typecheck in `full`, not a second static production build. Native no-Module/typegen-disabled integration runs Matrix preparation and a native `nuxt prepare` target: filesystem markers prove Matrix does not evaluate its host, while Nuxt owns its generated types and receives the product environment. Native SPA generation and a separate native SSR build are not repeated; the mixed chain owns runtimeConfig coexistence, public/private output and immutable Node deployment coverage.
 
 Config selection covers `.ts` application / `.mjs` Layer and the reverse, nested `.cts` Layers, a file-installed package Layer (`.mts`), and Nuxt's real remote loader. Explicit same-directory, outside-root and directory-symlink selection preserve exact root selection. Each case uses one Matrix target: automatic preparation supplies the contract and Matrix environment before loading/readying real Nuxt through native discovery. The resulting custom-prefix/schema/Layer declarations form the baseline for subsequent Layer-load and remote-fetch failures, which must preserve it. There is no additional standalone prepare or production build for each suffix/path. The isolated fixture declares `giget`; no global tool or public service is used. These HTTP checks do not certify external authentication or network behavior.
 
@@ -208,7 +212,7 @@ checks public/private isolation. Real host-config filesystem side effects prove
 that explicit prepare and automatic collection do not load the host before the
 native build command. Existing enhanced fixtures run unchanged before this path.
 
-All profiles retain both Nuxt endpoints: 4.0.3 (the tested lower
+Full/daily retain both Nuxt endpoints: 4.0.3 (the tested lower
 bound) and 4.6.3 (a representative later minor), with exact pins and vue-tsc in
 `compatibility-matrix.json`. The historical 4.0.3 fixture pins its compatible
 `@nuxt/cli` to 3.27.0 instead of installing the later CLI's incompatible schema
@@ -233,7 +237,7 @@ An explicitly gated filesystem check also verifies SIGINT/SIGTERM cancellation a
 
 ### Electron combinations
 
-The package matrix runs these three combinations with Electron 44.4.5 and
+Full/daily run these three combinations with Electron 44.4.5 and
 `@swc/core` 1.16.13 installed; it does not download or launch Electron:
 
 | electron-vite | Vite  | Checks                                                   |
@@ -246,13 +250,13 @@ The package matrix runs these three combinations with Electron 44.4.5 and
 application startup using the locked
 [Electron/Web example](../examples/electron-web/README.md). Its versions are
 owned by the example's package manifest and workspace lockfile; this acceptance
-run is not repeated for every package-matrix combination.
+run is on demand, not repeated for every package-matrix combination or required by default CI/publication.
 
 `scripts/electron-report.test.js` covers missing, malformed, and incorrect
 acceptance reports after a successful command exit, including captured stdout
 and stderr, product/environment/phase context, exit status, and the quiet success
 path. It uses real Node subprocesses and report files; these diagnostics tests
-do not replace the real Electron acceptance jobs.
+do not replace real Electron application acceptance when that example needs verification.
 
 ### Updating the matrix
 

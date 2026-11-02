@@ -165,7 +165,7 @@ Package verification uses a mixed SSR application with an explicit application `
 
 HTTP-service verification reports bounded startup, verification and teardown stages; requests and response-body reads also have deadlines. Cleanup targets only the launched tree (POSIX process-group SIGTERM; Windows `taskkill /T /F`, not graceful Matrix cancellation). Request/shutdown failures remain failures after forced cleanup, with original errors and bounded service diagnostics retained.
 
-Every package profile keeps both Nuxt endpoints, the mixed SSR/Node deployment chain, strict Matrix contract types and explicit same-directory/outside-root/junction Layer paths. The full profile additionally checks Nuxt application types, default-discovery suffix permutations and option/collision rejections; daily/platform share the platform-sensitive core. Alias permutations also remain covered by shared runtime/type-generation tests on every CI platform. Layer selection uses one automatically prepared Matrix target before native loading, keeping Matrix context and failure-preservation checks without collecting the same contract twice.
+Full/daily keep both Nuxt endpoints, the mixed SSR/Node deployment chain, strict Matrix contract types and explicit same-directory/outside-root/junction Layer paths. Full additionally checks Nuxt application types, default-discovery suffix permutations and option/collision rejections; daily keeps the core. Platform smoke installs only the host-free CLI and a representative Vite consumer, not Nuxt. Windows runs the complete shared runtime/type-generation, real filesystem-path and process-lifecycle tests instead of repeating this SSR chain. Layer selection uses one automatically prepared Matrix target before native loading, keeping Matrix context and failure-preservation checks without collecting the same contract twice.
 
 A native reproduction on Nuxt 4.0.3 with a `.ts` root config, custom `srcDir` and object-exported remote Layer changed the default application root to the remote cache during repeated same-process config loading, without Matrix. The same reproduction retained the root on 4.6.3. The mixed package fixture explicitly sets `rootDir`; its result does not certify that affected default-root combination.
 
@@ -235,7 +235,7 @@ export default defineConfig({
 
 Import `virtual:matrix/runtime/main` and `virtual:matrix/runtime/preload` respectively. Their declarations are generated as `.matrix/types/matrix-runtime-main.d.ts` and `.matrix/types/matrix-runtime-preload.d.ts`.
 
-electron-vite must support the selected Vite version. Type preparation and real Electron application acceptance are separate checks; see the [test matrix](https://github.com/xova-dev/matrix/blob/main/test/README.md#compatibility-matrix) for their versions and scope.
+electron-vite must support the selected Vite version. Linux full checks its configuration, types and virtual modules without launching Electron. Real Electron application acceptance is a separate on-demand example check, not a default CI/publication gate; see the [test matrix](https://github.com/xova-dev/matrix/blob/main/test/README.md#compatibility-matrix) for their versions and scope.
 
 ## Type preparation
 
