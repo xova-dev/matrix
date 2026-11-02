@@ -44,7 +44,8 @@ async function verifyNuxtExtensionlessSelection(cwd, run) {
   assert.match(declaration, /readonly selected: string/)
 }
 export async function verifyNuxtLayerSelection(cwd, version, run, scenarios, verifyMixed) {
-  await verifyNuxtExtensionlessSelection(cwd, run)
+  if (scenarios.length)
+    await verifyNuxtExtensionlessSelection(cwd, run)
   const archive = new TarArchive({ gzip: true })
   const chunks = []
   const completed = new Promise((resolve, reject) => {

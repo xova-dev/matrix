@@ -1,15 +1,11 @@
 import compatibility from './compatibility-matrix.json' with { type: 'json' }
 
-const nuxtLayers = [
-  { name: 'ts-mjs', platform: false },
-  { name: 'mjs-ts', platform: false },
-  { name: 'explicit-candidates', platform: true },
-  { name: 'explicit-outside', platform: true },
-  { name: 'explicit-symlink', platform: true },
-]
+const nuxtLayers = ['ts-mjs', 'mjs-ts', 'explicit-candidates', 'explicit-outside', 'explicit-symlink']
 
 export function selectCompatibility(profile) {
-  if (!['full', 'daily', 'platform'].includes(profile))
+  if (profile === 'daily')
+    throw new Error('The daily profile has retired. Use full for compatibility or package for tarball acceptance.')
+  if (!['full', 'package', 'platform'].includes(profile))
     throw new Error(`Unknown compatibility profile: ${profile}`)
   const hosts = Object.fromEntries(Object.entries(compatibility.hosts).map(([host, pins]) => {
     const versions = [...pins].sort((a, b) => a.localeCompare(b, 'en', { numeric: true }))
@@ -17,24 +13,23 @@ export function selectCompatibility(profile) {
       return [host, versions]
     if (profile === 'platform')
       return [host, host === 'vite' ? [versions.at(-1)] : []]
-    const groups = Map.groupBy(versions, version => version.split('.').slice(0, host === 'esbuild' ? 2 : 1).join('.'))
-    const selected = [...groups.values()].flatMap(group => host === 'esbuild' ? [group.at(-1)] : [group[0], group.at(-1)])
-    return [host, [...new Set([versions[0], ...selected])]]
+    return [host, [versions.at(-1)]]
   }))
   const extended = profile === 'full'
   return {
     ...compatibility,
     hosts,
+    configSelection: profile !== 'package',
     electron: {
       ...compatibility.electron,
-      combinations: profile === 'platform' ? [] : compatibility.electron.combinations,
+      combinations: profile === 'platform' ? [] : profile === 'package' ? compatibility.electron.combinations.slice(-1) : compatibility.electron.combinations,
     },
     nuxt: {
       ...compatibility.nuxt,
-      versions: profile === 'platform' ? [] : compatibility.nuxt.versions,
+      versions: profile === 'platform' ? [] : profile === 'package' ? compatibility.nuxt.versions.slice(-1) : compatibility.nuxt.versions,
       checks: {
         extended,
-        layers: profile === 'platform' ? [] : nuxtLayers.filter(scenario => extended || scenario.platform).map(scenario => scenario.name),
+        layers: extended ? [...nuxtLayers] : [],
       },
     },
   }

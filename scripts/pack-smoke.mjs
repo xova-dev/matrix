@@ -41,23 +41,28 @@ try {
   if (tarball) {
     if (!path.isAbsolute(tarball) || !statSync(tarball).isFile())
       throw new Error('TARBALL must be an absolute path to the packed candidate')
+    console.log('Package candidate: using supplied TARBALL; build and pack skipped.')
   }
   else {
-    execaSync('pnpm', [
+    console.log('Package candidate: building once before packing with lifecycle scripts disabled.')
+    await timings.span('candidate', 'build', () => execaSync('pnpm', ['build'], { cwd: packageRoot, stdio: 'inherit' }))
+    await timings.span('candidate', 'pack', () => execaSync('pnpm', [
       'pack',
+      '--config.ignore-scripts=true',
       '--pack-destination',
       packRoot,
     ], {
       cwd: packageRoot,
       encoding: 'utf8',
-    })
+    }))
     const tarballName = readdirSync(packRoot).find(name => name.endsWith('.tgz'))
     if (!tarballName)
       throw new Error('pnpm pack did not produce a tarball')
     tarball = path.join(packRoot, tarballName)
   }
 
-  execaSync('npm', [
+  console.log('Package candidate: installing isolated CLI consumer.')
+  await timings.span('candidate', 'cli-install', () => execaSync('npm', [
     'install',
     '--ignore-scripts',
     '--no-package-lock',
@@ -66,7 +71,7 @@ try {
   ], {
     cwd: consumerRoot,
     encoding: 'utf8',
-  })
+  }))
 
   shutdownVerified = await verifyCli(consumerRoot)
   if (shutdownVerified !== null) {

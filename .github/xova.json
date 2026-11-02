@@ -22,7 +22,7 @@
   "npm": {
     "package-manager": "pnpm",
     "verify-command": "pnpm build",
-    "package-verify-command": "pnpm test:pack --profile daily",
+    "package-verify-command": "pnpm test:pack --profile package",
     "environment-name": "npm-publish"
   },
   "docs": {

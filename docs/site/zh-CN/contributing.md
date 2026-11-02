@@ -14,7 +14,7 @@ pnpm lint:fix
 
 `pnpm lint:fix` 通过 ESLint 格式化 JavaScript、TypeScript 和 Markdown。`pnpm check` 会依次执行 lint、类型检查、测试和生产构建，不启动示例服务。
 
-`pnpm test:pack` 在隔离消费项目中验证安装后的 tarball。full 保留全部采样宿主、electron-vite 准备和两个 Nuxt 端点；daily 保留精简宿主/Nuxt 覆盖，用于发布时验证同一 tarball。platform 复用无宿主 CLI 和一个真实的固定版本 Vite 消费者，不安装隔离的 Nuxt/Electron 包验收消费者。手动触发 CI 并启用 `full`，会在受管的三个 Linux/Windows 组合运行完整套件，不增加 macOS 或真实 Electron 应用任务。支持范围由 `package.json` 声明，覆盖边界与组合定义见[测试指南](https://github.com/xova-dev/matrix/blob/main/test/README.md)。
+`pnpm test:pack` 在隔离消费项目中验证安装后的 tarball。full 保留全部采样宿主、electron-vite 准备和两个 Nuxt 端点；package 使用每类宿主的一个固定消费者、一个 electron-vite 组合和一个 Nuxt 混合 SSR/Node 端点验证实际发布 tarball，不重复版本和配置排列。它不替代同 SHA 的完整兼容性检查；旧 daily profile 已退役。platform 复用无宿主 CLI 和一个真实的固定版本 Vite 消费者，不安装隔离的 Nuxt/Electron 包验收消费者。手动触发 CI 并启用 `full`，会在受管的三个 Linux/Windows 组合运行完整套件，不增加 macOS 或真实 Electron 应用任务。支持范围由 `package.json` 声明，覆盖边界与组合定义见[测试指南](https://github.com/xova-dev/matrix/blob/main/test/README.md)。
 
 ## 发布准备与交付
 
@@ -34,7 +34,7 @@ CI 和发布共用产品自己的 `checks.yml`，命令和文档参数统一声�
 
 真实 Electron 应用验收是按需的示例检查，不是默认 CI 或发布门禁：涉及其开发、打包或启动时，运行现有 `pnpm test:electron-web`。它在隔离 tarball 消费项目中安装完整的锁定依赖，检查准备、两个产品的开发和三种打包应用；Linux 图形验收需要 Xvfb 等显示服务。Linux full 仍验证 electron-vite 配置、类型和虚拟模块 scope，但不启动 Electron；示例配置/类型与普通文件产物归档仍属于 Matrix 检查。Vitest 保持默认 worker 并发与文件隔离；只有目标 runner 上的重复测量证实收益后才降低并发，并保留全部用例。
 
-发布选择 pnpm 打包。在同一 SHA 的完整产品检查成功后，发布器只执行 `pnpm build`，不重复 lint、类型和示例检查；随后使用提供的绝对路径 `TARBALL` 执行 `pnpm test:pack --profile daily`，直接消费该文件、不重新打包，发布前再次检查源码和 tarball 字节。未提供 `TARBALL` 时本地 `test:pack` 仍先打包一次。发布工具使用 Node 24，产品的 Node 22.18.0 兼容性检查保持独立。
+发布选择 pnpm 打包。在同一 SHA 的完整产品检查成功后，发布器只执行 `pnpm build`，不重复 lint、类型和示例检查；随后使用提供的绝对路径 `TARBALL` 执行 `pnpm test:pack --profile package`，直接消费该文件、不重新打包，发布前再次检查源码和 tarball 字节。提供 `TARBALL` 时不构建、不重新打包；未提供时，本地 `test:pack` 显式构建一次、禁用 lifecycle 打包一次，不根据 dist 存在猜测构建是否有效。发布工具使用 Node 24，产品的 Node 22.18.0 兼容性检查保持独立。
 
 `docs-recover.yml` 只保留手动入口，将已确认的发布标签/SHA 传给共享恢复流程。发布和恢复使用相同的 `github-pages` 环境、并发组以及 `latest-stable` 策略。Publish 只在稳定 release 事件部署，手动发布不部署；恢复从已确认源码重建，不重复发布 npm。
 

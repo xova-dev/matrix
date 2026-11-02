@@ -278,7 +278,7 @@ export async function verifyViteCompatibility(tarball, root, compatibility, conc
         await run('build', ['matrix', 'build', 'app'])
         await verifyNativeVite(cwd, consumer, compatibility, timings)
       }
-      if (consumer.version === compatibility.hosts.vite[0] || consumer.version === compatibility.hosts.vite.at(-1) || consumer.electron)
+      if (compatibility.configSelection && (consumer.version === compatibility.hosts.vite[0] || consumer.version === compatibility.hosts.vite.at(-1) || consumer.electron))
         await verifyConfigSelection(cwd, consumer, timings)
       console.log(`Package Vite compatibility passed: ${consumer.name}`)
     }

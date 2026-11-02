@@ -165,7 +165,7 @@ Nuxt 中不同公开变量名不能映射到同一 `matrix.config` 字段，即�
 
 HTTP 服务验收分别报告有界的启动、验证和回收阶段；每次请求及响应体读取也有独立期限。回收仅针对自身启动的进程树（POSIX 进程组 SIGTERM；Windows `taskkill /T /F`，不代表 Matrix 优雅取消）。请求或关闭失败不会因强制清理成功而转为通过，原始错误和有限服务诊断仍会保留。
 
-full/daily 保留两个 Nuxt 端点、混合 SSR/Node 部署主链、严格 Matrix 契约类型检查，以及同目录显式配置、根外配置和目录 junction Layer 路径。full 额外检查 Nuxt 应用类型、默认发现的后缀排列和选项/碰撞拒绝；daily 保留核心集。platform smoke 只安装无宿主 CLI 和一个代表性 Vite 消费者，不安装 Nuxt。Windows 执行完整的共享 runtime/类型生成、真实文件路径和进程生命周期测试，不重复这条 SSR 主链。Layer 选择通过一次自动准备的 Matrix 目标执行原生加载，保留 Matrix 上下文和失败保护检查，不重复收集相同声明契约。
+full 保留两个 Nuxt 端点、混合 SSR/Node 部署主链、严格 Matrix 契约类型检查，以及同目录显式配置、根外配置和目录 junction Layer 路径。full 额外检查 Nuxt 应用类型、默认发现的后缀排列和选项/碰撞拒绝；package 在同 SHA 完整检查后，使用一个固定端点复用混合 SSR/Node 及本地/包/远程 Layer 主链，不重复配置排列和扩展拒绝场景。platform smoke 只安装无宿主 CLI 和一个代表性 Vite 消费者，不安装 Nuxt。Windows 执行完整的共享 runtime/类型生成、真实文件路径和进程生命周期测试，不重复这条 SSR 主链。Layer 选择通过一次自动准备的 Matrix 目标执行原生加载，保留 Matrix 上下文和失败保护检查，不重复收集相同声明契约。
 
 原生复现中，Nuxt 4.0.3 在 `.ts` 根配置、自定义 `srcDir` 和对象式远程 Layer 组合下，同进程重复加载配置会将默认应用根目录变为远程缓存目录，此过程没有 Matrix 参与；相同复现在 4.6.3 保持根目录不变。混合包验收 fixture 显式设置 `rootDir`，不代表受影响的默认根目录组合已通过。
 

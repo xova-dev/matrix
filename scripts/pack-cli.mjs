@@ -186,6 +186,17 @@ export async function verifyCli(consumerRoot) {
       const main = await import('@xova/matrix')
       const { createRequire } = await import('node:module')
       const { default: assert } = await import('node:assert/strict')
+      const { readFileSync, statSync } = await import('node:fs')
+      const { resolve } = await import('node:path')
+      const packageRoot = resolve('node_modules/@xova/matrix')
+      const manifest = JSON.parse(readFileSync(resolve(packageRoot, 'package.json'), 'utf8'))
+      for (const [entry, conditions] of Object.entries(manifest.exports)) {
+        const specifier = '@xova/matrix' + (entry === '.' ? '' : entry.slice(1))
+        assert.ok(import.meta.resolve(specifier), 'Unresolvable package export: ' + entry)
+        for (const file of Object.values(conditions))
+          assert.ok(statSync(resolve(packageRoot, file)).isFile(), 'Missing export target: ' + file)
+      }
+      await import('@xova/matrix/runtime')
       for (const host of ['vite', 'rollup', 'webpack', 'esbuild', 'nuxt'])
         assert.throws(() => createRequire(import.meta.url).resolve(host), { code: 'MODULE_NOT_FOUND' })
       const config = await import('@xova/matrix/config')

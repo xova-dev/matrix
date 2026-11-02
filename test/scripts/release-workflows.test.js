@@ -146,7 +146,7 @@ it('declares commands and documentation settings once for all four paths', () =>
   for (const field of ['check-command', 'docs-only-command'])
     expect(config.code[field]).toContain('test/scripts/release-workflows.test.js')
   expect(config.npm['verify-command']).toBe('pnpm build')
-  expect(config.npm['package-verify-command']).toBe('pnpm test:pack --profile daily')
+  expect(config.npm['package-verify-command']).toBe('pnpm test:pack --profile package')
   expect(config.docs).toMatchObject({ 'provider': 'pages', 'environment-name': 'github-pages', 'concurrency-group': 'github-pages', 'deployment-policy': 'latest-stable' })
   for (const call of [checks.jobs.quality, ci.jobs.docs, publish.jobs.release, recover.jobs.recover]) {
     expect(call.with['config-file'] ?? '.github/xova.json').toBe('.github/xova.json')
