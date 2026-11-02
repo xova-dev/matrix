@@ -122,7 +122,7 @@ async function verifyNativeNuxt(cwd, run) {
   assert.equal(existsSync(path.join(workspace, 'app/.matrix')), false)
 }
 
-async function verifyMixedNuxt(cwd, version, run, remote) {
+async function verifyMixedNuxt(cwd, version, run, remote, extended) {
   const workspace = path.join(cwd, 'mixed')
   const root = path.join(workspace, 'apps/main')
   const second = path.join(workspace, 'apps/second')
@@ -256,8 +256,10 @@ async function verifyMixedNuxt(cwd, version, run, remote) {
     files: ['matrix-contract.ts', 'types/snapshot.d.ts'],
   })
   await run('mixed-contract-types', ['exec', 'tsc', '-p', 'tsconfig.matrix.json'], root)
-  await run('mixed-types', ['exec', 'nuxt', 'typecheck'], root)
-  await run('mixed-second-types', ['exec', 'nuxt', 'typecheck'], second)
+  if (extended) {
+    await run('mixed-types', ['exec', 'nuxt', 'typecheck'], root)
+    await run('mixed-second-types', ['exec', 'nuxt', 'typecheck'], second)
+  }
   await withServer(process.execPath, [path.join(cwd, 'node_modules/@xova/matrix/bin/matrix.mjs'), 'dev', 'alpha', '--variant', 'web'], {
     cwd: workspace,
     env: { PATH: `${path.join(cwd, 'node_modules/.bin')}${delimiter}${process.env.PATH ?? ''}` },
@@ -297,6 +299,10 @@ async function verifyMixedNuxt(cwd, version, run, remote) {
   }
   // Nuxt's default NUXT_ Vite prefix must not expose private business fields.
   assert.doesNotMatch(declaration, /privateToken|appPrivate/)
+  if (!extended) {
+    console.log(`Package mixed Nuxt SSR, Layers and Node Nitro integration passed: nuxt-${version}`)
+    return
+  }
   const fails = async (phase, args, rejection) => {
     const result = await run(phase, args, args[1] === 'matrix' ? workspace : root, { rejection })
     return `${result.stdout}\n${result.stderr}`
@@ -402,6 +408,6 @@ export async function verifyNuxtCompatibility(tarball, root, compatibility, timi
     const run = (phase, args, directory = cwd, { env, ...expectation } = {}) => timings.measure(`nuxt-${version}`, phase, () => execa('pnpm', args, { cwd: directory, env, timeout: 180_000 }), expectation)
     await run('install', ['install', '--strict-peer-dependencies'])
     await verifyNativeNuxt(cwd, run)
-    await verifyNuxtLayerSelection(cwd, version, run, remote => verifyMixedNuxt(cwd, version, run, remote))
+    await verifyNuxtLayerSelection(cwd, version, run, compatibility.nuxt.checks.layers, remote => verifyMixedNuxt(cwd, version, run, remote, compatibility.nuxt.checks.extended))
   }
 }

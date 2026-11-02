@@ -43,7 +43,7 @@ async function verifyNuxtExtensionlessSelection(cwd, run) {
   const declaration = readFileSync(output, 'utf8')
   assert.match(declaration, /readonly selected: string/)
 }
-export async function verifyNuxtLayerSelection(cwd, version, run, verifyMixed) {
+export async function verifyNuxtLayerSelection(cwd, version, run, scenarios, verifyMixed) {
   await verifyNuxtExtensionlessSelection(cwd, run)
   const archive = new TarArchive({ gzip: true })
   const chunks = []
@@ -72,7 +72,7 @@ export async function verifyNuxtLayerSelection(cwd, version, run, verifyMixed) {
   const remote = `http://127.0.0.1:${server.address().port}/layer.tar.gz`
   try {
     await verifyMixed(remote)
-    for (const scenario of ['ts-mjs', 'mjs-ts', 'explicit-candidates', 'explicit-outside', 'explicit-symlink']) {
+    for (const scenario of scenarios) {
       const root = path.join(cwd, 'layer-selection', scenario)
       const mainExtension = scenario === 'mjs-ts' ? 'mjs' : 'ts'
       const layerExtension = scenario === 'mjs-ts' ? 'ts' : 'mjs'
@@ -161,7 +161,7 @@ export async function verifyNuxtLayerSelection(cwd, version, run, verifyMixed) {
       write(root, `local/nuxt.config.${layerExtension}`, 'throw new Error("Layer config failure")')
       await run(`layers-${scenario}-failure`, ['exec', 'matrix', 'prepare'], root, { rejection: /Layer config failure/ })
       assert.equal(readFileSync(output, 'utf8'), declaration, 'Failed Layer load replaced declarations')
-      if (scenario === 'ts-mjs') {
+      if (scenario === scenarios[0]) {
         write(root, `local/nuxt.config.${layerExtension}`, localLayer)
         write(root, sourceFile, selected.replace(remote, remote.replace('layer.tar.gz', 'missing.tar.gz')))
         await run('layers-remote-failure', ['exec', 'matrix', 'prepare'], root, { rejection: /404|Failed to download|fetch|not found/i })

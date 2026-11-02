@@ -75,7 +75,7 @@ The same factory is available from @xova/matrix/rollup, @xova/matrix/webpack, an
 
 ## Native Nuxt integration
 
-Nuxt owns its `runtimeConfig` contract, defaults, generated types, and application API. Matrix only supplies matching environment variables to native commands; no Matrix Module, Vite plugin, virtual module, or generated declaration is involved on this path. Native integration remains recommended, not mandatory, for ordinary Nuxt applications. Isolated command integration is tested with Nuxt 4.0.3 and 4.6.3, covering SPA generation and the default Nitro Node server; this is not a claim about every Nuxt minor, builder, or Nitro preset.
+Nuxt owns its `runtimeConfig` contract, defaults, generated types, and application API. Matrix only supplies matching environment variables to native commands; no Matrix Module, Vite plugin, virtual module, or generated declaration is involved on this path. Native integration remains recommended, not mandatory, for ordinary Nuxt applications. Isolated command preparation is tested with Nuxt 4.0.3 and 4.6.3; the mixed SSR chain owns production runtimeConfig and default Nitro Node-server verification. This does not certify native SPA generation in every package run, every Nuxt minor, builder, or Nitro preset.
 
 ```ts
 // nuxt.config.ts (or a shared Nuxt Layer)
@@ -163,7 +163,7 @@ The client contract is authoritative: actual dev/build also resolves the server 
 
 Package verification uses a mixed SSR application with an explicit application `rootDir` and local, installed-package and controlled HTTP remote Layers at both tested Nuxt endpoints. Two product builds check client assets, SSR and direct Node Nitro startup; deployment runtimeConfig overrides do not change the Matrix snapshot or artifact. Native no-Module integration, `ssr: false`, config suffixes and explicit paths retain lightweight real preparation/typecheck/load checks rather than repeating production builds. HTTP/SSR checks do not establish browser hydration or interaction acceptance.
 
-Alias permutations are checked through shared runtime/type-generation rules, with representative real preparation rejections at both Nuxt endpoints. Layer selection uses one automatically prepared Matrix target before native loading, keeping Matrix context and failure-preservation checks without collecting the same contract twice.
+Every package profile keeps both Nuxt endpoints, the mixed SSR/Node deployment chain, strict Matrix contract types and explicit same-directory/outside-root/junction Layer paths. The full profile additionally checks Nuxt application types, default-discovery suffix permutations and option/collision rejections; daily/platform share the platform-sensitive core. Alias permutations also remain covered by shared runtime/type-generation tests on every CI platform. Layer selection uses one automatically prepared Matrix target before native loading, keeping Matrix context and failure-preservation checks without collecting the same contract twice.
 
 A native reproduction on Nuxt 4.0.3 with a `.ts` root config, custom `srcDir` and object-exported remote Layer changed the default application root to the remote cache during repeated same-process config loading, without Matrix. The same reproduction retained the root on 4.6.3. The mixed package fixture explicitly sets `rootDir`; its result does not certify that affected default-root combination.
 

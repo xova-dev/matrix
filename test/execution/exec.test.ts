@@ -193,8 +193,8 @@ describe('runExecutionPlan', () => {
       ...plan([setup, target]),
       preparations: [{ ...prepared, beforeTask: target.id }],
     })
-    expect(await fs.readFile(path.join(cwd, 'prepared'), 'utf8')).toBe(await fs.realpath(cwd))
-    expect(await fs.readFile(path.join(cwd, 'target'), 'utf8')).toBe(await fs.realpath(cwd))
+    expect(await fs.realpath(await fs.readFile(path.join(cwd, 'prepared'), 'utf8'))).toBe(await fs.realpath(cwd))
+    expect(await fs.realpath(await fs.readFile(path.join(cwd, 'target'), 'utf8'))).toBe(await fs.realpath(cwd))
   })
 
   it('reports invalid preparation cwd and leaves the target unstarted', async () => {

@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       full:
-        description: Run the full host matrix on all OS / Node combinations
+        description: Run all host pins and Nuxt scenarios on every OS / Node combination
         type: boolean
         default: false
 permissions:

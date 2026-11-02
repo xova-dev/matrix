@@ -64,6 +64,7 @@ jobs:
       - run: pnpm test
       - name: Packaged compatibility
         # Keep isolated consumers on the checkout volume for pnpm store reuse on Windows.
+        # Full includes extended Nuxt checks; other profiles retain both endpoints' platform core.
         env:
           TMPDIR: ${{ runner.temp }}
           TEMP: ${{ runner.temp }}

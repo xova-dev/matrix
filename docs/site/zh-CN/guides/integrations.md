@@ -75,7 +75,7 @@ matrix.isTest
 
 ## 原生 Nuxt 接入
 
-Nuxt 自己管理 `runtimeConfig` 契约、默认值、生成类型及应用 API。Matrix 在这条路径只给原生命令提供匹配的环境变量，不安装 Module、Vite 插件、虚拟模块或声明。常规 Nuxt 应用仍推荐原生接入，但不是强制选择。隔离命令接入验证使用 Nuxt 4.0.3 和 4.6.3，覆盖 SPA 生成与默认 Nitro Node server，不代表逐个验证所有 Nuxt minor、builder 或 Nitro preset。
+Nuxt 自己管理 `runtimeConfig` 契约、默认值、生成类型及应用 API。Matrix 在这条路径只给原生命令提供匹配的环境变量，不安装 Module、Vite 插件、虚拟模块或声明。常规 Nuxt 应用仍推荐原生接入，但不是强制选择。Nuxt 4.0.3 和 4.6.3 的隔离原生命令验证覆盖准备阶段，生产 runtimeConfig 和默认 Nitro Node server 由混合 SSR 主链验收；不代表每次包验收都验证原生 SPA 生成，也不逐个认证所有 Nuxt minor、builder 或 Nitro preset。
 
 ```ts
 // nuxt.config.ts（也可以放在共享 Nuxt Layer）
@@ -163,7 +163,7 @@ Nuxt 中不同公开变量名不能映射到同一 `matrix.config` 字段，即�
 
 包验收在两个已测试的 Nuxt 端点使用同一条混合 SSR 应用主链，显式设置应用 `rootDir`，接入本地、已安装包和受控 HTTP 远程 Layer。两个产品构建检查客户端资源、SSR 和直接 Node Nitro 启动；部署时 runtimeConfig 覆盖不改变 Matrix 快照或构建产物。无 Module 的原生接入、`ssr: false`、配置后缀和显式路径保留真实 prepare/typecheck/load 轻量回归，不重复执行生产构建。HTTP/SSR 检查不等于浏览器 hydration 或交互验收。
 
-别名输入组合由共享 runtime/类型生成规则检查，两个 Nuxt 端点各保留代表性的真实 prepare 拒绝。Layer 选择通过一次自动准备的 Matrix 目标执行原生加载，保留 Matrix 上下文和失败保护检查，不重复收集相同声明契约。
+每个包验收 profile 都保留两个 Nuxt 端点、混合 SSR/Node 部署主链、严格 Matrix 契约类型检查，以及同目录显式配置、根外配置和目录 junction Layer 路径。full 额外检查 Nuxt 应用类型、默认发现的后缀排列和选项/碰撞拒绝；daily/platform 共用平台敏感核心集。共享 runtime/类型生成测试仍在每个 CI 平台覆盖别名输入组合。Layer 选择通过一次自动准备的 Matrix 目标执行原生加载，保留 Matrix 上下文和失败保护检查，不重复收集相同声明契约。
 
 原生复现中，Nuxt 4.0.3 在 `.ts` 根配置、自定义 `srcDir` 和对象式远程 Layer 组合下，同进程重复加载配置会将默认应用根目录变为远程缓存目录，此过程没有 Matrix 参与；相同复现在 4.6.3 保持根目录不变。混合包验收 fixture 显式设置 `rootDir`，不代表受影响的默认根目录组合已通过。
 

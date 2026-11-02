@@ -1,5 +1,13 @@
 import compatibility from './compatibility-matrix.json' with { type: 'json' }
 
+const nuxtLayers = [
+  { name: 'ts-mjs', platform: false },
+  { name: 'mjs-ts', platform: false },
+  { name: 'explicit-candidates', platform: true },
+  { name: 'explicit-outside', platform: true },
+  { name: 'explicit-symlink', platform: true },
+]
+
 export function selectCompatibility(profile) {
   if (!['full', 'daily', 'platform'].includes(profile))
     throw new Error(`Unknown compatibility profile: ${profile}`)
@@ -13,7 +21,18 @@ export function selectCompatibility(profile) {
     const selected = [...groups.values()].flatMap(group => host === 'esbuild' ? [group.at(-1)] : [group[0], group.at(-1)])
     return [host, [...new Set([versions[0], ...selected])]]
   }))
-  return { ...compatibility, hosts }
+  const extended = profile === 'full'
+  return {
+    ...compatibility,
+    hosts,
+    nuxt: {
+      ...compatibility.nuxt,
+      checks: {
+        extended,
+        layers: nuxtLayers.filter(scenario => extended || scenario.platform).map(scenario => scenario.name),
+      },
+    },
+  }
 }
 
 // Drain every worker before allowing the caller to remove consumer directories.

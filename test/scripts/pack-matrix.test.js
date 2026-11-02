@@ -16,14 +16,32 @@ it('rejects a relative external tarball before packing or installing', () => {
 })
 
 it('preserves the complete release matrix, all hosts and framework combinations', () => {
-  expect(selectCompatibility('full')).toEqual(compatibility)
+  const { nuxt: { checks, ...nuxt }, ...full } = selectCompatibility('full')
+  expect({ ...full, nuxt }).toEqual(compatibility)
+  expect(checks.extended).toBe(true)
   for (const profile of ['full', 'daily', 'platform']) {
     const selected = selectCompatibility(profile)
     expect(Object.keys(selected.hosts)).toEqual(Object.keys(compatibility.hosts))
     expect(selected.electron).toEqual(compatibility.electron)
-    expect(selected.nuxt).toEqual(compatibility.nuxt)
+    const { checks: _, ...selectedNuxt } = selected.nuxt
+    expect(selectedNuxt).toEqual(compatibility.nuxt)
   }
   expect(() => selectCompatibility('typo')).toThrow('Unknown compatibility profile')
+})
+
+it('shares one reduced Nuxt suite without dropping endpoints or platform paths from full coverage', () => {
+  const full = selectCompatibility('full').nuxt.checks
+  const daily = selectCompatibility('daily').nuxt.checks
+  const platform = selectCompatibility('platform').nuxt.checks
+  expect(daily).toEqual(platform)
+  expect(daily.extended).toBe(false)
+  expect(daily.layers).toContain('explicit-outside')
+  expect(daily.layers).toContain('explicit-symlink')
+  expect(daily.layers.length).toBeGreaterThan(0)
+  expect(full.layers.length).toBeGreaterThan(daily.layers.length)
+  expect(full.layers).toEqual([...new Set(full.layers)])
+  expect(daily.layers).toEqual([...new Set(daily.layers)])
+  expect(daily.layers.every(scenario => full.layers.includes(scenario))).toBe(true)
 })
 
 it('keeps manifest pins ordered and unique for native config boundary fixtures', () => {

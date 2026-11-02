@@ -28,9 +28,11 @@ The [CI workflow](../.github/workflows/ci.yml) runs independent code/docs jobs o
 
 Documentation-only changes run lint, product wiring checks and relevant
 site checks. Commit titles never skip CI or documentation builds. Manual CI always
-runs code checks; `full` expands the package profile on every OS/Node combination.
+runs code checks; `full` expands all host pins and Nuxt scenarios on every OS/Node combination.
 
-CI and Publish share `checks.yml` rather than duplicate product matrices. Publish first queries successful complete CI at the exact native SHA, including all six compatibility and three Electron jobs. Without qualifying evidence it runs the complete product workflow before calling shared release orchestration. Missing or reduced docs-only CI, query failure and timeout require full fallback; fatal lookup inputs block publication. Complete fallback must succeed and return the native SHA. Necessary code, release notes and migration files are allowed; no version-only commit or parent-CI exception remains.
+CI and Publish share `checks.yml` rather than duplicate product matrices. Publish first queries successful complete CI at the exact native SHA, including all six compatibility and three Electron jobs. Without qualifying evidence it runs the complete product workflow before calling shared release orchestration. Missing or documentation-only CI, query failure and timeout require source-check fallback; fatal lookup inputs block publication. Complete fallback must succeed and return the native SHA. Necessary code, release notes and migration files are allowed; no version-only commit or parent-CI exception remains.
+
+Standard CI and Publish fallback use Ubuntu / Node 24's full profile plus the other combinations' daily/platform profiles. Both standard and manually expanded successful CI remain eligible for exact-SHA reuse. This is complete product-job coverage, not a claim that every platform repeats every Nuxt option/permutation. Manual CI with `full: true` runs all host pins and all Nuxt scenarios on every OS/Node combination; publication does not introduce a new requirement for that expanded mode.
 
 The shared flow checks the native candidate, builds documentation, runs `pnpm build` after complete product checks on that SHA, packs with pnpm lifecycle scripts disabled and tests that same TARBALL using the daily profile before publication. It does not repeat lint/types/examples in the publishing job. Provider policy runs inside the configured environment/concurrency gate. Publish/recovery read identical settings from `.github/xova.json`; manual Publish does not deploy.
 
@@ -96,9 +98,8 @@ These are existing verified pins on either side, not the exact API-introduction
 versions or an evenly spaced sample. The guards tolerate absent fields on old
 hosts. Matrix and its installed Unplugin adapter use the ordinary build/plugin
 API; esbuild's context API is not an additional sampling boundary for this runner.
-Every selected pin keeps the same typecheck and behavioral checks. The sampling
-does not remove any host, change a support range, reduce a fixture's scenarios,
-or change the three Electron combinations or two Nuxt endpoints. `full` runs
+Every selected Vite/Rollup/Webpack/esbuild pin keeps the same typecheck and behavioral checks. Host sampling
+does not remove any host, change a support range, or change the three Electron combinations or two Nuxt endpoints. Nuxt scenario selection is separate from host-version sampling, as described below. `full` runs
 every retained pin; `daily` keeps its existing selection rule over that manifest
 and `platform` keeps the overall endpoints.
 
@@ -106,6 +107,16 @@ and `platform` keeps the overall endpoints.
 - Daily macOS/Windows: `pnpm test:pack --profile platform`.
 - Full local verification: `pnpm test:pack` (defaults to `full`).
 - Full cross-platform verification: manually dispatch CI with `full` enabled.
+
+Both Nuxt endpoints run in every profile. `full` runs the complete suite; `daily` and `platform` share one reduced suite selected in `pack-matrix.mjs`, without a new profile or independent version list:
+
+| Nuxt coverage          | Every profile                                                                                                                                                                   | Additional checks in `full`                                                                                                                      |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Main chain             | Native/typegen-disabled commands; mixed prepare/declarations; strict Matrix contract typecheck; dev; two product SSR builds; client assets; immutable Node deployment overrides | Nuxt application and independent SPA application typechecks                                                                                      |
+| Config/Layer selection | Explicit same-directory, outside-root and directory-junction paths; local/package/remote Layers; native extensionless acceptance/rejection control                              | Default discovery with `.ts`/`.mjs` root/Layer permutations                                                                                      |
+| Failures               | Each selected Layer path preserves declarations on load failure; remote-fetch failure at the first selected path                                                                | Collision collection, duplicate plugin, typegen/runtime options, client/server divergence, unsupported Nitro/environment API and missing context |
+
+All CI compatibility jobs still run the entire Vitest suite, including invalid/junction cwd and cancellation/service-abort regressions. The package CLI shutdown fixture and each Nuxt server's cleanup remain active in every profile. Full-only option/permutation checks remain part of Ubuntu / Node 24's standard job; reduced profiles are not a reduced support claim.
 
 CI and Publish each run the full profile on their own Ubuntu / Node 24 candidate. Consumers run with concurrency 2;
 `--concurrency 1` runs serially and values up to 4 are supported. Each consumer's
@@ -174,7 +185,7 @@ process shutdown.
 
 The main fixture explicitly declares its application `rootDir`. A standalone native reproduction with a `.ts` root config, custom `srcDir` and object-exported HTTP Layer observed Nuxt 4.0.3 change the default `rootDir` to its remote cache on repeated same-process `loadNuxt` calls, even with `ready: false` and no Matrix Module. Nuxt 4.6.3 retained the application root in that reproduction. This suite verifies the explicit-root combination; it does not certify the affected default-root combination or fix upstream config caching.
 
-The same installation retains an independent `ssr: false` custom-prefix application through real preparation and Nuxt typecheck, not a second static production build. Native no-Module/typegen-disabled integration runs Matrix preparation and a native `nuxt prepare` target: filesystem markers prove Matrix does not evaluate its host, while Nuxt owns its generated types and receives the product environment. Native SPA generation and a separate native SSR build are not repeated; the mixed chain owns runtimeConfig coexistence, public/private output and immutable Node deployment coverage.
+The same installation retains an independent `ssr: false` custom-prefix application's declaration preparation in every profile, and its Nuxt typecheck in `full`, not a second static production build. Native no-Module/typegen-disabled integration runs Matrix preparation and a native `nuxt prepare` target: filesystem markers prove Matrix does not evaluate its host, while Nuxt owns its generated types and receives the product environment. Native SPA generation and a separate native SSR build are not repeated; the mixed chain owns runtimeConfig coexistence, public/private output and immutable Node deployment coverage.
 
 Config selection covers `.ts` application / `.mjs` Layer and the reverse, nested `.cts` Layers, a file-installed package Layer (`.mts`), and Nuxt's real remote loader. Explicit same-directory, outside-root and directory-symlink selection preserve exact root selection. Each case uses one Matrix target: automatic preparation supplies the contract and Matrix environment before loading/readying real Nuxt through native discovery. The resulting custom-prefix/schema/Layer declarations form the baseline for subsequent Layer-load and remote-fetch failures, which must preserve it. There is no additional standalone prepare or production build for each suffix/path. The isolated fixture declares `giget`; no global tool or public service is used. These HTTP checks do not certify external authentication or network behavior.
 
@@ -184,7 +195,7 @@ An explicit extensionless `nuxt.config` omits `configHost` and is compared with 
 
 The Nuxt-only default `['VITE_', 'NUXT_PUBLIC_']` is checked with typed schema values, raw string env reads, and shared Vite business variables in real consumers. An explicit single-prefix application excludes both defaults, and Matrix does not synthesize native runtimeConfig fields. `runtime/snapshot.test.ts` checks equal/unequal and camelCase aliases against complete diagnostics. `typegen/typegen.test.ts` composes the real merge/render/generator with filesystem declarations for those aliases plus cross-product and schema-only collisions, including reverse cross-product ordering, value-free diagnostics and preservation of an existing declaration. No Nuxt/Vite framework is mocked for these shared rules.
 
-Both Nuxt endpoints retain a real unequal-alias preparation rejection to verify strict collection wiring. The 4.0.3 consumer additionally checks cross-product collection/merging; 4.6.3 checks schema-only collection. These paths use the same Matrix merge/generator tested above, so repeating every input permutation on both host versions is unnecessary. Each retained package rejection still checks both diagnostic keys, excludes collision values and preserves valid declarations. Runtime-only builds independently reject aliases. Bare Vite defaults and legacy untyped collisions remain covered for other adapters.
+In `full`, both Nuxt endpoints retain a real unequal-alias preparation rejection to verify strict collection wiring. The 4.0.3 consumer additionally checks cross-product collection/merging; 4.6.3 checks schema-only collection. These paths use the same Matrix merge/generator tested above, so repeating every input permutation on both host versions is unnecessary. Each retained package rejection still checks both diagnostic keys, excludes collision values and preserves valid declarations. Full runtime-only builds independently reject aliases. Bare Vite defaults and legacy untyped collisions remain covered for other adapters.
 
 The mixed production chain includes the default Nitro Node server: `server/api` and Nitro plugins directly import the scoped virtual module and reuse the app snapshot. A real development run verifies the snapshot is initialized before Nitro handles requests. Each emitted product artifact starts directly with Node, twice with different deployment env, without Matrix context. SSR HTML, client assets, API responses and a Nitro-plugin response header verify selected-product values, public/private separation, immutable build snapshots and independent native runtimeConfig overrides. Other Nitro presets reject direct Matrix imports; a Cloudflare negative fixture checks the diagnostic, not Cloudflare deployment support. SPA generation without direct Nitro imports remains supported.
 
