@@ -63,6 +63,19 @@ describe('matrix runtime snapshot', () => {
     expect(createMatrixRuntime({ VITE_API_BASE: 'vite', APP_API_BASE: 'app' }, ['VITE_', 'APP_']).config).toEqual({ apiBase: 'vite' })
   })
 
+  it('preserves schema defaults and current-value precedence within prepared exposure', () => {
+    const schema = {
+      VITE_LIMIT: { type: 'number' as const, default: 3 },
+      VITE_OPTIONAL: { type: 'string' as const, optional: true },
+    }
+    const preparedKeys = ['VITE_LIMIT', 'VITE_OPTIONAL', 'VITE_OTHER_PRODUCT']
+    const env = { VITE_HOST_ONLY: 'host-value', PRIVATE_VALUE: 'private-value' }
+    expect(createMatrixRuntime(env, ['VITE_'], schema, false, preparedKeys).config).toEqual({ limit: 3 })
+    expect(createMatrixRuntime({ ...env, VITE_LIMIT: '0' }, ['VITE_'], schema, false, preparedKeys).config).toEqual({ limit: 0 })
+    expect(() => createMatrixRuntime({ ...env, VITE_LIMIT: 'invalid' }, ['VITE_'], schema, false, preparedKeys))
+      .toThrow('Invalid environment field VITE_LIMIT: expected number')
+  })
+
   it.each([
     ['development', true, false, false],
     ['dev', true, false, false],

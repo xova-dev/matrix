@@ -1,4 +1,5 @@
 import type { MatrixUnpluginOptions } from '../../src/unplugin/index.js'
+import { Buffer } from 'node:buffer'
 import { access, mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, utimes, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import process from 'node:process'
@@ -91,6 +92,88 @@ function hostRunner(host: Host, project: string, options?: MatrixUnpluginOptions
 }
 
 describe('matrix unplugin', () => {
+  it.each([true, false])('keeps host additions out of the prepared runtime and types (inline=%s)', async (inline) => {
+    const project = await projectDirectory()
+    const shared = {
+      cwd: project,
+      env: { VITE_API_BASE: 'prepared' },
+      envSchema: { VITE_ENABLED: { type: 'boolean' as const } },
+      envPrefix: ['VITE_', 'MATRIX_', '__MATRIX_'],
+    }
+    const filename = await generateMatrixTypes(shared)
+    const complete = await readFile(filename, 'utf8')
+    const declaration = preparedTypeDeclaration({ ...shared, output: await resolveFuturePath(filename) })
+    vi.stubEnv(MATRIX_ENV_SCHEMA_KEY, JSON.stringify(shared.envSchema))
+    vi.stubEnv(MATRIX_TYPE_CONTRACT_KEY, JSON.stringify({ strict: true, declarations: [declaration] }))
+    vi.stubEnv('VITE_API_BASE', 'active')
+    vi.stubEnv('VITE_ENABLED', 'true')
+    const additions = {
+      VITE_ROOT_DIR: '/host/root',
+      VITE_USER_NODE_ENV: 'production',
+      VITE_CJS_IGNORE_WARNING: 'true',
+      VITE_OTHER_HOST_FIELD: 'host-only',
+    }
+    for (const [key, value] of Object.entries(additions))
+      vi.stubEnv(key, value)
+    await writeFile(path.join(project, 'entry.js'), `
+      import { matrix } from 'virtual:matrix/runtime'
+      export const config = matrix.config
+      export const enabled = matrix.config.enabled
+      export const hostRoot = import.meta.env.VITE_ROOT_DIR
+    `)
+    const built = await build({
+      root: project,
+      configFile: false,
+      envFile: false,
+      envPrefix: shared.envPrefix,
+      plugins: [MatrixUnplugin.vite({ inline, types: true })],
+      logLevel: 'silent',
+      build: { write: false, minify: false, lib: { entry: path.join(project, 'entry.js'), formats: ['es'] } },
+    })
+    const result = Array.isArray(built) ? built[0] : built
+    if (!result || !('output' in result))
+      throw new Error('Expected a completed Vite build')
+    const chunk = result.output.find(item => item.type === 'chunk')
+    expect(chunk).toBeDefined()
+    const runtime = await import(`data:text/javascript;base64,${Buffer.from(chunk!.code).toString('base64')}`)
+    expect(runtime.config).toEqual({ apiBase: 'active', enabled: true })
+    expect(runtime.enabled).toBe(true)
+    expect(runtime.hostRoot).toBe('/host/root')
+    expect(await readFile(filename, 'utf8')).toBe(complete)
+    expect(complete).toContain('readonly enabled: boolean')
+    expect(complete).not.toContain('rootDir')
+  })
+
+  it('rejects prepared-contract conflicts during configuration without replacing declarations', async () => {
+    const project = await projectDirectory()
+    const shared = {
+      cwd: project,
+      env: { MAIN_VITE_API_BASE: 'prepared' },
+      envSchema: { MAIN_VITE_ENABLED: { type: 'boolean' as const } },
+      envPrefix: ['MAIN_VITE_', 'MATRIX_', '__MATRIX_'],
+    }
+    const filename = await generateMatrixTypes(shared)
+    const complete = await readFile(filename, 'utf8')
+    const declaration = preparedTypeDeclaration({ ...shared, output: await resolveFuturePath(filename) })
+    vi.stubEnv(MATRIX_ENV_SCHEMA_KEY, JSON.stringify(shared.envSchema))
+    vi.stubEnv(MATRIX_TYPE_CONTRACT_KEY, JSON.stringify({ strict: true, declarations: [declaration] }))
+    const resolveProject = async () => hostRunner('vite config', project, { types: true })()
+    // A late alias conflicts even if the prepared original is absent in this product.
+    vi.stubEnv('MAIN_VITE_ENABLED', 'true')
+    vi.stubEnv('MAIN_VITE_API__BASE', 'ambiguous')
+    await expect(resolveProject()).rejects.toThrow('Ambiguous environment fields')
+    vi.stubEnv('MAIN_VITE_API__BASE', undefined)
+    vi.stubEnv('MAIN_VITE_ENABLED', 'invalid')
+    await expect(resolveProject()).rejects.toThrow('Invalid environment field MAIN_VITE_ENABLED: expected boolean')
+    vi.stubEnv('MAIN_VITE_ENABLED', undefined)
+    await expect(resolveProject()).rejects.toThrow('Missing required environment field MAIN_VITE_ENABLED')
+    vi.stubEnv(MATRIX_ENV_SCHEMA_KEY, JSON.stringify({ MAIN_VITE_ENABLED: { type: 'string' } }))
+    await expect(resolveProject()).rejects.toThrow('Matrix type contract changed after collection')
+    vi.stubEnv(MATRIX_ENV_SCHEMA_KEY, JSON.stringify({ MATRIX_TARGET: { type: 'string' } }))
+    await expect(resolveProject()).rejects.toThrow('Invalid Matrix internal environment schema')
+    expect(await readFile(filename, 'utf8')).toBe(complete)
+  })
+
   it('keeps Rollup generation host-local when Vite collection injects an empty strict contract', async () => {
     const project = await projectDirectory()
     vi.stubEnv(MATRIX_ENV_SCHEMA_KEY, '{}')
@@ -121,9 +204,6 @@ describe('matrix unplugin', () => {
     vi.stubEnv('MAIN_VITE_OPTIONAL', 'late-private-value')
     await hostRunner('vite config', project)()
     expect(await readFile(filename, 'utf8')).toBe(complete)
-    vi.stubEnv('MAIN_VITE_UNCOLLECTED', 'unexpected')
-    await expect(hostRunner('vite config', project)()).rejects.toThrow('Matrix type contract changed after collection')
-    expect(await readFile(filename, 'utf8')).toBe(complete)
   })
 
   it.each(['direct', 'aliased'])('consumes a complete coordinated contract through a %s root without publishing an active-product subset', async (root) => {
@@ -148,12 +228,9 @@ describe('matrix unplugin', () => {
     vi.stubEnv(MATRIX_ENV_SCHEMA_KEY, '{}')
     vi.stubEnv(MATRIX_TYPE_CONTRACT_KEY, JSON.stringify({ strict: true, declarations: [declaration] }))
     vi.stubEnv('MAIN_VITE_ALPHA', 'active')
-    await hostRunner('vite config', project)()
+    await hostRunner('vite config', project, { types: true })()
     expect(await readFile(filename, 'utf8')).toBe(complete)
     expect(complete).not.toContain(MATRIX_TYPE_CONTRACT_KEY)
-    vi.stubEnv('MAIN_VITE_UNCOLLECTED', 'unexpected')
-    await expect(hostRunner('vite config', project, { types: true })()).rejects.toThrow('Matrix type contract changed after collection')
-    expect(await readFile(filename, 'utf8')).toBe(complete)
   })
 
   it('skips automatic types in Vitest even with Matrix context', async () => {

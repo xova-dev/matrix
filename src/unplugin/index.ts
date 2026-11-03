@@ -12,7 +12,7 @@ import { ensureMatrixEnvPrefix } from '../runtime/public-env.js'
 import { createMatrixRuntime, runtimeModule } from '../runtime/snapshot.js'
 import { inlineMatrixReads } from '../runtime/transform.js'
 import { collectPreparedTypes, isAutomaticTypeCollection } from '../typegen/collector.js'
-import { hasPreparedTypeContract, MATRIX_TYPE_CONTRACT_KEY } from '../typegen/coordination.js'
+import { MATRIX_TYPE_CONTRACT_KEY, resolvePreparedTypeDeclaration } from '../typegen/coordination.js'
 import { generateMatrixTypes, matrixRuntimeModuleId, matrixTypeOutput } from '../typegen/generate.js'
 import { currentProcessEnv } from '../utils/env.js'
 import { resolveExistingPath, resolveFuturePath } from '../utils/path.js'
@@ -49,10 +49,11 @@ export const matrixUnpluginFactory: UnpluginFactory<MatrixUnpluginOptions | unde
   const requestId = meta.framework === 'webpack' ? runtimeId.replace('virtual:', '__matrix_virtual__/') : runtimeId
   const resolvedRuntimeId = `\0${runtimeId}`
   let runtime: MatrixRuntime | undefined
+  let preparedKeys: string[] | undefined
   let vueScriptsEnabled = false
 
   function snapshot(): MatrixRuntime {
-    return runtime ??= createMatrixRuntime(env, envPrefix, envSchema, options[matrixStrictPublicFields])
+    return runtime ??= createMatrixRuntime(env, envPrefix, envSchema, options[matrixStrictPublicFields], preparedKeys)
   }
 
   function typeOptions(cwd: string): GenerateMatrixTypesOptions {
@@ -80,8 +81,13 @@ export const matrixUnpluginFactory: UnpluginFactory<MatrixUnpluginOptions | unde
     const declaration = typeOptions(await resolveExistingPath(cwd))
     if (preparedContract !== undefined)
       declaration.output = await resolveFuturePath(matrixTypeOutput(declaration))
-    if (!hasPreparedTypeContract(preparedContract, declaration))
+    const prepared = resolvePreparedTypeDeclaration(preparedContract, declaration)
+    preparedKeys = prepared?.keys
+    if (!prepared) {
+      // Preserve declarations when runtime schema validation fails.
+      snapshot()
       await generateMatrixTypes(declaration)
+    }
     typesGenerated = true
   }
 
@@ -142,13 +148,14 @@ export const matrixUnpluginFactory: UnpluginFactory<MatrixUnpluginOptions | unde
         delete config.env[MATRIX_TYPE_CONTRACT_KEY]
         envPrefix = ensureMatrixEnvPrefix(config.envPrefix)
         env = { ...config.env }
+        runtime = undefined
         // Preparation needs the schema, not credentials or values for a runnable build.
         const typeRoot = options[matrixTypeRoot] ?? config.root
         if (collectPreparedTypes(options.types === false || (options.types === undefined && isVitest() && isAutomaticTypeCollection()) ? undefined : typeOptions(typeRoot)))
           return
-        runtime = createMatrixRuntime(env, envPrefix, envSchema, options[matrixStrictPublicFields])
-        runtime = options[matrixSnapshot]?.(runtime, envPrefix) ?? runtime
         await generateTypes(typeRoot)
+        runtime = snapshot()
+        runtime = options[matrixSnapshot]?.(runtime, envPrefix) ?? runtime
       },
     },
     async buildStart() {

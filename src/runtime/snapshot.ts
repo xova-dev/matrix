@@ -4,7 +4,7 @@ import type { EnvPrefix } from './public-env.js'
 import { readEnvSchema } from '../config/env-schema.js'
 import { createPublicConfig, normalizeEnvPrefix } from './public-env.js'
 
-export function createMatrixRuntime(env: Record<string, string>, envPrefix: EnvPrefix | undefined = ['VITE_', 'MATRIX_'], envSchema: EnvSchema = readEnvSchema(env), strictPublicFields = false): MatrixRuntime {
+export function createMatrixRuntime(env: Record<string, string>, envPrefix: EnvPrefix | undefined = ['VITE_', 'MATRIX_'], envSchema: EnvSchema = readEnvSchema(env), strictPublicFields = false, preparedKeys?: string[]): MatrixRuntime {
   const prefixes = normalizeEnvPrefix(envPrefix)
   // Vite's config.env only contains prefixed variables, so keep a Matrix-prefixed
   // snapshot as a fallback while preserving NODE_ENV for the child process.
@@ -27,7 +27,7 @@ export function createMatrixRuntime(env: Record<string, string>, envPrefix: EnvP
       ...(env.MATRIX_PRODUCT_APP_ID ? { appId: env.MATRIX_PRODUCT_APP_ID } : {}),
       ...(env.MATRIX_PRODUCT_VERSION ? { version: env.MATRIX_PRODUCT_VERSION } : {}),
     }),
-    config: Object.freeze(createPublicConfig(env, prefixes, envSchema, strictPublicFields)),
+    config: Object.freeze(createPublicConfig(env, prefixes, envSchema, strictPublicFields, preparedKeys)),
   })
 }
 

@@ -261,7 +261,11 @@ Nuxt Layers retain native `nuxt.config` discovery independently of the applicati
 
 The resolved host root and declaration output must stay within `project.root`, including through symlinks; escaping or dangling links fail before writes. To migrate, set `project.root` to the shared host directory and use `configFile` for a config stored elsewhere. Nested host roots and internal custom outputs work; external outputs are rejected. Standalone explicit generation is unchanged.
 
-Shared collection supports standard Vite/electron-vite and mixed Nuxt SSR/SPA dev/build contexts. Custom targets and other hosts retain existing plugin behavior. Collection does not parse target command flags such as `--mode` or `--config`; an active plugin that adds uncollected fields or changes scope, prefixes, output, or schema fails rather than replacing the contract.
+Shared collection supports standard Vite/electron-vite and mixed Nuxt SSR/SPA dev/build contexts. Custom targets and other hosts retain existing plugin behavior. Collection does not parse target command flags such as `--mode` or `--config`; changes to scope, prefixes, output, or schema still fail rather than replacing the contract.
+
+With a prepared contract, scripts and hosts may add environment variables at execution time. Additional fields remain available to the host under its own exposure rules (including Vite's `import.meta.env`), but do not expand `matrix.config` or its generated types. To expose a late-populated field through Matrix, declare it in `envSchema` before preparation; its declared type and required/optional rules still apply. An added key that maps to an existing Matrix config property is rejected as ambiguous, even without a schema declaration. Internal reserved-field checks remain enforced. Host-local generation without a prepared contract continues to infer public fields from its resolved environment.
+
+The prepared key union limits exposure, not value precedence. Runtime mapping uses only current environment and schema keys within that union, so an absent key from another product cannot hide a current value through a legacy untyped alias. Nuxt's strict alias checks remain unchanged. Current values still take precedence over schema defaults; optional fields without values are omitted.
 
 #### Fallback
 

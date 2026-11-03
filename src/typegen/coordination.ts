@@ -1,6 +1,6 @@
 import type { GenerateMatrixTypesOptions } from './generate.js'
 import { serializeEnvSchema } from '../config/env-schema.js'
-import { ensureMatrixEnvPrefix, publicEnvKeys } from '../runtime/public-env.js'
+import { ensureMatrixEnvPrefix, resolvePublicEnvFields } from '../runtime/public-env.js'
 import { matrixTypeOutput } from './generate.js'
 
 /** Private, value-free handshake between the CLI coordinator and host plugins. */
@@ -25,14 +25,14 @@ export function preparedTypeDeclaration(options: GenerateMatrixTypesOptions): Pr
   return {
     output: matrixTypeOutput(options),
     signature: signature(options),
-    keys: publicEnvKeys({ ...options.envSchema, ...options.env }, ensureMatrixEnvPrefix(options.envPrefix)),
+    keys: resolvePublicEnvFields(options.env, ensureMatrixEnvPrefix(options.envPrefix), options.envSchema, options.strictPublicFields).keys,
   }
 }
 
-/** A plugin may consume the complete contract, but must never silently widen or replace it. */
-export function hasPreparedTypeContract(value: string | undefined, options: GenerateMatrixTypesOptions): boolean {
+/** Hosts may add inputs without widening the prepared Matrix public surface. */
+export function resolvePreparedTypeDeclaration(value: string | undefined, options: GenerateMatrixTypesOptions): PreparedTypeContract['declarations'][number] | undefined {
   if (value === undefined)
-    return false
+    return undefined
   let contract: PreparedTypeContract
   try {
     contract = JSON.parse(value) as PreparedTypeContract
@@ -48,10 +48,10 @@ export function hasPreparedTypeContract(value: string | undefined, options: Gene
   }
   // Generic preparation cannot resolve a non-Vite host's plugin options.
   if (!contract.strict)
-    return false
-  const active = preparedTypeDeclaration(options)
-  const prepared = contract.declarations.find(declaration => declaration.output === active.output)
-  if (!prepared || prepared.signature !== active.signature || active.keys.some(key => !prepared.keys.includes(key)))
-    throw new Error(`Matrix type contract changed after collection for ${active.output}. Keep scope, prefixes, output, and public fields stable across host resolutions, then rerun Matrix.`)
-  return true
+    return undefined
+  const output = matrixTypeOutput(options)
+  const prepared = contract.declarations.find(declaration => declaration.output === output)
+  if (!prepared || prepared.signature !== signature(options))
+    throw new Error(`Matrix type contract changed after collection for ${output}. Keep scope, prefixes, output, and public fields stable across host resolutions, then rerun Matrix.`)
+  return prepared
 }

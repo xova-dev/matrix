@@ -48,7 +48,11 @@ async function workspace(conditional = false, admin = false): Promise<string> {
   const scopes = [['web', 'APP_', admin ? path.join(cwd, 'web') : cwd], ...(admin ? [['admin', 'ADMIN_', path.join(cwd, 'admin')]] : [])]
   for (const [scope, prefix, directory] of scopes as [string, string, string][]) {
     await mkdir(directory, { recursive: true })
-    await writeFile(path.join(directory, 'build.mjs'), 'import { build } from "vite"; await build();')
+    await writeFile(path.join(directory, 'build.mjs'), `
+      import { build } from "vite";
+      process.env.${prefix}HOST_ONLY = 'host-only-value';
+      await build();
+    `)
     await writeFile(path.join(directory, 'entry.mjs'), `
       import { matrix } from 'virtual:matrix/runtime/${scope}';
       export const snapshot = { config: matrix.config, product: matrix.product.key };
@@ -135,6 +139,25 @@ function isolatedCli(cwd: string, args: string[], instrumentation = '') {
 }
 
 describe('shared project declaration contract', () => {
+  it('selects legacy aliases from the active product within the shared prepared fields', async () => {
+    const cwd = await workspace()
+    await writeFile(path.join(cwd, 'matrix.config.mjs'), `export default ${JSON.stringify({
+      projects: { web: { targets: { build: 'node build.mjs' } } },
+      products: {
+        alpha: { env: { APP_API_BASE: 'alpha-value' }, variants: { web: 'web' } },
+        beta: { env: { APP_API__BASE: 'beta-value' }, variants: { web: 'web' } },
+      },
+    })}`)
+    await runCli(['prepare'])
+    const prepared = await declaration(cwd)
+    expect(prepared).toContain('readonly apiBase?: string')
+    for (const product of ['alpha', 'beta']) {
+      await runCli(['build', product])
+      expect(await runtime(cwd, product)).toEqual({ product, web: { apiBase: `${product}-value` } })
+      expect(await declaration(cwd)).toBe(prepared)
+    }
+  }, 30_000)
+
   it('keeps the full prepared contract through single-product builds and switches without leaking runtime values', async () => {
     const cwd = await workspace(false, true)
     // Sibling roots keep this scope-isolation fixture independent of the

@@ -28,7 +28,7 @@ export function ensureMatrixEnvPrefix(prefix: EnvPrefix | undefined): string[] {
   return [...new Set([...normalizeEnvPrefix(prefix), 'MATRIX_'])]
 }
 
-export function publicEnvKeys(env: Record<string, unknown>, prefix: EnvPrefix | undefined = ['VITE_', 'MATRIX_']): string[] {
+function publicEnvKeys(env: Record<string, unknown>, prefix: EnvPrefix | undefined = ['VITE_', 'MATRIX_']): string[] {
   const prefixes = normalizeEnvPrefix(prefix)
   return Object.keys(env).filter((key) => {
     if (key.startsWith('MATRIX_') || key === MATRIX_ENV_SCHEMA_KEY || key === MATRIX_TYPE_CONTRACT_KEY || matrixKeys.has(key))
@@ -37,13 +37,13 @@ export function publicEnvKeys(env: Record<string, unknown>, prefix: EnvPrefix | 
   }).sort()
 }
 
-export function publicEnvConfigName(key: string, prefixes: string[]): string {
+function publicEnvConfigName(key: string, prefixes: string[]): string {
   const prefix = prefixes.find(candidate => key.startsWith(candidate))
   return prefix ? camelCase(key.slice(prefix.length).toLowerCase()) : ''
 }
 
 /** Nuxt rejects all aliases; other adapters preserve legacy untyped collision order. */
-export function publicConfigFields(keys: string[], prefixes: string[], schema: EnvSchema, strictPublicFields = false): Map<string, string> {
+function publicConfigFields(keys: string[], prefixes: string[], schema: EnvSchema, strictPublicFields = false): Map<string, string> {
   const fields = new Map<string, string>()
   for (const key of keys) {
     const name = publicEnvConfigName(key, prefixes)
@@ -57,10 +57,31 @@ export function publicConfigFields(keys: string[], prefixes: string[], schema: E
   return fields
 }
 
-export function createPublicConfig(env: Record<string, string>, prefix: EnvPrefix | undefined = ['VITE_', 'MATRIX_'], schema: EnvSchema = {}, strictPublicFields = false): Record<string, Scalar> {
+/** Preparation bounds exposure; only current env/schema keys participate in value selection. */
+export function resolvePublicEnvFields(env: Record<string, unknown>, prefix: EnvPrefix | undefined = ['VITE_', 'MATRIX_'], schema: EnvSchema = {}, strictPublicFields = false, preparedKeys?: string[]): { keys: string[], fields: Map<string, string> } {
   const prefixes = normalizeEnvPrefix(prefix)
+  let keys = publicEnvKeys({ ...schema, ...env }, prefixes)
+  if (preparedKeys !== undefined) {
+    const allowed = new Set(preparedKeys)
+    const preparedFields = publicConfigFields(preparedKeys, prefixes, schema, strictPublicFields)
+    // Check additions before filtering: an excluded alias must not hide a conflict,
+    // even when the corresponding prepared field belongs to another product.
+    for (const key of keys) {
+      if (allowed.has(key))
+        continue
+      const name = publicEnvConfigName(key, prefixes)
+      const previous = preparedFields.get(name)
+      if (previous)
+        throw new Error(`Ambiguous environment fields ${previous} and ${key}: both map to matrix.config.${name}`)
+    }
+    keys = keys.filter(key => allowed.has(key))
+  }
+  return { keys, fields: publicConfigFields(keys, prefixes, schema, strictPublicFields) }
+}
+
+export function createPublicConfig(env: Record<string, string>, prefix: EnvPrefix | undefined = ['VITE_', 'MATRIX_'], schema: EnvSchema = {}, strictPublicFields = false, preparedKeys?: string[]): Record<string, Scalar> {
   const config: Record<string, Scalar> = {}
-  const fields = publicConfigFields(publicEnvKeys({ ...schema, ...env }, prefixes), prefixes, schema, strictPublicFields)
+  const { fields } = resolvePublicEnvFields(env, prefix, schema, strictPublicFields, preparedKeys)
   for (const [name, key] of fields) {
     const field = Object.hasOwn(schema, key) ? schema[key] : undefined
     const value = Object.hasOwn(env, key) ? env[key] : field?.default

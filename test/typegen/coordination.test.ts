@@ -6,7 +6,7 @@ import os from 'node:os'
 import { setImmediate } from 'node:timers/promises'
 import path from 'pathe'
 import { describe, expect, it, vi } from 'vitest'
-import { hasPreparedTypeContract } from '../../src/typegen/coordination.js'
+import { resolvePreparedTypeDeclaration } from '../../src/typegen/coordination.js'
 import { withTypePreparationLock } from '../../src/typegen/lock.js'
 import { TypePreparationCancelled } from '../../src/typegen/prepare.js'
 import { resolveExistingPath } from '../../src/utils/path.js'
@@ -66,7 +66,7 @@ function nextLockWait(): Promise<void> {
 
 describe('type preparation coordination', () => {
   it.each([null, {}, { strict: true, declarations: [null] }, { strict: true, declarations: [{ output: '/file', signature: '', keys: [42] }] }])('rejects malformed internal contracts clearly: %j', (contract) => {
-    expect(() => hasPreparedTypeContract(JSON.stringify(contract), { cwd: '/project', env: {} })).toThrow('Invalid Matrix internal type contract')
+    expect(() => resolvePreparedTypeDeclaration(JSON.stringify(contract), { cwd: '/project', env: {} })).toThrow('Invalid Matrix internal type contract')
   })
 
   it('serializes collection and preserves cancellation while waiting without stealing the owner lock', async () => {

@@ -3,7 +3,7 @@ import type { EnvField, EnvSchema } from '../types.js'
 import { randomUUID } from 'node:crypto'
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import path from 'pathe'
-import { ensureMatrixEnvPrefix, publicConfigFields, publicEnvKeys } from '../runtime/public-env.js'
+import { ensureMatrixEnvPrefix, resolvePublicEnvFields } from '../runtime/public-env.js'
 import { resolveFilesystemPath } from '../utils/path.js'
 
 export interface GenerateMatrixTypesOptions {
@@ -40,8 +40,13 @@ export function matrixTypeOutput(options: Pick<GenerateMatrixTypesOptions, 'cwd'
 
 /** Scope-local presence, shared by config rendering and global raw-key reconciliation. */
 export function matrixTypeEnvProperties(options: GenerateMatrixTypesOptions): Array<{ key: string, optional: boolean }> {
+  const { keys } = resolvePublicEnvFields(options.env, ensureMatrixEnvPrefix(options.envPrefix), options.envSchema, options.strictPublicFields)
+  return typeEnvProperties(options, keys)
+}
+
+function typeEnvProperties(options: GenerateMatrixTypesOptions, keys: string[]): Array<{ key: string, optional: boolean }> {
   const schema = options.envSchema ?? {}
-  return publicEnvKeys({ ...schema, ...options.env }, ensureMatrixEnvPrefix(options.envPrefix)).map((key) => {
+  return keys.map((key) => {
     const field = Object.hasOwn(schema, key) ? schema[key] : undefined
     return {
       key,
@@ -56,9 +61,8 @@ export function matrixTypeEnvProperties(options: GenerateMatrixTypesOptions): Ar
 export function renderMatrixTypes(options: GenerateMatrixTypesOptions): string {
   const prefixes = ensureMatrixEnvPrefix(options.envPrefix)
   const schema = options.envSchema ?? {}
-  const properties = matrixTypeEnvProperties(options)
-  const keys = properties.map(property => property.key)
-  const fields = publicConfigFields(keys, prefixes, schema, options.strictPublicFields)
+  const { keys, fields } = resolvePublicEnvFields(options.env, prefixes, schema, options.strictPublicFields)
+  const properties = typeEnvProperties(options, keys)
   const configNames = [...fields.keys()].filter(Boolean).sort()
   const field = (key: string): EnvField | undefined => Object.hasOwn(schema, key) ? schema[key] : undefined
   const optionalKeys = new Set(properties.filter(property => property.optional).map(property => property.key))

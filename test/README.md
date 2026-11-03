@@ -302,11 +302,19 @@ Explicit override cases cover both option forms with and without Vitest, plus
 one runtime-only case per host instead of a redundant full cross-product.
 The fixture clears inherited public test fields to keep empty-schema checks
 independent of the caller's environment.
+Prepared-contract Vite builds cover late uni CLI and arbitrary host additions,
+unchanged declarations, host-native env access, and identical Matrix runtime
+fields with and without inlining. A separate configuration-resolution test covers
+added aliases of prepared fields, invalid or missing schema values, schema drift
+and reserved declarations without repeating these rejections per inline mode.
 `typegen/prepare-types.test.ts` covers multi-product merge and scope preparation.
 `typegen/shared-contract.test.ts` covers shared-contract lifecycle, dev/build
 contexts, contention, and active-product runtime isolation, including a real Vite
 dev server (POSIX only) and electron-vite scope builds. Electron bundles are
 checked without launching Electron; these tests do not replace app acceptance.
+Cross-product legacy aliases retain each active product's value while sharing
+unchanged declarations. Runtime snapshot tests also cover schema defaults,
+current-value precedence and optional omission under the prepared exposure limit.
 `typegen/coordination.test.ts` covers lock waiting, cancellation, and owner recovery;
 `execution/prepare.test.ts` covers cancellation of in-flight preparation on service
 failure. Package consumers verify installed adapters and Electron preparation.
