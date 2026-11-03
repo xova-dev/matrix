@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.4.1](https://github.com/xova-dev/matrix/compare/v0.4.0...v0.4.1) (2026-11-03)
+
+### Highlights and migration notes
+
+- Host scripts may add environment variables after type preparation without changing the prepared Matrix public contract. Late additions remain available through host APIs but do not expand `matrix.config` or generated types; declare late-populated public fields in `envSchema` before preparation.
+- Schema validation, reserved-field protection and public-name conflict checks remain enforced. Shared declarations continue to use the active product's values, including legacy untyped aliases.
+- After upgrading, rerun `matrix prepare`. Temporary resolved-env filters used solely to work around the 0.4.0 contract error can be removed. Fields already present during preparation still follow the configured public prefixes; this release does not introduce a host-specific field blacklist.
+
+### Bug Fixes
+
+- **env:** tolerate host additions within prepared public contracts ([89813fc](https://github.com/xova-dev/matrix/commit/89813fc23c7107c9ae6038e8ceea66517557c7e7))
+
+### Performance Improvements
+
+- **test:** separate tarball acceptance from compatibility checks ([b2194de](https://github.com/xova-dev/matrix/commit/b2194de0b2f8d8aa8f9fcf98cb2762e8c0fa8beb))
+
 ## [0.4.0](https://github.com/xova-dev/matrix/compare/v0.3.0...v0.4.0) (2026-11-02)
 
 ### Highlights and migration notes
