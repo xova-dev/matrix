@@ -63,6 +63,12 @@ Quality and compatibility jobs install the workspace, including example type/con
 
 Vitest retains its default worker concurrency and per-file isolation. Compare the same heavy files with `pnpm exec vitest run <files> --isolate`, then repeat with `--maxWorkers 2` or `--maxWorkers 1` in alternating order. Keep the pool, test cases and dependencies unchanged and run comparisons sequentially. Lower concurrency must show a repeatable benefit on the target runner before adoption; local macOS timings do not establish hosted performance.
 
+Real execution and preparation suites use a 60-second integration budget, including
+process-container startup and disposal. Windows PowerShell/.NET cold startup is
+part of that budget, not a five-second performance contract. Explicit readiness
+and cancellation deadlines remain separate behavioral assertions; the global
+Vitest timeout and worker concurrency are unchanged.
+
 ### Package profiles
 
 All profiles select versions from the same exact-version manifest:

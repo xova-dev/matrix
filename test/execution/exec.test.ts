@@ -137,7 +137,9 @@ function holdDirectoryCheck(cwd: string) {
   }
 }
 
-describe('runExecutionPlan', () => {
+// Real process containers include platform startup and disposal; use the same
+// integration budget as preparation, including cold Windows PowerShell/.NET.
+describe('runExecutionPlan', { timeout: 60_000 }, () => {
   it('does not let an already completed service end another live service', async () => {
     const cwd = await temporaryDirectory('matrix-exec-service-completion-')
     const marker = path.join(cwd, 'finished')
@@ -147,8 +149,11 @@ describe('runExecutionPlan', () => {
       env: { MATRIX_TEST_MARKER: marker },
       dependsOn: [{ id: first.id, condition: 'completed' }],
     })
-    await runExecutionPlan(plan([first, second]))
+    const result = await runExecutionPlan(plan([first, second]))
+    expect(result.cancelled).toBe(false)
     expect(await fs.readFile(marker, 'utf8')).toBe('yes')
+    await expect(result.children.get(first.id)!.result).resolves.toMatchObject({ exitCode: 0 })
+    await expect(result.children.get(second.id)!.result).resolves.toMatchObject({ exitCode: 0 })
   })
 
   it('identifies a failing ordered step without echoing commands or dumping environments', async () => {
