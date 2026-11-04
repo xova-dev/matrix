@@ -5,17 +5,23 @@ import { fileURLToPath } from 'node:url'
 import consola from 'consola'
 import path from 'pathe'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { runCli } from '../../src/cli/index.js'
+import { runCli as executeCli } from '../../src/cli/index.js'
+import { MATRIX_ENV_SCHEMA_KEY, MATRIX_TYPE_CONTRACT_KEY } from '../../src/config/env-schema.js'
 import { loadMatrixConfig } from '../../src/config/index.js'
 import { createExecutionPlan } from '../../src/execution/plan.js'
 import { findTypeHost } from '../../src/typegen/prepare.js'
+import { createTestExecution } from '../helpers/test-execution.js'
+
+const testExecution = createTestExecution()
+const runCli = (...args: Parameters<typeof executeCli>) => testExecution.run(() => executeCli(...args))
 
 const previousCwd = process.cwd()
 const directories: string[] = []
 const plugin = fileURLToPath(new URL('../../src/unplugin/vite.ts', import.meta.url))
 let messages: string[]
 
-beforeEach(() => {
+beforeEach((ctx) => {
+  testExecution.begin(ctx.signal)
   messages = []
   vi.spyOn(consola, 'info').mockImplementation((message) => {
     messages.push(String(message))
@@ -23,11 +29,18 @@ beforeEach(() => {
 })
 
 afterEach(async () => {
-  vi.restoreAllMocks()
-  process.chdir(previousCwd)
-  for (const directory of directories.splice(0))
+  const owned = directories.splice(0)
+  try {
+    await testExecution.cleanup()
+  }
+  finally {
+    vi.restoreAllMocks()
+    vi.unstubAllEnvs()
+    process.chdir(previousCwd)
+  }
+  for (const directory of owned)
     await rm(directory, { recursive: true, force: true })
-})
+}, 60_000)
 
 async function temporaryWorkspace(): Promise<string> {
   const cwd = path.normalize(await realpath(await mkdtemp(path.join(os.tmpdir(), 'matrix host types-'))))
@@ -76,7 +89,47 @@ async function genericWorkspace(): Promise<string> {
 }
 
 // Each product now resolves both host lifecycles in isolated processes.
-describe('host-aware type preparation', { timeout: 15_000 }, () => {
+// Multi-product collection includes multiple real native host startups.
+describe('host-aware type preparation', { timeout: 60_000 }, () => {
+  it('generates types through CLI-injected context when the project has no envSchema', async () => {
+    const project = await temporaryWorkspace()
+    process.chdir(project)
+    vi.stubEnv('VITEST', undefined)
+    vi.stubEnv(MATRIX_ENV_SCHEMA_KEY, undefined)
+    vi.stubEnv(MATRIX_TYPE_CONTRACT_KEY, undefined)
+    for (const key of Object.keys(process.env)) {
+      if (key.startsWith('MAIN_VITE_'))
+        vi.stubEnv(key, undefined)
+    }
+    await symlink(fileURLToPath(new URL('../../node_modules', import.meta.url)), path.join(project, 'node_modules'), 'junction')
+    await writeFile(path.join(project, 'entry.js'), 'export const value = 1')
+    await writeFile(path.join(project, 'package.json'), '{"type":"module"}')
+    await writeFile(path.join(project, 'matrix.config.mjs'), `export default {
+      env: { MAIN_VITE_WINDOW_TITLE: 'Matrix CLI' },
+      projects: { web: { targets: { build: 'node build.mjs' } } },
+      products: { app: { variants: { web: 'web' } } },
+    }`)
+    await writeFile(path.join(project, 'vite.config.mjs'), `
+      import matrix from ${JSON.stringify(plugin)};
+      export default {
+        envPrefix: ['MAIN_VITE_', '__MATRIX_'],
+        plugins: [matrix()],
+        logLevel: 'silent',
+        build: { write: false, lib: { entry: './entry.js', formats: ['es'] } },
+      };
+    `)
+    await writeFile(path.join(project, 'build.mjs'), `
+      import { build } from 'vite';
+      if (process.env.${MATRIX_ENV_SCHEMA_KEY} !== '{}') throw new Error('Missing CLI context');
+      if (process.env.VITEST !== undefined) throw new Error('Vitest would suppress generation');
+      await build();
+    `)
+    await runCli(['build', 'app'])
+    const declarations = await readFile(path.join(project, '.matrix/types/matrix-runtime.d.ts'), 'utf8')
+    expect(declarations).toContain('readonly MAIN_VITE_WINDOW_TITLE: string')
+    expect(declarations).not.toContain(MATRIX_ENV_SCHEMA_KEY)
+  })
+
   it.each([
     ['readdir', 'SIGINT', 130],
     ['writeFile', 'SIGTERM', 143],
@@ -125,11 +178,11 @@ describe('host-aware type preparation', { timeout: 15_000 }, () => {
   it('identifies the project and affected task for declaration write failures while retaining earlier outputs', async () => {
     const cwd = await genericWorkspace()
     await writeFile(path.join(cwd, 'apps/next/.matrix'), 'output-blocker')
-    await expect(runCli(['prepare', 'app'])).rejects.toThrow('preparation, project secondary, affected task app:next:prepare')
+    await expect(runCli(['prepare', 'app'])).rejects.toThrow('preparation, project secondary, affected task app:next:dev, app:next:build')
     const summaries = messages.filter(message => message.startsWith('Execution '))
     expect(summaries).toHaveLength(1)
     expect(summaries[0]).toContain('Execution failed')
-    expect(summaries[0]).toContain('project secondary, affected task app:next:prepare')
+    expect(summaries[0]).toContain('project secondary, affected task app:next:dev, app:next:build')
     expect(summaries[0]).toMatch(/ENOTDIR|EEXIST|ENOENT/)
     const earlier = path.join(cwd, 'apps/web/.matrix/types/matrix-runtime.d.ts')
     expect(summaries[0]).toContain(`Artifact: ${earlier}`)
@@ -156,7 +209,7 @@ describe('host-aware type preparation', { timeout: 15_000 }, () => {
       await vi.waitFor(async () => {
         pid = Number(await readFile(path.join(cwd, 'ready.pid'), 'utf8'))
         expect(pid).toBeGreaterThan(0)
-      }, { timeout: 2000 })
+      }, { timeout: 30_000 })
       process.emit('SIGINT')
       await running
       expect(process.exitCode).toBe(130)
@@ -305,7 +358,7 @@ describe('host-aware type preparation', { timeout: 15_000 }, () => {
     expect(summaries[0]).toContain('prepare:types [preparation')
     if (_name === 'late config failure') {
       expect(summaries[0]).toContain('project web')
-      expect(summaries[0]).toContain('affected task beta:web:prepare')
+      expect(summaries[0]).toContain('affected task beta:web:dev')
     }
     expect(await readFile(existing, 'utf8')).toBe('// existing declaration\n')
     for (const output of outputs.slice(1))

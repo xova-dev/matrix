@@ -5,18 +5,29 @@ import { fileURLToPath } from 'node:url'
 import { build as bundle } from 'esbuild'
 import path from 'pathe'
 import ts from 'typescript'
-import { afterEach, describe, expect, it } from 'vitest'
-import { runCli } from '../../src/cli/index.js'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { runCli as executeCli } from '../../src/cli/index.js'
+import { createTestExecution } from '../helpers/test-execution.js'
+
+const executions = createTestExecution()
+const runCli = (...args: Parameters<typeof executeCli>) => executions.run(() => executeCli(...args))
+beforeEach(ctx => executions.begin(ctx.signal))
 
 const previousCwd = process.cwd()
 const directories: string[] = []
 const plugin = fileURLToPath(new URL('../../src/unplugin/vite.ts', import.meta.url))
 
 afterEach(async () => {
-  process.chdir(previousCwd)
-  for (const directory of directories.splice(0))
+  const owned = directories.splice(0)
+  try {
+    await executions.cleanup()
+  }
+  finally {
+    process.chdir(previousCwd)
+  }
+  for (const directory of owned)
     await rm(directory, { recursive: true, force: true })
-})
+}, 60_000)
 
 async function workspace(): Promise<string> {
   const cwd = await mkdtemp(path.join(os.tmpdir(), 'matrix-ownership-'))
@@ -28,7 +39,9 @@ async function workspace(): Promise<string> {
   return cwd
 }
 
-describe('prepared declaration ownership', { timeout: 20_000 }, () => {
+// Shared-owner cases run multiple complete prepare/build invocations, including
+// native supervisor startup for every host on Windows.
+describe('prepared declaration ownership', { timeout: 60_000 }, () => {
   it.each(['same', 'ancestor', 'nested'])('excludes native %s roots from explicit and automatic collection without reading their host configs', async (location) => {
     const cwd = await workspace()
     const nativeRoot = location === 'same' ? 'app' : location === 'ancestor' ? '.' : 'app/native'
@@ -55,7 +68,7 @@ describe('prepared declaration ownership', { timeout: 20_000 }, () => {
     await writeFile(path.join(cwd, 'app/entry.mjs'), 'export const value = 1')
     await writeFile(path.join(cwd, 'app/build.mjs'), 'import { build } from "vite"; await build();')
     await runCli(['prepare', 'alpha'])
-    expect(await readFile(path.join(cwd, nativeRoot, 'prepared'), 'utf8')).toBe('yes;')
+    expect(await readFile(path.join(cwd, nativeRoot, 'prepared'), 'utf8')).toBe('yes;yes;')
     await expect(access(path.join(cwd, 'app/.matrix'))).rejects.toMatchObject({ code: 'ENOENT' })
     await runCli(['build', 'alpha'])
     await expect(access(path.join(cwd, 'app/.matrix'))).rejects.toMatchObject({ code: 'ENOENT' })

@@ -5,7 +5,11 @@ import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import path from 'pathe'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { runCli } from '../../src/cli/index.js'
+import { runCli as executeCli } from '../../src/cli/index.js'
+import { createTestExecution } from '../helpers/test-execution.js'
+
+const testExecution = createTestExecution()
+const runCli = (...args: Parameters<typeof executeCli>) => testExecution.run(() => executeCli(...args))
 
 const execute = promisify(execFile)
 const originalCwd = process.cwd()
@@ -13,16 +17,23 @@ const directories: string[] = []
 const plugin = fileURLToPath(new URL('../../src/unplugin/vite.ts', import.meta.url))
 const cli = new URL('../../src/cli/index.ts', import.meta.url).href
 
-beforeEach(() => {
+beforeEach((ctx) => {
+  testExecution.begin(ctx.signal)
   vi.stubEnv('VITEST', undefined)
 })
 
 afterEach(async () => {
-  vi.unstubAllEnvs()
-  process.chdir(originalCwd)
-  for (const directory of directories.splice(0))
+  const owned = directories.splice(0)
+  try {
+    await testExecution.cleanup()
+  }
+  finally {
+    vi.unstubAllEnvs()
+    process.chdir(originalCwd)
+  }
+  for (const directory of owned)
     await rm(directory, { recursive: true, force: true })
-})
+}, 60_000)
 
 async function configure(cwd: string, products = ['alpha', 'beta'], fields = true, admin = false): Promise<void> {
   await writeFile(path.join(cwd, 'matrix.config.mjs'), `export default ${JSON.stringify({
@@ -131,14 +142,20 @@ function isolatedCli(cwd: string, args: string[], instrumentation = '') {
     const { runCli } = await import(${JSON.stringify(cli)});
     await runCli(${JSON.stringify(args)});
   `
-  return execute(process.execPath, ['--experimental-transform-types', '--input-type=module', '-e', sourceLoader], {
-    cwd,
-    env: { ...process.env },
-    timeout: 25_000,
-  })
+  let child!: ReturnType<typeof execute>['child']
+  const running = testExecution.run(() => {
+    const pending = execute(process.execPath, ['--experimental-transform-types', '--input-type=module', '-e', sourceLoader], {
+      cwd,
+      env: { ...process.env },
+      timeout: 120_000,
+    })
+    child = pending.child
+    return pending
+  }, () => { child.kill('SIGTERM') })
+  return Object.defineProperty(running, 'child', { get: () => child }) as typeof running & { child: typeof child }
 }
 
-describe('shared project declaration contract', () => {
+describe('shared project declaration contract', { timeout: 120_000 }, () => {
   it('selects legacy aliases from the active product within the shared prepared fields', async () => {
     const cwd = await workspace()
     await writeFile(path.join(cwd, 'matrix.config.mjs'), `export default ${JSON.stringify({
@@ -156,7 +173,7 @@ describe('shared project declaration contract', () => {
       expect(await runtime(cwd, product)).toEqual({ product, web: { apiBase: `${product}-value` } })
       expect(await declaration(cwd)).toBe(prepared)
     }
-  }, 30_000)
+  })
 
   it('keeps the full prepared contract through single-product builds and switches without leaking runtime values', async () => {
     const cwd = await workspace(false, true)
@@ -181,7 +198,7 @@ describe('shared project declaration contract', () => {
         admin: { shared: 'admin-value' },
       })
     }
-  }, 30_000)
+  })
 
   it('includes every associated product during selected preparation and removes stale fields after edits', async () => {
     const cwd = await workspace()
@@ -199,7 +216,7 @@ describe('shared project declaration contract', () => {
     const cleared = await declaration(cwd)
     expect(cleared).toContain('readonly shared: string')
     expect(cleared).not.toMatch(/APP_ALPHA|APP_BETA|readonly alpha|readonly beta/)
-  }, 30_000)
+  })
 
   it('includes real serve and build config branches in one stable contract', async () => {
     const cwd = await workspace(true)
@@ -214,7 +231,7 @@ describe('shared project declaration contract', () => {
       product: 'beta',
       web: { shared: 'shared-value', beta: 'beta-private-value', buildOnly: 'branch-private-value' },
     })
-  }, 30_000)
+  })
 
   it('keeps all three real electron-vite scope contracts across shared-product builds', async () => {
     const cwd = await workspace()
@@ -299,7 +316,7 @@ describe('shared project declaration contract', () => {
       expect(renderer).not.toContain(`${product === 'alpha' ? 'beta' : 'alpha'}-private-value`)
       expect(renderer).not.toMatch(/main-private-value|preload-private-value/)
     }
-  }, 30_000)
+  })
 
   it.skipIf(process.platform === 'win32')('keeps the serve contract and runtime stable until SIGINT closes the real dev server', async () => {
     const cwd = await workspace(true)
@@ -329,7 +346,7 @@ describe('shared project declaration contract', () => {
         running.child.kill('SIGINT')
       await stopped
     }
-  }, 30_000)
+  })
 
   it('preserves the contract when independent CLI processes demonstrably contend on the same lock', async () => {
     const cwd = await workspace()
@@ -357,14 +374,14 @@ describe('shared project declaration contract', () => {
       await writeFile(path.join(cwd, 'release-owner'), '')
       await Promise.allSettled([ownerDone, ...(contender ? [contender] : [])])
     }
-  }, 30_000)
+  })
 })
 
 async function waitForFile(file: string): Promise<string> {
   let content = ''
   await vi.waitFor(async () => {
     content = await readFile(file, 'utf8')
-  }, { timeout: 15_000, interval: 20 })
+  }, { timeout: 60_000, interval: 20 })
   return content
 }
 

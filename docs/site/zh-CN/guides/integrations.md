@@ -239,7 +239,7 @@ electron-vite 必须支持所选 Vite。Linux full 检查其配置、类型和�
 
 ## 类型准备
 
-运行 `matrix prepare [product]` 可生成声明而不执行业务目标。product 只选择项目；每个共享 project + scope 都包含所选 `--env` 下引用它的所有产品和变体，不扫描其他环境。实际根目录相同或重叠的混合项目一起收集，`typegen: false` 的项目不会加入。`matrix dev` 和 `matrix build` 在项目准备之后、目标启动之前收集。
+运行 `matrix prepare [product]` 可生成声明而不执行业务目标。product 只选择项目；每个共享 project + scope 都包含所选 `--env` 下引用它的所有产品和变体，不扫描其他环境。实际根目录相同或重叠的混合项目一起收集，`typegen: false` 的项目不会加入。`matrix dev` 和 `matrix build` 使用同一准备生命周期：每个上下文先准备再发现／加载宿主，合并共享声明后重新建立当前任务输入，再启动目标。准备命令可能执行多次，见[迁移与共享目录占用](./execution.md#项目准备)。
 
 ### 配置与兼容性
 

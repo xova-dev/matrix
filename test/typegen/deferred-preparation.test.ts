@@ -2,19 +2,31 @@ import { mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/pro
 import os from 'node:os'
 import { fileURLToPath } from 'node:url'
 import path from 'pathe'
-import { afterEach, describe, expect, it } from 'vitest'
-import { runCli } from '../../src/cli/index.js'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { runCli as executeCli } from '../../src/cli/index.js'
+import { createTestExecution } from '../helpers/test-execution.js'
+
+const testExecution = createTestExecution()
+const runCli = (...args: Parameters<typeof executeCli>) => testExecution.run(() => executeCli(...args))
 
 const originalCwd = process.cwd()
 const directories: string[] = []
 
-afterEach(async () => {
-  process.chdir(originalCwd)
-  for (const directory of directories.splice(0))
-    await rm(directory, { recursive: true, force: true })
-})
+beforeEach(ctx => testExecution.begin(ctx.signal))
 
-describe('deferred preparation contracts', () => {
+afterEach(async () => {
+  const owned = directories.splice(0)
+  try {
+    await testExecution.cleanup()
+  }
+  finally {
+    process.chdir(originalCwd)
+  }
+  for (const directory of owned)
+    await rm(directory, { recursive: true, force: true })
+}, 60_000)
+
+describe('deferred preparation contracts', { timeout: 120_000 }, () => {
   it.each([
     { initialHost: false, sharedOwner: false },
     { initialHost: true, sharedOwner: false },
@@ -42,10 +54,18 @@ describe('deferred preparation contracts', () => {
       },
     })}`)
     const plugin = fileURLToPath(new URL('../../src/unplugin/vite.ts', import.meta.url))
+    await writeFile(path.join(cwd, 'context.mjs'), `
+      export const context = () => ['MATRIX_PRODUCT_KEY', 'MATRIX_VARIANT', 'MATRIX_TARGET', 'MATRIX_PROJECT'].map(key => process.env[key]);
+    `)
     const config = `
-      import { appendFileSync, existsSync } from 'node:fs';
+      import { appendFileSync, existsSync, readFileSync } from 'node:fs';
+      import { context } from './context.mjs';
       import matrix from ${JSON.stringify(plugin)};
-      appendFileSync('evaluations.jsonl', JSON.stringify({ active: !!process.env.ACTIVE_BUILD, prepared: existsSync('prepared') }) + '\\n');
+      appendFileSync('evaluations.jsonl', JSON.stringify({
+        active: !!process.env.ACTIVE_BUILD,
+        context: context(),
+        generated: existsSync('prepared') ? JSON.parse(readFileSync('prepared', 'utf8')) : null,
+      }) + '\\n');
       export default { plugins: [matrix({ types: true })], build: { write: false, lib: { entry: 'entry.mjs', formats: ['es'] } } };
     `
     await writeFile(path.join(cwd, 'host-template.mjs'), config)
@@ -53,9 +73,10 @@ describe('deferred preparation contracts', () => {
       await writeFile(path.join(cwd, 'vite.config.mjs'), config)
     await writeFile(path.join(cwd, 'prepare.mjs'), `
       import { copyFileSync, writeFileSync } from 'node:fs';
+      import { context } from './context.mjs';
       copyFileSync('host-template.mjs', 'vite.config.mjs');
       writeFileSync('.env.production', 'VITE_AFTER=prepared\\n');
-      writeFileSync('prepared', 'yes');
+      writeFileSync('prepared', JSON.stringify(context()));
     `)
     await writeFile(path.join(cwd, 'early.mjs'), '')
     await writeFile(path.join(cwd, 'entry.mjs'), 'export const value = 1')
@@ -68,10 +89,22 @@ describe('deferred preparation contracts', () => {
     expect(declaration).toContain('readonly beta?: string')
     expect(declaration).toContain('readonly after: string')
     const evaluations = (await readFile(path.join(cwd, 'evaluations.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line))
-    // Four associated variants, two canonical contexts. One owner reuses its
-    // refreshed contract; interleaved web → other → web must refresh both caches.
-    expect(evaluations.filter(entry => !entry.active && entry.prepared)).toHaveLength(sharedOwner ? 16 : 8)
-    expect(evaluations.filter(entry => !entry.active && !entry.prepared)).toHaveLength(initialHost ? 8 : 0)
-    expect(evaluations.filter(entry => entry.active)).toHaveLength(sharedOwner ? 3 : 2)
-  }, 30_000)
+    const contexts = [
+      ['alpha', 'early', 'web'],
+      ['alpha', 'later', sharedOwner ? 'other' : 'web'],
+      ['alpha', 'last', 'web'],
+      ['beta', 'web', 'web'],
+    ].flatMap(([product, variant, project]) => ['dev', 'build'].map(target => [product, variant, target, project]))
+    expect(new Set(evaluations.filter(entry => !entry.active).map(entry => JSON.stringify(entry.context))))
+      .toEqual(new Set(contexts.map(context => JSON.stringify(context))))
+    const preparedEvaluations = evaluations.filter(entry => sharedOwner
+      ? entry.context[3] === 'other'
+      : !(entry.context[1] === 'early' && entry.context[2] === 'build'))
+    expect(preparedEvaluations.length).toBeGreaterThan(0)
+    // Include active builds: collecting other products must restore their inputs.
+    for (const entry of preparedEvaluations)
+      expect(entry.generated).toEqual(entry.context)
+    const active = evaluations.filter(entry => entry.active)
+    expect(new Set(active.map(entry => entry.context[1]))).toEqual(new Set(sharedOwner ? ['early', 'later', 'last'] : ['later', 'last']))
+  })
 })

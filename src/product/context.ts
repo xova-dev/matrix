@@ -1,8 +1,36 @@
-import type { EnvMap, MatrixConfig, NormalizedProduct, NormalizedVariant } from '../types.js'
+import type { EnvMap, MatrixConfig, NodeEnvironment, NormalizedProduct, NormalizedVariant } from '../types.js'
+import { resolveSchemaEnv } from '../config/env-schema.js'
 import { readPackageVersion, validateReleaseVersion } from './version.js'
 
 function applySuffix(value: string | undefined, suffix: string | undefined): string | undefined {
   return value === undefined || suffix === undefined ? value : `${value}${suffix}`
+}
+
+/** Resolve one immutable context for preparation, host resolution and commands. */
+export function resolveExecutionContext(input: Omit<ProductContextInput, 'env'> & {
+  config: Pick<MatrixConfig, 'suffixes' | 'env' | 'envSchema'>
+  externalEnv: EnvMap
+  nodeEnv: NodeEnvironment
+}): ReturnType<typeof resolveProductContext> & { env: EnvMap & { NODE_ENV: NodeEnvironment } } {
+  const effectiveEnv = resolveSchemaEnv({
+    ...input.config.env,
+    ...input.product.env,
+    ...input.externalEnv,
+  }, input.config.envSchema)
+  const identity = resolveProductContext({ ...input, env: effectiveEnv })
+  return {
+    ...identity,
+    env: {
+      ...effectiveEnv,
+      ...identity.env,
+      MATRIX_ENV_NAME: input.envName,
+      MATRIX_PROJECT: input.variant.project,
+      MATRIX_VARIANT: input.variant.id,
+      MATRIX_TARGET: input.targetName ?? 'prepare',
+      MATRIX_NODE_ENV: input.nodeEnv,
+      NODE_ENV: input.nodeEnv,
+    },
+  }
 }
 
 function envString(env: EnvMap, key: string): string | undefined {

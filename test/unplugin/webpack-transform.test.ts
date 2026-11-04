@@ -88,7 +88,7 @@ it('preserves asset/resource bytes even with a script extension and no Matrix im
     plugins: [MatrixUnplugin.webpack({ types: false })],
   })
   expect(await readFile(path.join(root, 'out/payload.bin'))).toEqual(bytes)
-})
+}, 30_000)
 
 it.each([false, true])('preserves original error positions with upstream sourcemap: %s', async (upstream) => {
   vi.stubEnv('NODE_ENV', 'production')

@@ -50,10 +50,10 @@ tree shaking 需要支持的静态读取及宿主优化。动态 key、解构、
 
 `move`、`both` 会移走源输出；其他目标需要原位消费时使用 `archive`。`clean` 默认开启，后续目标可能清理之前输出。共享准备文件放在输出目录之外。相同产品／环境／变体的保留策略跨 target 名称共享。见[产物交付](execution.md#产物交付)。
 
-## 项目准备没有产品值，或重复运行
+## 项目准备重复运行
 
-这是预期行为：准备以项目为单位，每次调用按 project key 去重，没有跨调用完成缓存。使用全局／dotenv／Shell 值，不使用产品身份或产品 env。产品专属生成放在 target 命令中，共享准备应可重复执行。`target.prepare: false` 只跳过该目标，不阻止后续准备。见[项目准备](execution.md#项目准备)。
+准备现在携带完整产品／变体身份、解析后的版本和宿主模式。共享类型收集分别准备相关 dev/build 上下文，执行前再建立当前 target 的输入。脚本应可重复执行，生成输入的动作从 target 数组移入 `project.prepare`；不再按项目缓存完成状态。`target.prepare: false` 只在自动执行时跳过该目标上下文，显式 prepare 仍建立全部所选输入。若缺少产品值，请检查安装的 Matrix 是否已包含这次生命周期调整。见[迁移与共享目录规则](execution.md#项目准备)。
 
 ## 精简镜像中的进程关闭失败
 
-检查系统进程管理命令：macOS/Linux 需要 `ps`（精简 Linux 镜像安装 `procps`），Windows 需要 `taskkill.exe`。POSIX 先发送 SIGTERM，30 秒后必要时发送 SIGKILL；Matrix 等待受控进程组停止。见[进程关闭](execution.md#进程关闭)。
+检查系统进程管理能力：macOS/Linux 需要 `ps`（精简 Linux 镜像安装 `procps`）。Windows 需要系统自带 Windows PowerShell/.NET，并允许通过 `Add-Type` 编译本地 Job Object 辅助程序；失败时 Matrix 拒绝无所有权执行，不会在父进程退出后回退到 `taskkill`。POSIX 先发送 SIGTERM，30 秒后必要时发送 SIGKILL；Matrix 等待受控进程组停止。见[进程关闭](execution.md#进程关闭)。

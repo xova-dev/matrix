@@ -1,11 +1,14 @@
+import type { WorkerChannel } from '../execution/channel.js'
 import type { EnvMap } from '../types.js'
 import type { GenerateMatrixTypesOptions } from './generate.js'
-import { fork } from 'node:child_process'
 import { readdir, stat } from 'node:fs/promises'
 import process from 'node:process'
 import path from 'pathe'
 import { MATRIX_TYPE_CONTRACT_KEY } from '../config/env-schema.js'
+import { ExecutionSession } from '../execution/session.js'
+import { startWorker } from '../execution/worker-process.js'
 import { ensureMatrixEnvPrefix } from '../runtime/public-env.js'
+import { withCleanup } from '../utils/errors.js'
 import { containsPath, resolveFilesystemPath } from '../utils/path.js'
 import { matrixRuntimeModuleId, matrixTypeEnvKeys, matrixTypeEnvProperties, matrixTypeOutput, renderMatrixTypes } from './generate.js'
 
@@ -81,77 +84,99 @@ export async function findTypeHost(cwd: string, configFile?: string, signal?: Ab
 }
 
 /** A fresh process supplies the host's real cwd and isolates config module caches and environment. */
-export async function resolveHostTypes(cwd: string, env: EnvMap, request: TypePreparationRequest, signal?: AbortSignal): Promise<GenerateMatrixTypesOptions[] | null> {
+export async function resolveHostTypes(cwd: string, env: EnvMap, request: TypePreparationRequest, signal?: AbortSignal, session = new ExecutionSession()): Promise<GenerateMatrixTypesOptions[] | null> {
   signal?.throwIfAborted()
   const workerUrl = new URL(import.meta.url.endsWith('.ts') ? './worker.ts' : '../prepare-types-worker.js', import.meta.url)
-  return new Promise((resolve, reject) => {
-    const child = fork(workerUrl, [], {
-      cwd,
-      env: Object.fromEntries(Object.entries(env).filter(([key]) => key !== MATRIX_TYPE_CONTRACT_KEY).map(([key, value]) => [key, String(value)])),
-      execArgv: [],
-      stdio: ['ignore', 'inherit', 'inherit', 'ipc'],
-    })
-    let result: TypePreparationResult | undefined
-    let failure: Error | undefined
-    let forceKill: ReturnType<typeof setTimeout> | undefined
-    const finish = (error?: Error): void => {
-      failure ??= error
-      // Configs may leave timers or watchers behind; do not wait for those to drain.
-      if (request.host.name === 'nuxt' && !result) {
-        // Windows terminates SIGTERM recipients without running JS cleanup.
-        if (child.connected)
-          child.send('cancel', error => error && child.kill('SIGKILL'))
-        forceKill ??= setTimeout(() => child.kill('SIGKILL'), 1000)
-      }
-      else {
-        child.kill('SIGKILL')
-      }
-    }
-    const interrupt = (): void => {
-      process.exitCode = 130
-      finish(new TypePreparationCancelled('Type preparation interrupted'))
-    }
-    const terminate = (): void => {
-      process.exitCode = 143
-      finish(new TypePreparationCancelled('Type preparation terminated'))
-    }
-    const abort = (): void => {
-      finish(signal?.reason instanceof TypePreparationCancelled ? signal.reason : new TypePreparationCancelled('Type preparation cancelled', { cause: signal?.reason }))
-    }
-    if (signal) {
-      signal.addEventListener('abort', abort, { once: true })
-    }
-    else {
-      process.once('SIGINT', interrupt)
-      process.once('SIGTERM', terminate)
-    }
-    const timer = setTimeout(() => finish(new Error(`Host configuration timed out: ${request.host.configFile}`)), 30_000)
-    child.once('message', (message: TypePreparationResult) => {
+  const workerEnv = Object.fromEntries(Object.entries(env).filter(([key]) => key !== MATRIX_TYPE_CONTRACT_KEY).map(([key, value]) => [key, String(value)]))
+  let child: WorkerChannel
+  let result: TypePreparationResult | undefined
+  let failure: Error | undefined
+  let requestStop!: () => void
+  const requested = new Promise<void>((resolve) => {
+    requestStop = resolve
+  })
+  const finish = (error?: Error): void => {
+    failure ??= error
+    requestStop()
+  }
+  const interrupt = (): void => {
+    process.exitCode = 130
+    finish(new TypePreparationCancelled('Type preparation interrupted'))
+  }
+  const terminate = (): void => {
+    process.exitCode = 143
+    finish(new TypePreparationCancelled('Type preparation terminated'))
+  }
+  const abort = (): void => {
+    finish(signal?.reason instanceof TypePreparationCancelled ? signal.reason : new TypePreparationCancelled('Type preparation cancelled', { cause: signal?.reason }))
+  }
+  const running = await session.start(`host:${request.host.configFile}`, 'host', [{ path: cwd, access: 'write' }], () => {
+    const worker = startWorker(workerUrl, cwd, workerEnv)
+    child = worker.messages
+    child.on('error', error => finish(error))
+    child.on('message', (message: TypePreparationResult | 'cancelled') => {
+      if (message === 'cancelled')
+        return
       result = message
       finish()
     })
-    child.once('error', error => finish(error))
-    child.once('close', (code) => {
-      clearTimeout(timer)
-      clearTimeout(forceKill)
-      if (signal) {
-        signal.removeEventListener('abort', abort)
+    return worker
+  }, signal, async () => {
+    // Close framework resources before the session terminates the owned container.
+    if (request.host.name !== 'nuxt' || result || !child.connected)
+      return
+    await new Promise<void>((resolve) => {
+      let timeout: ReturnType<typeof setTimeout>
+      const done = (): void => {
+        clearTimeout(timeout)
+        child.removeListener('message', done)
+        child.removeListener('close', done)
+        resolve()
       }
-      else {
-        process.removeListener('SIGINT', interrupt)
-        process.removeListener('SIGTERM', terminate)
-      }
-      if (failure)
-        reject(failure)
-      else if (!result)
-        reject(new Error(`Host configuration exited without type information (code ${code}): ${request.host.configFile}`))
-      else if ('error' in result)
-        reject(new Error(`Unable to prepare ${request.host.configFile}: ${result.error}`))
-      else
-        resolve(result.types)
+      timeout = setTimeout(done, 1000)
+      child.once('message', done)
+      child.once('close', done)
+      child.send('cancel', error => error && done())
     })
-    child.send(request, error => error && finish(error))
   })
+  if (signal) {
+    signal.addEventListener('abort', abort, { once: true })
+  }
+  else {
+    process.once('SIGINT', interrupt)
+    process.once('SIGTERM', terminate)
+  }
+  const timer = setTimeout(() => finish(new Error(`Host configuration timed out: ${request.host.configFile}`)), 30_000)
+  try {
+    return await withCleanup(async () => {
+      if (signal?.aborted)
+        abort()
+      else
+        child!.send(request, error => error && finish(error))
+      const completion = await Promise.race([requested, running.completion])
+      if (failure)
+        throw failure
+      if (!result)
+        throw new Error(`Host configuration exited without type information (code ${completion?.exitCode}): ${request.host.configFile}`)
+      if ('error' in result)
+        throw new Error(`Unable to prepare ${request.host.configFile}: ${result.error}`)
+      return result.types
+    }, () => withCleanup(() => session.finish(running), () => {
+      // Cancellation or the host deadline may arrive while the container drains.
+      if (failure)
+        throw failure
+    }))
+  }
+  finally {
+    clearTimeout(timer)
+    if (signal) {
+      signal.removeEventListener('abort', abort)
+    }
+    else {
+      process.removeListener('SIGINT', interrupt)
+      process.removeListener('SIGTERM', terminate)
+    }
+  }
 }
 
 /** Reject incompatible contracts instead of letting the last product or scope win. */

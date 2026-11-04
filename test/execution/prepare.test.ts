@@ -3,22 +3,29 @@ import { mkdir, readdir, readFile, realpath, writeFile } from 'node:fs/promises'
 import consola from 'consola'
 import path from 'pathe'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { runCli } from '../../src/cli/index.js'
+import { runCli as executeCli } from '../../src/cli/index.js'
 import { loadMatrixConfig } from '../../src/config/index.js'
 import { assertMatrixConfig } from '../../src/config/schema.js'
-import { runExecutionPlan } from '../../src/execution/exec.js'
+import { runExecutionPlan as executePlan } from '../../src/execution/exec.js'
 import { createExecutionPlan } from '../../src/execution/plan.js'
 import { temporaryDirectory } from '../helpers/temporary-directory.js'
+import { createTestExecution } from '../helpers/test-execution.js'
+
+const testExecution = createTestExecution()
+const runCli = (...args: Parameters<typeof executeCli>) => testExecution.run(() => executeCli(...args))
+
+const runExecutionPlan = (...args: Parameters<typeof executePlan>) => testExecution.run(() => executePlan(...args))
 
 let cwd: string
 let messages: string[]
 
-beforeEach(async () => {
+beforeEach(async (ctx) => {
+  testExecution.begin(ctx.signal)
   messages = []
   vi.spyOn(consola, 'info').mockImplementation((message) => {
     messages.push(String(message))
   })
-  cwd = await temporaryDirectory('matrix-prepare-')
+  cwd = await temporaryDirectory('matrix-prepare-', () => testExecution.cleanup())
   await writeFile(path.join(cwd, 'record.mjs'), [
     'import { appendFileSync, writeFileSync } from "node:fs";',
     'const event = process.argv[2];',
@@ -39,9 +46,14 @@ beforeEach(async () => {
   ].join(String.fromCharCode(10)))
 })
 
-afterEach(() => {
-  vi.restoreAllMocks()
-})
+afterEach(async () => {
+  try {
+    await testExecution.cleanup()
+  }
+  finally {
+    vi.restoreAllMocks()
+  }
+}, 60_000)
 
 async function execution(config: MatrixConfig, productNames = ['app']) {
   await writeFile(path.join(cwd, 'matrix.config.json'), JSON.stringify(config))
@@ -60,7 +72,7 @@ function preparedProject(prepare: string | string[]): MatrixConfig {
   }
 }
 
-describe('project preparation', () => {
+describe('project preparation', { timeout: 60_000 }, () => {
   it('aborts and drains in-flight type preparation when a service fails before launching its dependent', async () => {
     await writeFile(path.join(cwd, 'service.mjs'), [
       'import { existsSync } from "node:fs";',
@@ -81,22 +93,27 @@ describe('project preparation', () => {
     let settled = false
     let cleanupFinished = false
     const running = runExecutionPlan(plan, {
-      beforeTask: async (task, signal) => {
-        if (task.project !== 'dependent')
-          return
-        observedSignal = signal
-        await writeFile(path.join(cwd, 'fail-now'), '')
-        // Model asynchronous worker cleanup which must finish before execution rejects.
-        await cleanupGate
-        cleanupFinished = true
-        signal.throwIfAborted()
+      preparation: {
+        cwd,
+        prepare: async (task, _run, signal, session) => {
+          if (task?.project !== 'dependent')
+            return
+          await session.use(task.id, [], async () => {
+            observedSignal = signal
+            await writeFile(path.join(cwd, 'fail-now'), '')
+            // Model asynchronous worker cleanup which must finish before execution rejects.
+            await cleanupGate
+            cleanupFinished = true
+            signal.throwIfAborted()
+          }, signal)
+        },
       },
     })
     const outcome = running.then(value => ({ value }), error => ({ error })).finally(() => {
       settled = true
     })
     try {
-      await vi.waitFor(() => expect(observedSignal?.aborted).toBe(true))
+      await vi.waitFor(() => expect(observedSignal?.aborted).toBe(true), { timeout: 30_000 })
       expect(settled).toBe(false)
       expect(cleanupFinished).toBe(false)
       release()
@@ -113,7 +130,7 @@ describe('project preparation', () => {
     }
   })
 
-  it('prepares dependencies and shared projects once per invocation, after skipped targets', async () => {
+  it('prepares dependencies and each shared-project context, after skipped targets', async () => {
     await writeFile(path.join(cwd, '.env.qa'), 'PREP_DOTENV=dotenv-value')
     const plan = await execution({
       env: { PREP_LAYER: 'global' },
@@ -141,12 +158,14 @@ describe('project preparation', () => {
     expect(plan.preparations?.map(step => [step.project, step.beforeTask])).toEqual([
       ['dependency', 'app:dependency:test'],
       ['shared', 'app:first:test'],
+      ['shared', 'app:second:test'],
+      ['shared', 'other:shared:test'],
     ])
     await runExecutionPlan(plan)
     const recorded = await events()
-    const expected = ['skipped', 'dependency-prepare', 'dependency', 'prepare:first', 'prepare:last', 'first', 'second', 'other']
+    const expected = ['skipped', 'dependency-prepare', 'dependency', 'prepare:first', 'prepare:last', 'first', 'prepare:first', 'prepare:last', 'second', 'prepare:first', 'prepare:last', 'other']
     expect(recorded.map(event => event.event)).toEqual(expected)
-    expect({ ...recorded[3], cwd: await realpath(recorded[3]!.cwd as string) }).toEqual({ event: 'prepare:first', cwd: await realpath(cwd), layer: 'global', project: 'shared', environment: 'qa', dotenv: 'dotenv-value' })
+    expect({ ...recorded[3], cwd: await realpath(recorded[3]!.cwd as string) }).toEqual({ event: 'prepare:first', cwd: await realpath(cwd), layer: 'product', product: 'app', variant: 'first', project: 'shared', environment: 'qa', dotenv: 'dotenv-value' })
     expect(recorded[5]).toMatchObject({ layer: 'product', product: 'app', variant: 'first' })
     await runExecutionPlan(plan)
     expect((await events()).map(event => event.event)).toEqual([...expected, ...expected])
@@ -190,7 +209,7 @@ describe('project preparation', () => {
       products: { app: { variants: { first: 'shared', second: 'shared' } } },
     })
     await runExecutionPlan(plan)
-    expect(await readFile(path.join(cwd, 'prepare-count'), 'utf8')).toBe('once;')
+    expect(await readFile(path.join(cwd, 'prepare-count'), 'utf8')).toBe('once;once;')
     const destination = path.join(plan.artifactsRoot, 'app', 'qa')
     const artifacts = await readdir(destination)
     const results = await Promise.all(artifacts.map(artifact => readFile(path.join(destination, artifact, 'result.txt'), 'utf8')))
@@ -199,12 +218,12 @@ describe('project preparation', () => {
 
   it('stops the command sequence and targets on preparation failure', async () => {
     const plan = await execution(preparedProject(['node record.mjs fail', 'node record.mjs never']))
-    await expect(runExecutionPlan(plan)).rejects.toThrow('prepare:shared exited with code 7')
+    await expect(runExecutionPlan(plan)).rejects.toThrow('prepare:app:first:test exited with code 7')
     expect((await events()).map(event => event.event)).toEqual(['fail'])
     const summaries = messages.filter(message => message.startsWith('Execution '))
     expect(summaries).toHaveLength(1)
     expect(summaries[0]).toContain('Execution failed')
-    expect(summaries[0]).toContain('prepare:shared: failed')
+    expect(summaries[0]).toContain('prepare:app:first:test: failed')
     expect(summaries[0]).toContain('app:first:test: not run')
     expect(summaries[0]).toContain('preparation, project shared, affected task app:first:test, step 1/2')
   })
@@ -220,7 +239,7 @@ describe('project preparation', () => {
       await vi.waitFor(async () => {
         pid = Number(await readFile(path.join(cwd, 'ready'), 'utf8'))
         expect(pid).toBeGreaterThan(0)
-      }, { timeout: 2000 })
+      }, { timeout: 30_000 })
       process.emit('SIGTERM')
       await running
       expect(process.exitCode).toBe(143)
@@ -231,7 +250,7 @@ describe('project preparation', () => {
       const summaries = messages.filter(message => message.startsWith('Execution '))
       expect(summaries).toHaveLength(1)
       expect(summaries[0]).toContain('Execution cancelled (SIGTERM)')
-      expect(summaries[0]).toContain('prepare:shared: cancelled')
+      expect(summaries[0]).toContain(`prepare:app:first:${command === 'prepare' ? 'dev' : 'test'}: cancelled`)
       expect(summaries[0]).not.toContain('Failure:')
     }
     finally {

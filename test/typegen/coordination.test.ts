@@ -1,13 +1,13 @@
 import { spawn } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import { once } from 'node:events'
-import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import { setImmediate } from 'node:timers/promises'
 import path from 'pathe'
 import { describe, expect, it, vi } from 'vitest'
+import { withExecutionLock } from '../../src/execution/lock.js'
 import { resolvePreparedTypeDeclaration } from '../../src/typegen/coordination.js'
-import { withTypePreparationLock } from '../../src/typegen/lock.js'
 import { TypePreparationCancelled } from '../../src/typegen/prepare.js'
 import { resolveExistingPath } from '../../src/utils/path.js'
 
@@ -16,6 +16,7 @@ const waiting = vi.hoisted(() => ({ notify: () => {} }))
 const filesystem = vi.hoisted(() => ({
   beforeClaim: async (_file: unknown) => {},
   afterClaim: async (_file: unknown, _error?: unknown) => {},
+  beforeRead: async (_file: unknown) => {},
   afterUnlink: async (_file: unknown) => {},
 }))
 
@@ -23,6 +24,10 @@ vi.mock('node:fs/promises', async (importOriginal) => {
   const fs = await importOriginal<typeof import('node:fs/promises')>()
   return {
     ...fs,
+    readFile: async (...args: Parameters<typeof fs.readFile>) => {
+      await filesystem.beforeRead(args[0])
+      return fs.readFile(...args)
+    },
     mkdir: async (...args: Parameters<typeof fs.mkdir>) => {
       const [file] = args
       await filesystem.beforeClaim(file)
@@ -65,6 +70,32 @@ function nextLockWait(): Promise<void> {
 }
 
 describe('type preparation coordination', () => {
+  it.each([false, true])('releases failed execution ownership only after cleanup is confirmed (%s)', async (cleaned) => {
+    const cwd = await mkdtemp(path.join(os.tmpdir(), 'matrix-execution-cleanup-'))
+    const identity = await resolveExistingPath(cwd)
+    const lock = path.join(os.tmpdir(), `matrix-types-${createHash('sha256').update(identity).digest('hex')}.lock`)
+    const failure = new Error('execution failed')
+    try {
+      await expect(withExecutionLock(cwd, async (lease) => {
+        await lease.markExecuting()
+        if (cleaned)
+          lease.confirmStopped()
+        throw failure
+      })).rejects.toBe(failure)
+      if (cleaned) {
+        await expect(withExecutionLock(cwd, async () => 'next')).resolves.toBe('next')
+      }
+      else {
+        const [owner] = await readdir(lock)
+        expect(await readFile(path.join(lock, owner!), 'utf8')).toBe('executing')
+      }
+    }
+    finally {
+      await rm(lock, { recursive: true, force: true })
+      await rm(cwd, { recursive: true, force: true })
+    }
+  })
+
   it.each([null, {}, { strict: true, declarations: [null] }, { strict: true, declarations: [{ output: '/file', signature: '', keys: [42] }] }])('rejects malformed internal contracts clearly: %j', (contract) => {
     expect(() => resolvePreparedTypeDeclaration(JSON.stringify(contract), { cwd: '/project', env: {} })).toThrow('Invalid Matrix internal type contract')
   })
@@ -79,7 +110,7 @@ describe('type preparation coordination', () => {
     const gate = new Promise<void>((resolve) => {
       release = resolve
     })
-    const first = withTypePreparationLock(cwd, async () => {
+    const first = withExecutionLock(cwd, async () => {
       started()
       await gate
       return 'first'
@@ -90,7 +121,7 @@ describe('type preparation coordination', () => {
       const reason = new TypePreparationCancelled('cancelled')
       let secondEntered = false
       const secondWaiting = nextLockWait()
-      const second = withTypePreparationLock(cwd, async () => {
+      const second = withExecutionLock(cwd, async () => {
         secondEntered = true
       }, controller.signal)
       // This notification is emitted only after mkdir rejected with EEXIST
@@ -101,7 +132,7 @@ describe('type preparation coordination', () => {
       expect(secondEntered).toBe(false)
       let thirdEntered = false
       const thirdWaiting = nextLockWait()
-      const third = withTypePreparationLock(cwd, async () => {
+      const third = withExecutionLock(cwd, async () => {
         thirdEntered = true
         return 'third'
       })
@@ -118,7 +149,7 @@ describe('type preparation coordination', () => {
     }
   })
 
-  it('elects exactly one remover when three recoverers read the same dead owner', async () => {
+  it('elects exactly one reader and remover when three recoverers observe the same dead owner', async () => {
     const cwd = await mkdtemp(path.join(os.tmpdir(), 'matrix-recovery-race-'))
     const identity = await resolveExistingPath(cwd)
     const lock = path.join(os.tmpdir(), `matrix-types-${createHash('sha256').update(identity).digest('hex')}.lock`)
@@ -175,6 +206,11 @@ describe('type preparation coordination', () => {
       ownerRemoved = resolve
     })
     let removals = 0
+    let reads = 0
+    filesystem.beforeRead = async (file) => {
+      if (file === path.join(lock, owner))
+        reads++
+    }
     filesystem.afterUnlink = async (file) => {
       if (typeof file === 'string' && path.basename(file) === owner) {
         removals++
@@ -193,7 +229,7 @@ describe('type preparation coordination', () => {
     let entered = 0
     let active = 0
     let maximum = 0
-    const successors = [1, 2, 3].map(value => withTypePreparationLock(cwd, async () => {
+    const successors = [1, 2, 3].map(value => withExecutionLock(cwd, async () => {
       entered++
       maximum = Math.max(maximum, ++active)
       await setImmediate()
@@ -210,6 +246,9 @@ describe('type preparation coordination', () => {
       // Election must finish before any contender can unlink the owner marker.
       expect(attemptedOwners).toEqual(Array.from({ length: 3 }).fill(claim))
       expect(kill.mock.calls.filter(([pid]) => pid === 2147483647)).toHaveLength(3)
+      // Reading a marker being deleted can fail with EPERM on Windows. The
+      // same owner claim must cover both inspection and removal on every OS.
+      expect(reads).toBe(0)
       phase = 'waiting for one claim winner and two existing-claim results'
       releaseAttempts()
       await Promise.race([attempted, prematureCompletion, aborted])
@@ -218,6 +257,7 @@ describe('type preparation coordination', () => {
       phase = 'waiting for the claim holder to remove the marker'
       await Promise.race([removed, prematureCompletion, aborted])
       expect(removals).toBe(1)
+      expect(reads).toBe(1)
       expect(entered).toBe(0)
       // Losing recoverers must leave the now-empty directory for the winner.
       expect(await readdir(lock)).toEqual([])
@@ -238,8 +278,80 @@ describe('type preparation coordination', () => {
       kill.mockRestore()
       filesystem.beforeClaim = async () => {}
       filesystem.afterClaim = async () => {}
+      filesystem.beforeRead = async () => {}
       filesystem.afterUnlink = async () => {}
       await rm(claim, { recursive: true, force: true })
+      await rm(lock, { recursive: true, force: true })
+      await rm(cwd, { recursive: true, force: true })
+    }
+  }, 10_000)
+
+  it('keeps the owner marker until its active recovery reader finishes', async () => {
+    const cwd = await mkdtemp(path.join(os.tmpdir(), 'matrix-recovery-reader-'))
+    const identity = await resolveExistingPath(cwd)
+    const lock = path.join(os.tmpdir(), `matrix-types-${createHash('sha256').update(identity).digest('hex')}.lock`)
+    const owner = `2147483647-${randomUUID()}.owner`
+    await mkdir(lock)
+    await writeFile(path.join(lock, owner), '')
+    const kill = vi.spyOn(process, 'kill').mockImplementation((pid) => {
+      if (pid === 2147483647)
+        throw Object.assign(new Error('dead owner'), { code: 'ESRCH' })
+      return true
+    })
+    let reading!: () => void
+    const readStarted = new Promise<void>((resolve) => {
+      reading = resolve
+    })
+    let release!: () => void
+    const readGate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let paused = false
+    filesystem.beforeRead = async (file) => {
+      if (file === path.join(lock, owner) && !paused) {
+        paused = true
+        reading()
+        await readGate
+      }
+    }
+    const controller = new AbortController()
+    const watchdog = setTimeout(() => controller.abort(new Error('Recovery reader test stalled')), 5_000)
+    const aborted = new Promise<never>((_resolve, reject) => {
+      controller.signal.addEventListener('abort', () => reject(controller.signal.reason), { once: true })
+    })
+    const entered: number[] = []
+    const first = withExecutionLock(cwd, async () => {
+      entered.push(1)
+      return 1
+    }, controller.signal)
+    let second: Promise<number> | undefined
+    try {
+      await Promise.race([readStarted, first, aborted])
+      expect(paused).toBe(true)
+      const retry = nextLockWait()
+      let successorEntered!: () => void
+      const successor = new Promise<void>((resolve) => {
+        successorEntered = resolve
+      })
+      second = withExecutionLock(cwd, async () => {
+        entered.push(2)
+        successorEntered()
+        return 2
+      }, controller.signal)
+      await Promise.race([retry, successor, second, aborted])
+      expect(entered).toEqual([])
+      expect(await readdir(lock)).toEqual([owner])
+      release()
+      expect(await Promise.race([Promise.all([first, second]), aborted])).toEqual([1, 2])
+    }
+    finally {
+      clearTimeout(watchdog)
+      controller.abort()
+      release()
+      await Promise.allSettled([first, second, aborted])
+      filesystem.beforeRead = async () => {}
+      waiting.notify = () => {}
+      kill.mockRestore()
       await rm(lock, { recursive: true, force: true })
       await rm(cwd, { recursive: true, force: true })
     }
@@ -273,7 +385,7 @@ describe('type preparation coordination', () => {
     })
     let entered = 0
     const controller = new AbortController()
-    const successors = [1, 2].map(value => withTypePreparationLock(cwd, async () => {
+    const successors = [1, 2].map(value => withExecutionLock(cwd, async () => {
       entered++
       await actionGate
       return value
@@ -326,7 +438,7 @@ describe('type preparation coordination', () => {
     let time = 0
     const now = vi.spyOn(Date, 'now').mockImplementation(() => time += 300_001)
     try {
-      await expect(withTypePreparationLock(cwd, async () => {
+      await expect(withExecutionLock(cwd, async () => {
         throw new Error('An abandoned claim must not be stolen')
       })).rejects.toThrow(`sibling ${path.basename(lock)}.*.releasing claim directories`)
       expect(await readdir(lock)).toEqual([owner])
@@ -335,7 +447,7 @@ describe('type preparation coordination', () => {
       // Simulate the documented manual cleanup after confirming no recovery
       // is running, then ensure the still-present dead owner is recoverable.
       await rm(claim, { recursive: true })
-      await expect(withTypePreparationLock(cwd, async () => 'recovered')).resolves.toBe('recovered')
+      await expect(withExecutionLock(cwd, async () => 'recovered')).resolves.toBe('recovered')
     }
     finally {
       now.mockRestore()
@@ -346,9 +458,14 @@ describe('type preparation coordination', () => {
     }
   })
 
-  it('recovers a killed process owner and serializes competing successors', async () => {
+  it('recovers a killed process owner and serializes competing successors', async ({ signal }) => {
     const cwd = await mkdtemp(path.join(os.tmpdir(), 'matrix-dead-lock-'))
-    const lockModule = new URL('../../src/typegen/lock.ts', import.meta.url).href
+    const identity = await resolveExistingPath(cwd)
+    const lock = path.join(os.tmpdir(), `matrix-types-${createHash('sha256').update(identity).digest('hex')}.lock`)
+    const lockModule = new URL('../../src/execution/lock.ts', import.meta.url).href
+    const controller = new AbortController()
+    const successors: Promise<number>[] = []
+    signal.throwIfAborted()
     const child = spawn(process.execPath, ['--experimental-transform-types', '--input-type=module', '-e', `
       import { registerHooks } from 'node:module';
       registerHooks({ resolve(specifier, context, next) {
@@ -358,13 +475,17 @@ describe('type preparation coordination', () => {
           return next(specifier.slice(0, -3) + '.ts', context);
         }
       } });
-      const { withTypePreparationLock } = await import(${JSON.stringify(lockModule)});
-      await withTypePreparationLock(${JSON.stringify(cwd)}, async () => {
+      const { withExecutionLock } = await import(${JSON.stringify(lockModule)});
+      await withExecutionLock(${JSON.stringify(cwd)}, async () => {
         process.stdout.write('locked');
         await new Promise(() => { setInterval(() => {}, 1000); });
       });
     `], { stdio: ['ignore', 'pipe', 'pipe'] })
-    const exited = once(child, 'exit')
+    const exited = once(child, 'close')
+    const cancel = () => {
+      child.kill('SIGKILL')
+    }
+    signal.addEventListener('abort', cancel, { once: true })
     try {
       await Promise.race([
         once(child.stdout!, 'data'),
@@ -374,23 +495,27 @@ describe('type preparation coordination', () => {
       await exited
       let active = 0
       let maximum = 0
-      const successors = [1, 2, 3].map(value => withTypePreparationLock(cwd, async () => {
+      successors.push(...[1, 2, 3].map(value => withExecutionLock(cwd, async () => {
         active++
         maximum = Math.max(maximum, active)
         await setImmediate()
         active--
         return value
-      }, AbortSignal.timeout(5_000)))
+      }, AbortSignal.any([signal, controller.signal, AbortSignal.timeout(30_000)]))))
       expect(await Promise.all(successors)).toEqual([1, 2, 3])
       expect(maximum).toBe(1)
       // Normal release still permits a later invocation to acquire the lock.
-      await expect(withTypePreparationLock(cwd, async () => 'released')).resolves.toBe('released')
+      await expect(withExecutionLock(cwd, async () => 'released')).resolves.toBe('released')
     }
     finally {
+      controller.abort()
+      signal.removeEventListener('abort', cancel)
       if (child.exitCode === null && child.signalCode === null)
         child.kill('SIGKILL')
       await exited
+      await Promise.allSettled(successors)
+      await rm(lock, { recursive: true, force: true })
       await rm(cwd, { recursive: true, force: true })
     }
-  }, 10_000)
+  }, 60_000)
 })

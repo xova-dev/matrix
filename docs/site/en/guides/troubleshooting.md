@@ -50,10 +50,10 @@ Root `artifacts` does not enable delivery; enable target `artifacts`. The finite
 
 `move` and `both` relocate the source output; use `archive` when another target must consume it in place. `clean` defaults to true and may remove output before later targets run. Keep shared preparation files outside output directories. Retention is shared across target names for the same product/environment/variant. See [artifact delivery](execution.md#artifact-delivery).
 
-## Project preparation has no product values or runs again
+## Project preparation runs multiple times
 
-This is intentional: preparation is project-scoped, runs once per project key per invocation, and has no persistent completion cache. It uses global/dotenv/Shell values, not product identity or product env. Put product-specific generation in target commands, and make shared setup repeatable. `target.prepare: false` skips only that target; it does not disable later preparation. See [project preparation](execution.md#project-preparation).
+Preparation now receives the full product/variant identity, resolved version and host mode. Shared type collection prepares each related dev/build context, then execution reestablishes the active target's inputs. Keep scripts repeatable and move input generation from target arrays into `project.prepare`. There is no once-per-project completion cache. `target.prepare: false` only skips that target context during automatic execution; explicit prepare still establishes all selected inputs. If values are missing, check that the installed Matrix includes this lifecycle change. See [migration and shared-directory rules](execution.md#project-preparation).
 
 ## Shutdown fails in a minimal image
 
-Check system process-management commands: macOS/Linux require `ps` (install `procps` in minimal Linux images), and Windows requires `taskkill.exe`. On POSIX, Matrix sends SIGTERM and may send SIGKILL after 30 seconds; it waits for the controlled process group. See [shutdown](execution.md#process-shutdown).
+Check system process-management support: macOS/Linux require `ps` (install `procps` in minimal Linux images). Windows requires the built-in Windows PowerShell/.NET runtime and permission to compile its local Job Object helper with `Add-Type`. Matrix refuses unowned execution if this fails; it does not fall back to `taskkill` after a parent exits. On POSIX, Matrix sends SIGTERM and may send SIGKILL after 30 seconds; it waits for the controlled process group. See [shutdown](execution.md#process-shutdown).

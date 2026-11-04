@@ -2,10 +2,16 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import consola from 'consola'
 import path from 'pathe'
-import { describe, expect, it, vi } from 'vitest'
-import { runCli } from '../../src/cli/index.js'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { runCli as executeCli } from '../../src/cli/index.js'
+import { createTestExecution } from '../helpers/test-execution.js'
 
-describe('cli entry', () => {
+const executions = createTestExecution()
+const runCli = (args: string[]) => executions.run(() => executeCli(args))
+beforeEach(context => executions.begin(context.signal))
+afterEach(() => executions.cleanup(), 60_000)
+
+describe('cli entry', { timeout: 30_000 }, () => {
   it('prints help without loading a workspace configuration', async () => {
     const output: string[] = []
     const originalLog = console.log
@@ -50,7 +56,7 @@ describe('cli entry', () => {
     }
   })
 
-  it('prepares shared projects once and generates types for the selected products', async () => {
+  it('prepares each shared context and generates types for the selected projects', async () => {
     const messages: string[] = []
     const info = vi.spyOn(consola, 'info').mockImplementation((message) => {
       messages.push(String(message))
@@ -96,18 +102,18 @@ describe('cli entry', () => {
       expect(desktopTypes).toContain('readonly VITE_DESKTOP_ONLY: string')
       expect(desktopTypes).toContain('readonly VITE_SHARED: string')
       expect(desktopTypes).not.toMatch(/readonly VITE_WEB_ONLY[?:]/)
-      expect(await readFile(path.join(cwd, 'apps/web/prepared'), 'utf8')).toBe('done;')
-      expect(await readFile(path.join(cwd, 'apps/desktop/prepared'), 'utf8')).toBe('done;')
+      expect(await readFile(path.join(cwd, 'apps/web/prepared'), 'utf8')).toBe('done;'.repeat(4))
+      expect(await readFile(path.join(cwd, 'apps/desktop/prepared'), 'utf8')).toBe('done;'.repeat(2))
       const summaries = messages.filter(message => message.startsWith('Execution '))
       expect(summaries).toHaveLength(1)
       expect(summaries[0]).toContain('Execution succeeded')
-      expect(summaries[0]).toContain('prepare:web: completed')
-      expect(summaries[0]).toContain('prepare:desktop: completed')
+      expect(summaries[0]).toContain('prepare:webApp:web:dev: completed')
+      expect(summaries[0]).toContain('prepare:desktopApp:desktop:build: completed')
       expect(summaries[0]).toContain('apps/web/.matrix/types/matrix-runtime.d.ts')
       expect(summaries[0]).toContain('apps/desktop/.matrix/types/matrix-runtime.d.ts')
       await runCli(['prepare', 'desktopApp'])
-      expect(await readFile(path.join(cwd, 'apps/web/prepared'), 'utf8')).toBe('done;')
-      expect(await readFile(path.join(cwd, 'apps/desktop/prepared'), 'utf8')).toBe('done;done;')
+      expect(await readFile(path.join(cwd, 'apps/web/prepared'), 'utf8')).toBe('done;'.repeat(4))
+      expect(await readFile(path.join(cwd, 'apps/desktop/prepared'), 'utf8')).toBe('done;'.repeat(4))
     }
     finally {
       info.mockRestore()

@@ -6,22 +6,32 @@ import { runInNewContext } from 'node:vm'
 import path from 'pathe'
 import { rollup } from 'rollup'
 import { build } from 'vite'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MATRIX_ENV_SCHEMA_KEY, serializeEnvSchema } from '../../src/config/env-schema.js'
 import { defineMatrixConfig, defineMatrixEnv, loadMatrixConfig, normalizeMatrixConfig } from '../../src/config/index.js'
 import { assertMatrixConfig } from '../../src/config/schema.js'
-import { runExecutionPlan } from '../../src/execution/exec.js'
+import { runExecutionPlan as executePlan } from '../../src/execution/exec.js'
 import { createExecutionPlan } from '../../src/execution/plan.js'
 import { createMatrixRuntime } from '../../src/runtime/snapshot.js'
 import { generateMatrixTypes } from '../../src/typegen/generate.js'
 import { MatrixUnplugin } from '../../src/unplugin/index.js'
+import { createTestExecution } from '../helpers/test-execution.js'
 
 const directories: string[] = []
+const executions = createTestExecution()
+const runExecutionPlan = (...args: Parameters<typeof executePlan>) => executions.run(() => executePlan(...args))
+beforeEach(ctx => executions.begin(ctx.signal))
 afterEach(async () => {
-  vi.unstubAllEnvs()
-  for (const directory of directories.splice(0))
+  const owned = directories.splice(0)
+  try {
+    await executions.cleanup()
+  }
+  finally {
+    vi.unstubAllEnvs()
+  }
+  for (const directory of owned)
     await rm(directory, { recursive: true, force: true })
-})
+}, 60_000)
 
 async function workspace(): Promise<string> {
   const cwd = await mkdtemp(path.join(os.tmpdir(), 'matrix-env-schema-'))

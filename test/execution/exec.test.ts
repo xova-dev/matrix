@@ -1,15 +1,22 @@
 import type { ExecutionPlan, ExecutionTask } from '../../src/types.js'
 import { Buffer } from 'node:buffer'
+import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import fs from 'node:fs/promises'
 import { syncBuiltinESMExports } from 'node:module'
 import net from 'node:net'
+import os from 'node:os'
 import { fileURLToPath } from 'node:url'
 import consola from 'consola'
 import path from 'pathe'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { runExecutionPlan } from '../../src/execution/exec.js'
-import { temporaryDirectory } from '../helpers/temporary-directory.js'
+import { runExecutionPlan as executePlan } from '../../src/execution/exec.js'
+import { temporaryDirectory as createTemporaryDirectory } from '../helpers/temporary-directory.js'
+import { createTestExecution } from '../helpers/test-execution.js'
+
+const executions = createTestExecution()
+const runExecutionPlan = (...args: Parameters<typeof executePlan>) => executions.run(() => executePlan(...args))
+const temporaryDirectory = (prefix: string) => createTemporaryDirectory(prefix, () => executions.cleanup())
 
 function task(id: string, command: string, overrides: Partial<ExecutionTask> = {}): ExecutionTask {
   return {
@@ -25,7 +32,7 @@ function task(id: string, command: string, overrides: Partial<ExecutionTask> = {
     cwd: process.cwd(),
     env: {},
     continuous: false,
-    outputDir: process.cwd(),
+    outputDir: path.join(os.tmpdir(), `matrix-test-output-${randomUUID()}`),
     dependsOn: [],
     ...overrides,
   }
@@ -83,16 +90,22 @@ async function waitForFile(file: string, timeout: number): Promise<void> {
 
 let messages: string[]
 
-beforeEach(() => {
+beforeEach((ctx) => {
+  executions.begin(ctx.signal)
   messages = []
   vi.spyOn(consola, 'info').mockImplementation((message) => {
     messages.push(String(message))
   })
 })
 
-afterEach(() => {
-  vi.restoreAllMocks()
-})
+afterEach(async () => {
+  try {
+    await executions.cleanup()
+  }
+  finally {
+    vi.restoreAllMocks()
+  }
+}, 60_000)
 
 function summary(): string {
   const summaries = messages.filter(message => message.startsWith('Execution '))
@@ -125,6 +138,19 @@ function holdDirectoryCheck(cwd: string) {
 }
 
 describe('runExecutionPlan', () => {
+  it('does not let an already completed service end another live service', async () => {
+    const cwd = await temporaryDirectory('matrix-exec-service-completion-')
+    const marker = path.join(cwd, 'finished')
+    const first = scriptedTask('app:first:dev', 'process.exit(0)', { continuous: true })
+    const second = scriptedTask('app:second:dev', 'setTimeout(() => require("node:fs").writeFileSync(process.env.MATRIX_TEST_MARKER, "yes"), 150)', {
+      continuous: true,
+      env: { MATRIX_TEST_MARKER: marker },
+      dependsOn: [{ id: first.id, condition: 'completed' }],
+    })
+    await runExecutionPlan(plan([first, second]))
+    expect(await fs.readFile(marker, 'utf8')).toBe('yes')
+  })
+
   it('identifies a failing ordered step without echoing commands or dumping environments', async () => {
     const cwd = await temporaryDirectory('matrix-exec-steps-')
     const marker = path.join(cwd, 'steps')
@@ -228,7 +254,7 @@ describe('runExecutionPlan', () => {
       check.release()
       const result = await execution
       // On regression, wait for the real escaped child before checking its side effect.
-      await Promise.allSettled(result.children.values())
+      await Promise.allSettled([...result.children.values()].map(child => child.result))
       expect(existsSync(marker)).toBe(false)
       expect(result.children.size).toBe(0)
       expect(result.cancelled).toBe(signal)
@@ -266,9 +292,12 @@ describe('runExecutionPlan', () => {
     let targetSignal!: AbortSignal
     let settled = false
     const execution = runExecutionPlan(plan([service, target]), {
-      beforeTask: async (task, signal) => {
-        if (task.id === target.id)
-          targetSignal = signal
+      preparation: {
+        cwd,
+        prepare: async (task, _run, signal) => {
+          if (task?.id === target.id)
+            targetSignal = signal
+        },
       },
     }).finally(() => settled = true)
     void execution.catch(() => undefined)
@@ -443,7 +472,9 @@ describe('runExecutionPlan', () => {
         expect(pid).toBeGreaterThan(0)
       process.env.PATH = cwd // No ps binary: exercise the real spawn failure boundary.
       process.emit('SIGINT')
-      await expect(execution).rejects.toMatchObject({ code: 'ENOENT' })
+      await expect(execution).rejects.toMatchObject({
+        errors: [expect.objectContaining({ message: 'Execution cancelled' }), expect.objectContaining({ code: 'ENOENT' }), expect.objectContaining({ code: 'ENOENT' })],
+      })
       // No retry here: failure must not be reported before cleanup has finished.
       for (const pid of pids)
         expect(() => process.kill(pid, 0)).toThrow()
@@ -451,6 +482,43 @@ describe('runExecutionPlan', () => {
       expect(summary()).toContain('Execution failed (SIGINT)')
       expect(summary()).toContain('cleanup [cleanup]')
       expect(summary()).toContain('ENOENT')
+    }
+    finally {
+      if (originalPath === undefined)
+        delete process.env.PATH
+      else
+        process.env.PATH = originalPath
+      if (!completed)
+        process.emit('SIGINT')
+      await execution.catch(() => undefined)
+    }
+  }, 10_000)
+
+  it.skipIf(process.platform === 'win32')('preserves a nonzero command result when its process-tree cleanup also fails', async () => {
+    const cwd = await temporaryDirectory('matrix-exec-double-failure-')
+    const ready = path.join(cwd, 'ready')
+    const proceed = path.join(cwd, 'proceed')
+    const originalPath = process.env.PATH
+    const command = scriptedTask('app:failed:build', `
+      const fs = require('node:fs');
+      const child = require('node:child_process').spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+      fs.writeFileSync(process.env.MATRIX_TEST_READY, String(child.pid));
+      setInterval(() => { if (fs.existsSync(process.env.MATRIX_TEST_PROCEED)) process.exit(7); }, 10);
+    `, { env: { MATRIX_TEST_READY: ready, MATRIX_TEST_PROCEED: proceed } })
+    let completed = false
+    const execution = runExecutionPlan(plan([command])).finally(() => {
+      completed = true
+    })
+    void execution.catch(() => undefined)
+    try {
+      await waitForFile(ready, 2000)
+      process.env.PATH = cwd
+      await fs.writeFile(proceed, '')
+      const error = await execution.catch(error => error)
+      expect(error.message).toContain('exited with code 7')
+      expect(error.message).toContain('ENOENT')
+      const pid = Number(await fs.readFile(ready, 'utf8'))
+      expect(() => process.kill(pid, 0)).toThrow()
     }
     finally {
       if (originalPath === undefined)

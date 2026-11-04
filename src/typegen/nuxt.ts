@@ -1,6 +1,7 @@
 import type { LoadConfigOptions } from 'c12'
 import type { Nuxt } from 'nuxt/schema'
 import type { InlineConfig } from 'vite'
+import type { WorkerChannel } from '../execution/channel.js'
 import type { TypePreparationRequest } from './prepare.js'
 import { readFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
@@ -8,7 +9,7 @@ import process from 'node:process'
 import { pathToFileURL } from 'node:url'
 
 /** Stop after Nuxt's complete client-config dispatch, before a server/build starts. */
-export async function resolveNuxtTypes(root: string, request: TypePreparationRequest): Promise<void> {
+export async function resolveNuxtTypes(root: string, request: TypePreparationRequest, channel: WorkerChannel): Promise<void> {
   const { assertNuxtPipeline, resolveNuxtHost } = (import.meta.url.endsWith('.ts')
     ? await import(new URL('../nuxt/host.ts', import.meta.url).href)
     : await import('../nuxt/host.js')) as typeof import('../nuxt/host.js')
@@ -73,10 +74,10 @@ export async function resolveNuxtTypes(root: string, request: TypePreparationReq
   }
   const cancel = (message: unknown): void => {
     if (message === 'cancel')
-      terminate()
+      void close().then(() => channel.send('cancelled'), () => channel.send('cancelled'))
   }
   process.once('SIGTERM', terminate)
-  process.on('message', cancel)
+  channel.on('message', cancel)
   let failure: unknown
   try {
     await nuxt.ready()
@@ -111,7 +112,7 @@ export async function resolveNuxtTypes(root: string, request: TypePreparationReq
         : error
     }
     process.removeListener('SIGTERM', terminate)
-    process.removeListener('message', cancel)
+    channel.removeListener('message', cancel)
   }
   if (failure)
     throw failure

@@ -35,7 +35,7 @@ pnpm run check:types
 
 本例与 basic 共用根级 pnpm 锁文件；框架版本仍在本例独立声明，不跟随核心测试的 Vite 版本，也不加入 Matrix 的运行时依赖。
 
-首次准备会下载 Electron 二进制，需要网络。后续复用 Electron 自身的下载缓存。Desktop 的 `project.prepare` 只安装运行环境，并在 `.prepared` 记录每次调用；Web 的 dist 在 Desktop 消费前保留，桌面产物通过 Matrix 移至 `artifacts/<product>/<environment>`。
+首次准备会下载 Electron 二进制，需要网络。后续复用 Electron 自身的下载缓存。Desktop 的 `project.prepare` 只安装运行环境，并在 `.prepared` 记录每个产品／宿主上下文的调用；安装脚本复用 Electron 下载缓存；Web 的 dist 在 Desktop 消费前保留，桌面产物通过 Matrix 移至 `artifacts/<product>/<environment>`。
 
 默认开发端口为 Alpha 5410、Beta 5420，可用 `EXAMPLE_ALPHA_PORT` 和 `EXAMPLE_BETA_PORT` 覆盖。两产品应顺序运行，不在本例中承诺共享桌面目录的并发构建。
 
@@ -49,11 +49,11 @@ pnpm test:electron-web
 
 它在仓库外、带空格路径的临时消费项目中安装当前 tarball，结束后删除临时目录。从根级 pnpm 锁文件保留依赖版本、完整性和 peer snapshots，只把 Matrix workspace 链接替换为 tarball，然后执行 `pnpm install --frozen-lockfile --ignore-scripts`，不重新解析框架版本。临时项目沿用仓库的安全策略和精确例外，不借用源码或仓库的 node_modules。验收执行：
 
-1. `matrix prepare`：两个产品共用 Desktop 时准备命令只运行一次；读取真实 Vite/electron-vite 配置，生成两个 Web 项目及 main/preload 的 runtime 类型，并在没有任何构建产物时完成 TypeScript 检查。
+1. `matrix prepare`：两个产品共用 Desktop 时分别在 dev/build 上下文执行准备命令；读取真实 Vite/electron-vite 配置，生成两个 Web 项目及 main/preload 的 runtime 类型，并在没有任何构建产物时完成 TypeScript 检查。
 2. Alpha/Beta 开发启动：electron-vite 实际编译 main/preload，Desktop 等待对应 Web 就绪，真实 Chromium 页面及 preload bridge 校验三端 runtime，随后自动退出；检查未启动另一 Web 且相关进程结束。
 3. 同一工作区依次构建 `alpha/staging → beta/production → alpha/production`。
 4. 每次构建后启动生成的 unpacked 应用，检查三端产品身份、环境、API、布尔值和数字；两个 scope 的同名 `scopeValue` 分别为字符串和数字，并检查专属字段不串端。故意注入错误的宿主环境，确认打包资源不被后续环境污染。
-5. 每次调用检查共享项目只准备一次，不能用跨调用缓存掩盖配置切换问题。
+5. 每次调用检查共享项目按产品／宿主上下文准备，并在启动任务前恢复当前上下文，不能用跨调用缓存掩盖配置切换问题。
 6. 每次开发启动或构建后，用 TypeScript 和真实生成声明检查 main/preload，关闭 `skipLibCheck`，不使用虚拟模块 paths 补丁。两份模块声明同时加载时应正确区分字段类型。
 
 `check:config` 独立检查 `matrix.config.ts`；`check:types` 再检查 main/preload 的实际生成声明。首次运行只需 `pnpm run prepare:projects`，不必启动开发或构建。验收专用的字段隔离、标量类型与只读反例探针位于 `acceptance/check-types.mjs`。scope 仍仅定义在 `electron.vite.config.ts` 中；该宿主配置由真实 electron-vite 构建验证，不混用根级 Vite 8 与本例 Vite 7 的插件类型做独立 tsc 检查。prepare 会执行配置代码和配置钩子，但不会启动 Electron 或开发服务器。

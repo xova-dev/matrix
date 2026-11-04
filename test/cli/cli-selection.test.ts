@@ -6,8 +6,12 @@ import consola from 'consola'
 import path from 'pathe'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { parseArgs } from '../../src/cli/args.js'
-import { runCli } from '../../src/cli/index.js'
+import { runCli as executeCli } from '../../src/cli/index.js'
 import { resolveSelection, selectionCommand } from '../../src/cli/selection.js'
+import { createTestExecution } from '../helpers/test-execution.js'
+
+const executions = createTestExecution()
+const runCli = (args: string[]) => executions.run(() => executeCli(args))
 
 vi.mock('@clack/prompts', async importOriginal => ({
   ...await importOriginal<typeof import('@clack/prompts')>(),
@@ -60,7 +64,8 @@ async function executableTargets(targets: string[]): Promise<string> {
   return path.join(cwd, 'executed.log')
 }
 
-beforeEach(async () => {
+beforeEach(async (context) => {
+  executions.begin(context.signal)
   vi.resetAllMocks()
   vi.stubEnv('CI', '')
   vi.stubEnv('TERM', 'xterm-256color')
@@ -81,22 +86,27 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
-  process.chdir(previousCwd)
-  if (stdinTTY)
-    Object.defineProperty(process.stdin, 'isTTY', stdinTTY)
-  else
-    Reflect.deleteProperty(process.stdin, 'isTTY')
-  if (stdoutTTY)
-    Object.defineProperty(process.stdout, 'isTTY', stdoutTTY)
-  else
-    Reflect.deleteProperty(process.stdout, 'isTTY')
-  vi.unstubAllEnvs()
-  vi.restoreAllMocks()
-  process.exitCode = previousExitCode
+  try {
+    await executions.cleanup()
+  }
+  finally {
+    process.chdir(previousCwd)
+    if (stdinTTY)
+      Object.defineProperty(process.stdin, 'isTTY', stdinTTY)
+    else
+      Reflect.deleteProperty(process.stdin, 'isTTY')
+    if (stdoutTTY)
+      Object.defineProperty(process.stdout, 'isTTY', stdoutTTY)
+    else
+      Reflect.deleteProperty(process.stdout, 'isTTY')
+    vi.unstubAllEnvs()
+    vi.restoreAllMocks()
+    process.exitCode = previousExitCode
+  }
   await rm(cwd, { recursive: true, force: true })
-})
+}, 60_000)
 
-describe('cli selection and execution plans', () => {
+describe('cli selection and execution plans', { timeout: 30_000 }, () => {
   it('runs a complete command without prompts and resolves the same plan outside a TTY', async () => {
     const args = { command: 'build', product: 'app', variants: ['desktop'] }
     const direct = await resolveSelection(args)
@@ -215,7 +225,8 @@ describe('cli selection and execution plans', () => {
     expect(info).not.toHaveBeenCalled()
     const plan = JSON.parse(String(log.mock.calls[0]![0]))
     expect(plan.preparations).toHaveLength(1)
-    expect(plan.preparations[0]).toMatchObject({ project: 'web', command: 'node record.mjs', beforeTask: 'app:web:build', env: { MATRIX_TARGET: 'prepare' } })
+    expect(plan).not.toHaveProperty('contexts')
+    expect(plan.preparations[0]).toMatchObject({ project: 'web', command: 'node record.mjs', beforeTask: 'app:web:build', env: { MATRIX_TARGET: 'build', MATRIX_PRODUCT_KEY: 'app', MATRIX_VARIANT: 'web' } })
     expect(plan.preparations[0].env).not.toHaveProperty('PLAN_PREPARE_UNRELATED')
     await runCli(['doctor'])
     await expect(readFile(marker)).rejects.toMatchObject({ code: 'ENOENT' })

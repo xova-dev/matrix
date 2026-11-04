@@ -49,9 +49,12 @@ export async function verifyShutdown(cli, cwd) {
     return false
   }
   mkdirSync(cwd)
+  const names = ['first', 'second']
+  for (const name of names)
+    mkdirSync(path.join(cwd, name))
   writeFileSync(path.join(cwd, 'matrix.config.json'), JSON.stringify({
-    projects: { service: { targets: { dev: 'node service.mjs' } } },
-    products: { app: { variants: { first: 'service', second: 'service' } } },
+    projects: Object.fromEntries(names.map(name => [name, { root: name, targets: { dev: { command: 'node ../service.mjs', outputDir: '.' } } }])),
+    products: { app: { variants: { first: 'first', second: 'second' } } },
   }))
   writeFileSync(path.join(cwd, 'service.mjs'), [
     'import { renameSync, writeFileSync } from "node:fs";',
@@ -98,22 +101,21 @@ export async function verifyShutdown(cli, cwd) {
       finished = true
     }
     void exited.then(markFinished, markFinished)
-    const names = ['first', 'second']
     const verify = async () => {
-      while (!names.every(name => existsSync(path.join(cwd, `${name}.pid`)))) {
+      while (!names.every(name => existsSync(path.join(cwd, name, `${name}.pid`)))) {
         if (finished || stopped)
           throw new Error('Packaged CLI stopped before both fixture processes were ready')
         await delay(20)
       }
       if (finished || stopped)
         throw new Error('Packaged CLI stopped before shutdown could be tested')
-      const pids = names.map(name => Number(readFileSync(path.join(cwd, `${name}.pid`), 'utf8')))
+      const pids = names.map(name => Number(readFileSync(path.join(cwd, name, `${name}.pid`), 'utf8')))
       // Signal only Matrix: its own executor must stop the fixture processes.
       process.kill(command.pid, 'SIGINT')
       const [code, signal] = await exited
       if (code !== 130 || signal)
         throw new Error('Packaged CLI did not exit with code 130 after SIGINT')
-      if (!names.every(name => existsSync(path.join(cwd, `${name}.closed`))) || pids.some(isAlive) || isAlive(-command.pid))
+      if (!names.every(name => existsSync(path.join(cwd, name, `${name}.closed`))) || pids.some(isAlive) || isAlive(-command.pid))
         throw new Error('Packaged CLI exited without fully cleaning up its children')
     }
     const failures = []
@@ -270,7 +272,7 @@ export async function verifyCli(consumerRoot) {
     execFileSync(process.execPath, [cli, ...args], { cwd: consumerRoot, encoding: 'utf8', timeout: 10_000 })
   }
   if (readFileSync(path.join(consumerRoot, 'stage-root/built'), 'utf8') !== 'done'
-    || readFileSync(path.join(consumerRoot, 'dev-root/prepared'), 'utf8') !== 'done;'
+    || readFileSync(path.join(consumerRoot, 'dev-root/prepared'), 'utf8') !== 'done;done;'
     || !existsSync(path.join(consumerRoot, 'dev-root/.matrix/types/matrix-runtime.d.ts'))) {
     throw new Error('Packaged CLI did not complete automatic and explicit preparation')
   }

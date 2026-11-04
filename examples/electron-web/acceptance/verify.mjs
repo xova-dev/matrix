@@ -54,6 +54,19 @@ async function preparationCount() {
   }
 }
 
+async function verifyPreparation(previous, product, target) {
+  const runs = (await readFile(path.join(root, 'apps/desktop/.prepared/runs.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line))
+  const current = runs.slice(previous)
+  assert.ok(current.length > 0, 'Each invocation establishes its own inputs')
+  for (const name of ['alpha', 'beta']) {
+    for (const mode of ['dev', 'build'])
+      assert.ok(current.some(run => run.product === name && run.target === mode), `Missing ${name}/${mode} preparation`)
+  }
+  assert.equal(current.at(-1).product, product, 'Restore the active product after shared collection')
+  assert.equal(current.at(-1).target, target, 'Restore the active host mode after shared collection')
+  return runs.length
+}
+
 async function executable(directory, product) {
   for (const entry of await readdir(directory, { withFileTypes: true })) {
     const candidate = path.join(directory, entry.name)
@@ -88,7 +101,7 @@ const failures = []
 try {
   let prepared = await preparationCount()
   await run(process.execPath, [cli, 'prepare'])
-  assert.equal(await preparationCount(), ++prepared, 'Shared Desktop must prepare once across both products')
+  assert.equal(await preparationCount(), prepared += 4, 'Shared Desktop prepares both products in both host contexts')
   for (const project of ['web-alpha', 'web-beta'])
     await access(path.join(root, 'apps', project, '.matrix/types/matrix-runtime.d.ts'))
   for (const scope of ['main', 'preload'])
@@ -119,7 +132,7 @@ try {
     const webPid = Number(await readFile(path.join(runDirectory, `web-${product}.started`), 'utf8'))
     assert.throws(() => process.kill(webPid, 0), 'Web process must stop when the Desktop self-check finishes')
     await assert.rejects(access(path.join(runDirectory, `web-${product === 'alpha' ? 'beta' : 'alpha'}.started`)), { code: 'ENOENT' })
-    assert.equal(await preparationCount(), ++prepared)
+    prepared = await verifyPreparation(prepared, product, 'dev')
     console.log(`Development verified: ${product} loads only its Web project and releases its processes.`)
   }
 
@@ -139,7 +152,7 @@ try {
     // Deliberately pass conflicting host values: packaged resources must remain authoritative.
     const result = await run(binary, ['--no-sandbox'], { EXAMPLE_SMOKE_OUTPUT: output, MATRIX_PRODUCT_KEY: 'wrong-product', VITE_API_BASE: 'wrong-api', MAIN_VITE_SCOPE_VALUE: 'wrong-main', PRELOAD_VITE_SCOPE_VALUE: '999' })
     await verifyReport(output, result, product, environment, true)
-    assert.equal(await preparationCount(), ++prepared)
+    prepared = await verifyPreparation(prepared, product, 'build')
     console.log(`Packaged application verified: ${product} / ${environment}.`)
   }
 }

@@ -47,9 +47,9 @@ export class ExecutionReport {
   }
 
   start(id: string): void {
-    const entry = this.entries.get(id)
-    if (entry)
-      entry.outcome = 'running'
+    const entry = this.entries.get(id) ?? { id, continuous: false, outcome: 'not run' }
+    entry.outcome = 'running'
+    this.entries.set(id, entry)
   }
 
   complete(id: string): void {

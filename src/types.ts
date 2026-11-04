@@ -102,7 +102,7 @@ export interface ProjectConfig {
   configHost?: 'vite' | 'electron-vite' | 'nuxt'
   /** Set false for native host configuration: skip Matrix type preparation and host discovery. */
   typegen?: false
-  /** Finite commands run once per invocation before this project's first eligible target. */
+  /** Ordered finite commands establishing each product/variant/host context before host loading. Must be repeatable. */
   prepare?: CommandTarget['command']
   /** Named commands exposed by this project. */
   targets: Record<string, TargetConfig>
@@ -240,7 +240,7 @@ export interface ExecutionTask {
   dependsOn: Array<{ id: string, condition: 'completed' | 'ready' }>
 }
 
-/** Project-scoped preparation, independent of product and variant identity. */
+/** Preparation commands carrying the complete execution context. */
 export interface ProjectPreparation {
   id: string
   project: string
@@ -253,13 +253,15 @@ export interface ProjectPreparation {
 
 /** Ordered executable tasks and their shared artifact destination. */
 export interface ExecutionPlan {
+  /** Immutable input contexts, captured before preparation; failures are raised only when used. */
+  contexts?: Readonly<Record<string, { readonly env: Readonly<EnvMap> } | { readonly error: unknown }>>
   /** Internal contract passed to child build adapters; omitted from CLI plan JSON. */
   envSchema?: EnvSchema
   /** Environment selected for this plan. */
   envName: string
   /** Tasks in dependency-safe execution order. */
   tasks: ExecutionTask[]
-  /** Project preparations in first-use order, deduplicated by project key. */
+  /** Context preparations in execution order; never deduplicated by project. */
   preparations?: ProjectPreparation[]
   /** Absolute root directory for generated artifacts. */
   artifactsRoot: string

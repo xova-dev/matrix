@@ -239,7 +239,7 @@ electron-vite must support the selected Vite version. Linux full checks its conf
 
 ## Type preparation
 
-Run `matrix prepare [product]` to generate declarations without running business targets. The product selects projects; each shared project + scope includes all referring products and variants in the selected `--env`, never other environments. Mixed projects with equal or overlapping physical roots are collected together; projects with `typegen: false` never join the group. `matrix dev` and `matrix build` collect after project preparation, before starting the target.
+Run `matrix prepare [product]` to generate declarations without running business targets. The product selects projects; each shared project + scope includes all referring products and variants in the selected `--env`, never other environments. Mixed projects with equal or overlapping physical roots are collected together; projects with `typegen: false` never join the group. `matrix dev` and `matrix build` use the same preparation lifecycle: prepare each context before host discovery/loading, merge the shared declaration, then reestablish the active task inputs before starting the target. Preparation commands may run multiple times; see [migration and shared-directory ownership](./execution.md#project-preparation).
 
 ### Configuration and compatibility
 

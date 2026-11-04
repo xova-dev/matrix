@@ -3,6 +3,7 @@ import path from 'pathe'
 import { describe, expect, it, vi } from 'vitest'
 import { findTypeHost, resolveHostTypes, TypePreparationCancelled } from '../../src/typegen/prepare.js'
 import { currentProcessEnv } from '../../src/utils/env.js'
+import { withCleanup } from '../../src/utils/errors.js'
 import { temporaryDirectory } from '../helpers/temporary-directory.js'
 
 async function fixture(settings: Record<string, unknown> = {}): Promise<string> {
@@ -26,7 +27,7 @@ async function fixture(settings: Record<string, unknown> = {}): Promise<string> 
     export const resolveModule = (id, options) => createRequire(options.url).resolve(id)
   `)
   await write('node_modules/nuxt/index.js', `
-    import { readFileSync, appendFileSync, writeFileSync } from 'node:fs'
+    import { readFileSync, appendFileSync, writeFileSync, existsSync } from 'node:fs'
     const settings = JSON.parse(readFileSync('settings.json', 'utf8'))
     const log = value => appendFileSync('lifecycle', value + ';')
     let watcher
@@ -39,6 +40,10 @@ async function fixture(settings: Record<string, unknown> = {}): Promise<string> 
         async ready() {
           log('ready')
           writeFileSync('ready.pid', String(process.pid))
+          if (settings.delayedExit) process.on('SIGTERM', () => {
+            writeFileSync('draining', '');
+            setInterval(() => { if (existsSync('release')) process.exit(0); }, 10);
+          })
           if (settings.noGracefulSignals) process.removeAllListeners('SIGTERM')
           if (settings.readyError) throw Error('ready original failure')
           if (settings.hang) {
@@ -117,4 +122,26 @@ describe('nuxt type preparation lifecycle', () => {
     expect(log).toContain('close;')
     expect(log.includes('closed;')).toBe(!closeHang)
   })
+
+  it.skipIf(process.platform === 'win32')('retains cancellation arriving after collection while the process container drains', async () => {
+    const root = await fixture({ delayedExit: true })
+    const controller = new AbortController()
+    const running = resolveHostTypes(root, currentProcessEnv(), { host: (await findTypeHost(root))!, mode: 'test' }, controller.signal)
+    void running.catch(() => undefined)
+    await withCleanup(async () => {
+      await vi.waitFor(() => access(path.join(root, 'draining')), { timeout: 5_000 })
+      controller.abort()
+      await writeFile(path.join(root, 'release'), '')
+      await expect(running).rejects.toBeInstanceOf(TypePreparationCancelled)
+      const pid = Number(await readFile(path.join(root, 'ready.pid'), 'utf8'))
+      expect(() => process.kill(pid, 0)).toThrow()
+    }, async () => {
+      controller.abort()
+      await writeFile(path.join(root, 'release'), '')
+      await running.catch((error) => {
+        if (!(error instanceof TypePreparationCancelled))
+          throw error
+      })
+    })
+  }, 45_000)
 })

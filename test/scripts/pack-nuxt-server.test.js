@@ -240,7 +240,7 @@ it.skipIf(process.platform === 'win32')('retains POSIX CLI verification and clea
     import { writeFileSync } from 'node:fs'
     process.on('SIGINT', () => process.exit(7))
     setInterval(() => {}, 1000)
-    for (const name of ['first', 'second']) writeFileSync(name + '.pid', String(process.pid))
+    for (const name of ['first', 'second']) writeFileSync(name + '/' + name + '.pid', String(process.pid))
   `)
   const listeners = ['SIGINT', 'SIGTERM'].map(signal => process.listenerCount(signal))
   const denied = Object.assign(new Error('fixture process-group cleanup denied'), { code: 'EPERM' })

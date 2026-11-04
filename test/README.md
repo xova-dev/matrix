@@ -315,7 +315,10 @@ checked without launching Electron; these tests do not replace app acceptance.
 Cross-product legacy aliases retain each active product's value while sharing
 unchanged declarations. Runtime snapshot tests also cover schema defaults,
 current-value precedence and optional omission under the prepared exposure limit.
-`typegen/coordination.test.ts` covers lock waiting, cancellation, and owner recovery;
+`typegen/coordination.test.ts` covers lock waiting, cancellation, and owner recovery,
+including competing recoverers and a paused owner-state read: the same recovery
+claim protects inspection and removal so another recoverer cannot retire the
+marker while it is being read. Late recoverers preserve a successor's lock;
 `execution/prepare.test.ts` covers cancellation of in-flight preparation on service
 failure. Package consumers verify installed adapters and Electron preparation.
 
@@ -365,3 +368,129 @@ Run the matrix with:
 ```sh
 mise exec -- pnpm test test/runtime/runtime-conformance.test.ts test/runtime/runtime-build.test.ts
 ```
+
+### Context preparation lifecycle
+
+`execution/lifecycle.test.ts` exercises ordered preparation arrays with full
+product/variant/version/host-mode context, generated host configuration discovery,
+shared A → B → A inputs, explicit prepare, real Vite host loading/building,
+invocation context snapshots when preparation rewrites package versions (including
+unselected shared products and projects without preparation commands), fresh
+versions on the next invocation,
+failure preservation, cross-process ownership through target completion, and
+rejection of overlapping continuous contexts. Regressions cover completed-service
+directory release, draining surviving POSIX descendants before dependent preparation,
+unrelated invalid roots in native custom/build targets with default host discovery,
+explicit prepare/build/dev with `typegen: false` and an unrelated dangling root
+(ordered arrays, selected-product A → B → A contexts, no type publication,
+and preparation failure stopping subsequent steps and contexts),
+sibling output cleanup and artifact delivery into a live service directory,
+rejection before target startup with `clean: false` or no artifacts, and ordinary
+host-config descendants drained on success, failure and cancellation before the
+next context can write. A killed POSIX CLI with a surviving
+target: the next product must refuse lock recovery and preserve the first product's
+inputs. The contention test observes a
+failed lock acquisition before releasing the first target. Existing cancellation,
+process-tree cleanup, native-project exclusion and overlapping type ownership
+regressions remain required. `execution/prepare.test.ts` now expects per-context
+preparation instead of the former once-per-project behavior. `execution/exec.test.ts`
+also verifies that an already completed service cannot end a later live service.
+`execution/posix-process-tree.test.ts` checks zombie-only groups, exit races during
+signalling, and preservation of permission failures for live consumers. These OS
+boundary tests complement real descendant cleanup, including cancellation during
+that cleanup, and Electron/Web acceptance.
+
+`execution/session.test.ts` checks the platform-neutral ownership contract: root
+exit does not release a directory, concurrent shutdown joins the existing disposal,
+failed disposal retains claims, and cooperative framework cleanup precedes backend
+disposal. `execution/worker-process.test.ts` exercises the same real message channel
+on both platforms, request/cancel acknowledgements, startup cancellation before
+user code runs, stdin isolation from the coordinator, disposal of an unconnected
+channel, unanswered requests after worker exit or test cancellation, and a real
+connection with a long Unicode POSIX temporary directory.
+
+Windows lifecycle regressions use real Job Objects: ordinary and detached
+grandchildren acknowledge startup before their root and intermediate processes
+exit, then A → B → A preparation must observe the previous descendant already
+gone. A non-detached child may also be terminated by its Node parent; the detached
+case exercises descendants surviving that parent. Another test kills the CLI and
+checks that control-channel disconnection drains its job. Host-worker success,
+failure and cancellation tests also exercise the same Windows owner. Portable
+OS-boundary tests require every job's drain acknowledgement even after root exit
+and preserve a cleanup failure while waiting for other jobs. These tests do not
+replace execution on a real Windows runner.
+
+`execution/windows-job-native.test.ts` executes the actual PowerShell/C# backend.
+Its portable fixture regressions cover assertion, supervisor termination and
+exit-wait failures: recorded PID recovery still runs and preserves the original
+error. The coordinator-death lifecycle fixture uses the same PID fallback for
+its known processes; locks and directories are removed only after cleanup succeeds.
+It pauses immediately after the native process-creation call and kills the
+supervisor before resumption, verifying that the suspended process already belongs
+to the job and cannot leak. The pause is injected into the test's helper script,
+without production environment switches. Other cases cover invalid executables,
+concurrent startup cancellation, control-pipe disconnection, supervisor crashes,
+test cancellation while a supervisor owns a live tree,
+quoted shell commands in Unicode directories, and eight successive running-job
+cancellations with eight callers joining each disposal; process/pipe resource
+counts must return to their initial level after each cycle. Portable
+`execution/windows-job.test.ts` fault injection covers unconnected startup,
+transport-cleanup failures, missing or delayed shutdown certification, a failed
+supervisor despite certification, and bounded stop/control-close timeouts.
+Both startup and shutdown also simulate an ineffective OS kill: disposal must
+reject within its deadline while the exit observer retains the communication
+resource until the owner actually exits.
+Startup failure remains the root result; cleanup errors cannot replace it or
+prevent the remaining resources from being released.
+
+For repeated startup, failure and cancellation acceptance, run the following in
+an isolated Windows checkout with locked dependencies. The complete Windows suite
+below additionally covers multi-product switching and coordinator termination:
+
+```powershell
+1..5 | ForEach-Object {
+  pnpm exec vitest run --maxWorkers 2 test/execution/windows-job-native.test.ts test/execution/windows-job.test.ts test/execution/worker-process.test.ts test/execution/session.test.ts test/helpers/test-execution.test.ts test/helpers/test-resources.test.ts
+  if ($LASTEXITCODE -ne 0) { throw "Native lifecycle iteration $_ failed" }
+}
+```
+
+Real-process integration suites use bounded per-test budgets of 30–120 seconds.
+Limit file parallelism on small VMs to avoid oversubscribing native host processes.
+The key ownership contracts and representative regressions are:
+
+- `execution/session.test.ts`: join every cleanup batch, preserve operation,
+  framework and backend failures, retain uncertain claims, and release the
+  workspace lock when cleanup succeeds even if the operation failed.
+- `execution/exec.test.ts`: retain nonzero command results when tree cleanup also
+  fails; real process inspection failures must still drain all controlled groups.
+- `helpers/test-execution.test.ts`: cancel in-process CLI calls, including late
+  signal-handler registration. After executions settle, restore global state
+  even if cleanup reports failure; do not delete uncertain fixture directories.
+- `helpers/test-resources.test.ts`: register disposal before acquisition settles
+  and join it before directory deletion. The parent owns an isolated runner's
+  temporary parent directory before launch, so cancellation before any receipt
+  cannot lose directory ownership. Real timeout, assertion/cleanup failure and
+  cancellation before/after receipt exercise this boundary.
+- CLI-driven plugin generation belongs to `typegen/prepare-types.test.ts`, with
+  the execution owner and native host budget; plugin-only tests do not launch
+  an unmanaged CLI. `typegen/nuxt-preparation.test.ts` also checks cancellation
+  after collection while a POSIX container is still draining.
+
+Manual gates release on assertion failure. Explicit cleanup outside the finish
+hook is reserved for ordering assertions and per-iteration disposal.
+Deferred preparation checks the required product/variant/target contexts and
+their generated inputs, including active-target restoration, rather than fixed
+host-evaluation counts.
+Run the complete Windows suite (`pnpm test --maxWorkers 2`) and
+`pnpm test:pack --profile platform` separately.
+Repeated local ARM64 acceptance does not replace Windows x64 hosted checks or
+establish compatibility with restrictive PowerShell policies.
+
+The representative latest Vite packed consumer also generates its host config
+and inputs from an ordered preparation array, builds A → B → A, executes each
+artifact and verifies shared types after deleting generated inputs and running
+explicit prepare. Native Nuxt and Electron/Web acceptance use the new context
+preparation semantics. A workspace lock covers preparation, target execution and
+child cleanup; execution/cleanup uncertainty retains the lock for manual recovery.
+Distinct workspaces and arbitrary writes outside declared directories are
+not automatically coordinated.

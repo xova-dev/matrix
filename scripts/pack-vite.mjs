@@ -233,6 +233,54 @@ export async function verifyConfigSelection(root, consumer, timings) {
 }
 
 /** Install the tarball into a real mixed-version pnpm workspace, without root Vite. */
+async function verifyPreparationLifecycle(root, consumer, timings) {
+  const cwd = path.join(root, 'context-preparation')
+  mkdirSync(cwd)
+  write(cwd, 'package.json', { private: true, type: 'module', version: '1.0.0' })
+  write(cwd, 'matrix.config.mjs', `export default ${JSON.stringify({
+    projects: { web: { prepare: ['node prepare.mjs', 'node verify.mjs'], targets: { build: ['node verify.mjs', 'node build.mjs'] } } },
+    products: {
+      alpha: { version: '2.0.0', appId: 'app.alpha', env: { VITE_ALPHA: 'alpha' }, variants: { web: 'web' } },
+      beta: { version: '3.0.0', appId: 'app.beta', env: { VITE_BETA: 'beta' }, variants: { web: 'web' } },
+    },
+  })}`)
+  write(cwd, 'context.mjs', `export const context = () => ['MATRIX_PRODUCT_KEY', 'MATRIX_PRODUCT_VERSION', 'MATRIX_PRODUCT_APP_ID', 'MATRIX_VARIANT', 'MATRIX_TARGET', 'MATRIX_ENV_NAME', 'NODE_ENV'].map(key => process.env[key])`)
+  write(cwd, 'prepare.mjs', `
+    import { copyFileSync, writeFileSync } from 'node:fs';
+    import { context } from './context.mjs';
+    copyFileSync('host-template.mjs', 'vite.config.mjs');
+    writeFileSync('generated.json', JSON.stringify(context()));
+  `)
+  write(cwd, 'verify.mjs', `
+    import assert from 'node:assert/strict';
+    import { readFileSync } from 'node:fs';
+    import { context } from './context.mjs';
+    assert.deepEqual(JSON.parse(readFileSync('generated.json')), context());
+  `)
+  write(cwd, 'host-template.mjs', `
+    import './verify.mjs';
+    import matrix from '@xova/matrix/vite';
+    export default { plugins: [matrix()], build: { lib: { entry: 'entry.mjs', formats: ['es'], fileName: () => 'entry.mjs' } } };
+  `)
+  write(cwd, 'entry.mjs', `import { matrix } from 'virtual:matrix/runtime'; export const product = matrix.product.key;`)
+  write(cwd, 'build.mjs', `import { build } from 'vite'; await build();`)
+  const run = args => timings.measure(consumer.name, 'context-preparation', () => execa(process.execPath, [path.join(root, 'node_modules/@xova/matrix/bin/matrix.mjs'), ...args], { cwd, timeout: 60_000 }))
+  for (const product of ['alpha', 'beta', 'alpha']) {
+    await run(['build', product, '--env', 'staging'])
+    assert.equal(JSON.parse(readFileSync(path.join(cwd, 'generated.json'), 'utf8'))[0], product)
+    const result = await execa(process.execPath, ['--input-type=module', '-e', 'const { product } = await import("./dist/entry.mjs"); console.log(product)'], { cwd })
+    assert.equal(result.stdout.trim(), product)
+  }
+  const output = path.join(cwd, '.matrix/types/matrix-runtime.d.ts')
+  const types = readFileSync(output, 'utf8')
+  assert.match(types, /readonly alpha\?: string/)
+  assert.match(types, /readonly beta\?: string/)
+  unlinkSync(path.join(cwd, 'vite.config.mjs'))
+  unlinkSync(path.join(cwd, 'generated.json'))
+  await run(['prepare', 'alpha', '--env', 'staging'])
+  assert.equal(readFileSync(output, 'utf8'), types)
+}
+
 export async function verifyViteCompatibility(tarball, root, compatibility, concurrency, timings) {
   mkdirSync(root)
   write(root, 'package.json', { private: true })
@@ -277,6 +325,8 @@ export async function verifyViteCompatibility(tarball, root, compatibility, conc
       if (!consumer.electron) {
         await run('build', ['matrix', 'build', 'app'])
         await verifyNativeVite(cwd, consumer, compatibility, timings)
+        if (consumer.version === compatibility.hosts.vite.at(-1))
+          await verifyPreparationLifecycle(cwd, consumer, timings)
       }
       if (compatibility.configSelection && (consumer.version === compatibility.hosts.vite[0] || consumer.version === compatibility.hosts.vite.at(-1) || consumer.electron))
         await verifyConfigSelection(cwd, consumer, timings)

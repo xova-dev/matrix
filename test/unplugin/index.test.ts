@@ -3,13 +3,11 @@ import { Buffer } from 'node:buffer'
 import { access, mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, utimes, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import process from 'node:process'
-import { fileURLToPath } from 'node:url'
 import consola from 'consola'
 import path from 'pathe'
 import { rollup } from 'rollup'
 import { build, resolveConfig } from 'vite'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { runCli } from '../../src/cli/index.js'
 import { MATRIX_ENV_SCHEMA_KEY, MATRIX_TYPE_CONTRACT_KEY } from '../../src/config/env-schema.js'
 import { preparedTypeDeclaration } from '../../src/typegen/coordination.js'
 import { generateMatrixTypes } from '../../src/typegen/generate.js'
@@ -328,38 +326,6 @@ describe('matrix unplugin', () => {
       expect(warning).not.toHaveBeenCalled()
     },
   )
-
-  it('generates types through CLI-injected context when the project has no envSchema', async () => {
-    const project = await projectDirectory()
-    process.chdir(project)
-    const plugin = fileURLToPath(new URL('../../src/unplugin/vite.ts', import.meta.url))
-    await symlink(fileURLToPath(new URL('../../node_modules', import.meta.url)), path.join(project, 'node_modules'), 'junction')
-    await writeFile(path.join(project, 'package.json'), '{"type":"module"}')
-    await writeFile(path.join(project, 'matrix.config.mjs'), `export default {
-      env: { MAIN_VITE_WINDOW_TITLE: 'Matrix CLI' },
-      projects: { web: { targets: { build: 'node build.mjs' } } },
-      products: { app: { variants: { web: 'web' } } },
-    }`)
-    await writeFile(path.join(project, 'vite.config.mjs'), `
-      import matrix from ${JSON.stringify(plugin)};
-      export default {
-        envPrefix: ['MAIN_VITE_', '__MATRIX_'],
-        plugins: [matrix()],
-        logLevel: 'silent',
-        build: { write: false, lib: { entry: './entry.js', formats: ['es'] } },
-      };
-    `)
-    await writeFile(path.join(project, 'build.mjs'), `
-      import { build } from 'vite';
-      if (process.env.${MATRIX_ENV_SCHEMA_KEY} !== '{}') throw new Error('Missing CLI context');
-      if (process.env.VITEST !== undefined) throw new Error('Vitest would suppress generation');
-      await build();
-    `)
-    await runCli(['build', 'app'])
-    const declarations = await readFile(path.join(project, output), 'utf8')
-    expect(declarations).toContain('readonly MAIN_VITE_WINDOW_TITLE: string')
-    expect(declarations).not.toContain(MATRIX_ENV_SCHEMA_KEY)
-  })
 
   it.each(['', '{', 'null'])('still rejects malformed schema metadata %j', (metadata) => {
     vi.stubEnv(MATRIX_ENV_SCHEMA_KEY, metadata)

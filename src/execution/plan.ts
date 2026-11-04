@@ -2,7 +2,7 @@ import type { CreateExecutionPlanInput, ExecutionPlan, ExecutionTask, ProjectPre
 import path from 'pathe'
 import { MATRIX_DEFAULTS } from '../config/defaults.js'
 import { resolveSchemaEnv } from '../config/env-schema.js'
-import { resolveProductContext } from '../product/context.js'
+import { resolveExecutionContext } from '../product/context.js'
 import { currentProcessEnv, mergeEnv } from '../utils/env.js'
 import { resolveFilesystemPath } from '../utils/path.js'
 
@@ -29,27 +29,55 @@ export class ExecutionPlanError extends Error {
   }
 }
 
-function projectPreparation(input: PreparationPlanInput, projectName: string): ProjectPreparation | undefined {
+export function projectPreparation(input: PreparationPlanInput, projectName: string, context: { id: string, env: ProjectPreparation['env'] }): ProjectPreparation | undefined {
   const project = input.projects[projectName]
   if (!project)
     throw new Error(`Unknown project: ${projectName}`)
   if (project.prepare === undefined)
     return undefined
   return {
-    id: `prepare:${projectName}`,
+    id: `prepare:${context.id}`,
     project: projectName,
     command: project.prepare,
     cwd: resolveFilesystemPath(input.cwd, project.root ?? MATRIX_DEFAULTS.projectRoot),
-    env: resolveSchemaEnv(mergeEnv(input.config.env, input.externalEnv ?? currentProcessEnv(), {
-      MATRIX_ENV_NAME: input.envName,
-      MATRIX_PROJECT: projectName,
-      MATRIX_TARGET: 'prepare',
-    }), input.config.envSchema),
+    env: { ...context.env },
   }
 }
 
 function executionPlan(input: PreparationPlanInput, tasks: ExecutionTask[], preparations: ProjectPreparation[]): ExecutionPlan {
+  const contexts: Record<string, NonNullable<ExecutionPlan['contexts']>[string]> = {}
+  for (const task of tasks)
+    contexts[task.id] = Object.freeze({ env: Object.freeze({ ...task.env }) })
+  // Host collection can visit products that were not selected as tasks. Capture
+  // their inputs now too, without discovering hosts or resolving physical roots.
+  // Defer failures so an unused project cannot prevent a native target running.
+  for (const product of Object.values(input.products)) {
+    for (const variant of Object.values(product.variants)) {
+      for (const targetName of ['dev', 'build'] as const) {
+        const id = `${product.key}:${variant.id}:${targetName}`
+        if (contexts[id])
+          continue
+        try {
+          const context = resolveExecutionContext({
+            config: input.config,
+            product,
+            variant,
+            envName: input.envName,
+            projectRoot: resolveFilesystemPath(input.cwd, input.projects[variant.project]!.root ?? MATRIX_DEFAULTS.projectRoot),
+            externalEnv: input.externalEnv ?? currentProcessEnv(),
+            targetName,
+            nodeEnv: variant.targets[targetName]?.nodeEnv ?? (targetName === 'dev' ? 'development' : 'production'),
+          })
+          contexts[id] = Object.freeze({ env: Object.freeze({ ...context.env }) })
+        }
+        catch (error) {
+          contexts[id] = Object.freeze({ error })
+        }
+      }
+    }
+  }
   return {
+    contexts: Object.freeze(contexts),
     ...(input.config.envSchema ? { envSchema: input.config.envSchema } : {}),
     envName: input.envName,
     tasks,
@@ -61,20 +89,27 @@ function executionPlan(input: PreparationPlanInput, tasks: ExecutionTask[], prep
 
 /** Plans explicit project preparation without selecting or running a target. */
 export function createPreparationPlan(input: PreparationPlanInput): ExecutionPlan {
+  const plan = executionPlan(input, [], [])
   const preparations = new Map<string, ProjectPreparation>()
   for (const productName of input.productNames) {
     const product = input.products[productName]
     if (!product)
       throw new Error(`Unknown product: ${productName}`)
     for (const variant of Object.values(product.variants)) {
-      if (preparations.has(variant.project))
-        continue
-      const preparation = projectPreparation(input, variant.project)
-      if (preparation)
-        preparations.set(variant.project, preparation)
+      for (const targetName of ['dev', 'build'] as const) {
+        const id = `${product.key}:${variant.id}:${targetName}`
+        const context = plan.contexts![id]!
+        if ('error' in context)
+          throw context.error
+        const preparation = projectPreparation(input, variant.project, { id, env: context.env })
+        if (preparation)
+          preparations.set(preparation.id, preparation)
+      }
     }
   }
-  return executionPlan(input, [], [...preparations.values()])
+  if (preparations.size)
+    plan.preparations = [...preparations.values()]
+  return plan
 }
 
 /**
@@ -135,12 +170,6 @@ export function createExecutionPlan(input: CreateExecutionPlanInput): ExecutionP
       delete context.dependencyIndex
       context.kind = 'environment'
       context.path = 'envSchema'
-      if (target.prepare !== false && !preparations.has(variant.project)) {
-        const preparation = projectPreparation(input, variant.project)
-        if (preparation)
-          preparations.set(variant.project, { ...preparation, beforeTask: id })
-      }
-
       const effectiveEnv = resolveSchemaEnv(mergeEnv(input.config.env, product.env, input.externalEnv ?? currentProcessEnv()), input.config.envSchema)
       const projectRoot = resolveFilesystemPath(input.cwd, project.root ?? MATRIX_DEFAULTS.projectRoot)
       context.kind = 'version'
@@ -151,12 +180,13 @@ export function createExecutionPlan(input: CreateExecutionPlanInput): ExecutionP
           : product.version !== undefined
             ? `products.${productName}.version`
             : `${path.join(projectRoot, 'package.json')}#version`
-      const identity = resolveProductContext({
+      const identity = resolveExecutionContext({
         config: input.config,
         product,
         variant,
         envName: input.envName,
-        env: effectiveEnv,
+        externalEnv: input.externalEnv ?? currentProcessEnv(),
+        nodeEnv: target.nodeEnv,
         projectRoot,
         requiredVersion: !target.continuous && !!target.artifacts,
         targetName,
@@ -175,20 +205,17 @@ export function createExecutionPlan(input: CreateExecutionPlanInput): ExecutionP
         ...(version === undefined ? {} : { version }),
         command: target.command,
         cwd: projectRoot,
-        env: mergeEnv(effectiveEnv, {
-          MATRIX_ENV_NAME: input.envName,
-          MATRIX_TARGET: targetName,
-          ...identity.env,
-          MATRIX_VARIANT: variantName,
-          MATRIX_PROJECT: variant.project,
-          MATRIX_NODE_ENV: target.nodeEnv,
-          NODE_ENV: target.nodeEnv,
-        }),
+        env: identity.env,
         continuous: target.continuous,
         ...(target.artifacts ? { artifacts: target.artifacts } : {}),
         ...(target.readyWhen ? { readyWhen: target.readyWhen } : {}),
         outputDir: resolveFilesystemPath(projectRoot, target.outputDir),
         dependsOn: dependencyTasks,
+      }
+      if (target.prepare !== false) {
+        const preparation = projectPreparation(input, variant.project, task)
+        if (preparation)
+          preparations.set(id, { ...preparation, beforeTask: id })
       }
       tasks.set(id, task)
       ordered.push(task)
