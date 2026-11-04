@@ -43,7 +43,7 @@ describe('test execution ownership', () => {
     expect(started).toBe(false)
   })
 
-  it('delivers cancellation to a session installed after test timeout', async () => {
+  it.each([false, true])('delivers cancellation to a session installed after test timeout (custom stop: %s)', async (customStop) => {
     const execution = createTestExecution()
     const controller = new AbortController()
     execution.begin(controller.signal)
@@ -61,7 +61,12 @@ describe('test execution ownership', () => {
         }
         process.once('SIGTERM', stop)
       })
-    })
+    }, customStop
+      ? () => {
+          install()
+          process.emit('SIGTERM')
+        }
+      : undefined)
     controller.abort()
     const rejected = expect(pending).rejects.toBe(controller.signal.reason)
     onTestFinished(async () => {

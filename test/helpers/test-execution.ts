@@ -35,7 +35,7 @@ export function createTestExecution(): TestExecution {
   const listenerAdded = (event: string | symbol): void => {
     if (event === 'SIGTERM') {
       queueMicrotask(() => {
-        if ((signal.aborted || finished) && [...running.values()].includes(terminate))
+        if ((signal.aborted || finished) && running.size)
           cancel()
       })
     }
