@@ -16,6 +16,8 @@ import { createMatrixRuntime } from '../../src/runtime/snapshot.js'
 import { generateMatrixTypes } from '../../src/typegen/generate.js'
 import { MatrixUnplugin } from '../../src/unplugin/index.js'
 import { createTestExecution } from '../helpers/test-execution.js'
+import { releaseResources } from '../helpers/test-resources.js'
+import { cleanupTimeout, processTestTimeout } from '../helpers/timeouts.js'
 
 const directories: string[] = []
 const executions = createTestExecution()
@@ -29,9 +31,8 @@ afterEach(async () => {
   finally {
     vi.unstubAllEnvs()
   }
-  for (const directory of owned)
-    await rm(directory, { recursive: true, force: true })
-}, 60_000)
+  await releaseResources(owned.map(directory => () => rm(directory, { recursive: true, force: true })))
+}, cleanupTimeout)
 
 async function workspace(): Promise<string> {
   const cwd = await mkdtemp(path.join(os.tmpdir(), 'matrix-env-schema-'))
@@ -84,7 +85,7 @@ async function buildVite(cwd: string, source: string, options: MatrixUnpluginOpt
 }
 
 describe('root envSchema', () => {
-  it('resolves defaults and final overrides, preserving runtime types and raw env strings', async () => {
+  it('resolves defaults and final overrides, preserving runtime types and raw env strings', { timeout: processTestTimeout }, async () => {
     const cwd = await workspace()
     expect(plan(config(), cwd).tasks[0]!.env.VITE_LIMIT).toBe('5')
     const execution = plan(config(), cwd, { VITE_ENABLED: 'false', VITE_LIMIT: '6.5', VITE_MODE: 'bundled', VITE_LEGACY: 'false' })

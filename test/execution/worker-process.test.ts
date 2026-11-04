@@ -5,10 +5,12 @@ import net from 'node:net'
 import { pathToFileURL } from 'node:url'
 import { execa } from 'execa'
 import path from 'pathe'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createProcessChannel } from '../../src/execution/channel.js'
 import { startWorker } from '../../src/execution/worker-process.js'
+import { processExists } from '../helpers/process-fixture.js'
 import { testResources } from '../helpers/test-resources.js'
+import { processTestTimeout } from '../helpers/timeouts.js'
 
 const channelModule = new URL('../../src/execution/channel.ts', import.meta.url).href
 const env = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined))
@@ -26,7 +28,9 @@ async function reply(worker: OwnedWorker, signal: AbortSignal): Promise<any[]> {
   }
 }
 
-describe('owned worker transport', { timeout: 30_000 }, () => {
+afterEach(() => vi.unstubAllEnvs())
+
+describe('owned worker transport', { timeout: processTestTimeout }, () => {
   it('keeps host workers from consuming the command coordinator stdin', async (ctx) => {
     const resources = await testResources(ctx.signal, 'matrix-worker-')
     const { root } = resources
@@ -66,7 +70,7 @@ describe('owned worker transport', { timeout: 30_000 }, () => {
     })
     const result = await resources.wait(command.child)
     expect(JSON.parse(result.stdout)).toEqual({ worker: '', coordinator: 'reserved for targets' })
-  }, 30_000)
+  })
 
   it('uses one request/cancel protocol and awaits process and channel disposal', async (ctx) => {
     const resources = await testResources(ctx.signal, 'matrix-worker-')
@@ -100,7 +104,7 @@ describe('owned worker transport', { timeout: 30_000 }, () => {
     await disposal
     await worker.result
     expect(worker.messages.connected).toBe(false)
-    expect(() => process.kill(message.pid, 0)).toThrow()
+    expect(processExists(message.pid)).toBe(false)
   })
 
   it('cancels during channel creation without launching user code', async (ctx) => {
@@ -140,7 +144,7 @@ describe('owned worker transport', { timeout: 30_000 }, () => {
       cancellation.abort(new Error('test timeout'))
     await expect(unanswered).rejects.toThrow(failure === 'exit' ? 'Worker exited before replying' : /abort/i)
     await resources.dispose()
-    expect(() => process.kill(pid, 0)).toThrow()
+    expect(processExists(pid)).toBe(false)
     expect(worker.messages.connected).toBe(false)
   })
 
@@ -162,22 +166,12 @@ describe('owned worker transport', { timeout: 30_000 }, () => {
     const longDirectory = path.join(root, '临时目录'.repeat(15))
     await mkdir(longDirectory)
     vi.stubEnv('TMPDIR', longDirectory)
-    try {
-      const channel = await resources.acquire(createProcessChannel, channel => channel.close())
-      const client = await resources.acquire(() => net.connect(channel.address), async (client) => {
-        client.destroy()
-      })
-      try {
-        await resources.wait(channel.connected)
-      }
-      finally {
-        client.destroy()
-        await channel.close()
-      }
-      await expect(access(channel.address)).rejects.toThrow()
-    }
-    finally {
-      vi.unstubAllEnvs()
-    }
+    const channel = await resources.acquire(createProcessChannel, channel => channel.close())
+    await resources.acquire(() => net.connect(channel.address), async (client) => {
+      client.destroy()
+    })
+    await resources.wait(channel.connected)
+    await resources.dispose()
+    await expect(access(channel.address)).rejects.toMatchObject({ code: 'ENOENT' })
   })
 })

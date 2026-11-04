@@ -10,7 +10,10 @@ import { MATRIX_ENV_SCHEMA_KEY, MATRIX_TYPE_CONTRACT_KEY } from '../../src/confi
 import { loadMatrixConfig } from '../../src/config/index.js'
 import { createExecutionPlan } from '../../src/execution/plan.js'
 import { findTypeHost } from '../../src/typegen/prepare.js'
+import { processExists } from '../helpers/process-fixture.js'
 import { createTestExecution } from '../helpers/test-execution.js'
+import { releaseResources } from '../helpers/test-resources.js'
+import { cleanupTimeout, fixtureReadyTimeout, workflowTestTimeout } from '../helpers/timeouts.js'
 
 const testExecution = createTestExecution()
 const runCli = (...args: Parameters<typeof executeCli>) => testExecution.run(() => executeCli(...args))
@@ -35,12 +38,12 @@ afterEach(async () => {
   }
   finally {
     vi.restoreAllMocks()
+    syncBuiltinESMExports()
     vi.unstubAllEnvs()
     process.chdir(previousCwd)
   }
-  for (const directory of owned)
-    await rm(directory, { recursive: true, force: true })
-}, 60_000)
+  await releaseResources(owned.map(directory => () => rm(directory, { recursive: true, force: true })))
+}, cleanupTimeout)
 
 async function temporaryWorkspace(): Promise<string> {
   const cwd = path.normalize(await realpath(await mkdtemp(path.join(os.tmpdir(), 'matrix host types-'))))
@@ -90,7 +93,7 @@ async function genericWorkspace(): Promise<string> {
 
 // Each product now resolves both host lifecycles in isolated processes.
 // Multi-product collection includes multiple real native host startups.
-describe('host-aware type preparation', { timeout: 60_000 }, () => {
+describe('host-aware type preparation', { timeout: workflowTestTimeout }, () => {
   it('generates types through CLI-injected context when the project has no envSchema', async () => {
     const project = await temporaryWorkspace()
     process.chdir(project)
@@ -134,7 +137,6 @@ describe('host-aware type preparation', { timeout: 60_000 }, () => {
     ['readdir', 'SIGINT', 130],
     ['writeFile', 'SIGTERM', 143],
   ] as const)('cancels during generic %s without overwriting declarations or starting later projects', async (boundary, signal, exitCode) => {
-    const previousExitCode = process.exitCode
     const listeners = { SIGINT: process.listenerCount('SIGINT'), SIGTERM: process.listenerCount('SIGTERM') }
     const cwd = await genericWorkspace()
     const root = path.join(cwd, 'apps/web')
@@ -143,7 +145,7 @@ describe('host-aware type preparation', { timeout: 60_000 }, () => {
     await writeFile(output, '// existing declaration')
     let interrupted = false
     const original = fs[boundary]
-    const operation = vi.spyOn(fs, boundary).mockImplementation(async (...args: unknown[]) => {
+    vi.spyOn(fs, boundary).mockImplementation(async (...args: unknown[]) => {
       const result = await Reflect.apply(original, fs, args)
       const location = path.normalize(String(args[0]))
       const matches = boundary === 'readdir' ? location === root : location.startsWith(`${output}.`)
@@ -154,25 +156,18 @@ describe('host-aware type preparation', { timeout: 60_000 }, () => {
       return result
     })
     syncBuiltinESMExports()
-    try {
-      await runCli(['prepare', 'app'])
-      expect(interrupted).toBe(true)
-      expect(process.exitCode).toBe(exitCode)
-      const summaries = messages.filter(message => message.startsWith('Execution '))
-      expect(summaries).toHaveLength(1)
-      expect(summaries[0]).toContain(`Execution cancelled (${signal})`)
-      expect(summaries[0]).not.toContain('Failure:')
-      expect(await readFile(output, 'utf8')).toBe('// existing declaration')
-      expect(await fs.readdir(path.dirname(output))).toEqual(['matrix-runtime.d.ts'])
-      await expect(access(path.join(cwd, 'apps/next/.matrix'))).rejects.toMatchObject({ code: 'ENOENT' })
-      expect(process.listenerCount('SIGINT')).toBe(listeners.SIGINT)
-      expect(process.listenerCount('SIGTERM')).toBe(listeners.SIGTERM)
-    }
-    finally {
-      operation.mockRestore()
-      syncBuiltinESMExports()
-      process.exitCode = previousExitCode
-    }
+    await runCli(['prepare', 'app'])
+    expect(interrupted).toBe(true)
+    expect(process.exitCode).toBe(exitCode)
+    const summaries = messages.filter(message => message.startsWith('Execution '))
+    expect(summaries).toHaveLength(1)
+    expect(summaries[0]).toContain(`Execution cancelled (${signal})`)
+    expect(summaries[0]).not.toContain('Failure:')
+    expect(await readFile(output, 'utf8')).toBe('// existing declaration')
+    expect(await fs.readdir(path.dirname(output))).toEqual(['matrix-runtime.d.ts'])
+    await expect(access(path.join(cwd, 'apps/next/.matrix'))).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(process.listenerCount('SIGINT')).toBe(listeners.SIGINT)
+    expect(process.listenerCount('SIGTERM')).toBe(listeners.SIGTERM)
   })
 
   it('identifies the project and affected task for declaration write failures while retaining earlier outputs', async () => {
@@ -190,7 +185,6 @@ describe('host-aware type preparation', { timeout: 60_000 }, () => {
   })
 
   it.each(['prepare', 'build'])('summarizes %s SIGINT cancellation only after the type worker has exited', async (command) => {
-    const previousExitCode = process.exitCode
     const cwd = await workspace([
       'import { writeFileSync } from "node:fs";',
       'export default async () => {',
@@ -199,33 +193,22 @@ describe('host-aware type preparation', { timeout: 60_000 }, () => {
       '  await new Promise(() => {});',
       '};',
     ].join(String.fromCharCode(10)))
-    let completed = false
-    const running = runCli([command, 'alpha']).finally(() => {
-      completed = true
-    })
+    const running = runCli([command, 'alpha'])
     void running.catch(() => undefined)
-    try {
-      let pid = 0
-      await vi.waitFor(async () => {
-        pid = Number(await readFile(path.join(cwd, 'ready.pid'), 'utf8'))
-        expect(pid).toBeGreaterThan(0)
-      }, { timeout: 30_000 })
-      process.emit('SIGINT')
-      await running
-      expect(process.exitCode).toBe(130)
-      expect(() => process.kill(pid, 0)).toThrow()
-      const summaries = messages.filter(message => message.startsWith('Execution '))
-      expect(summaries).toHaveLength(1)
-      expect(summaries[0]).toContain('Execution cancelled (SIGINT)')
-      expect(summaries[0]).not.toContain('Failure:')
-      await expect(access(path.join(cwd, '.matrix/types/matrix-runtime.d.ts'))).rejects.toMatchObject({ code: 'ENOENT' })
-    }
-    finally {
-      if (!completed)
-        process.emit('SIGINT')
-      await running
-      process.exitCode = previousExitCode
-    }
+    let pid = 0
+    await vi.waitFor(async () => {
+      pid = Number(await readFile(path.join(cwd, 'ready.pid'), 'utf8'))
+      expect(pid).toBeGreaterThan(0)
+    }, { timeout: fixtureReadyTimeout })
+    process.emit('SIGINT')
+    await running
+    expect(process.exitCode).toBe(130)
+    expect(processExists(pid)).toBe(false)
+    const summaries = messages.filter(message => message.startsWith('Execution '))
+    expect(summaries).toHaveLength(1)
+    expect(summaries[0]).toContain('Execution cancelled (SIGINT)')
+    expect(summaries[0]).not.toContain('Failure:')
+    await expect(access(path.join(cwd, '.matrix/types/matrix-runtime.d.ts'))).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
   it('preserves generic declarations when a project adds Vite without the Matrix plugin', async () => {

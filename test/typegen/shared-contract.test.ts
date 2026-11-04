@@ -7,6 +7,8 @@ import path from 'pathe'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { runCli as executeCli } from '../../src/cli/index.js'
 import { createTestExecution } from '../helpers/test-execution.js'
+import { releaseResources } from '../helpers/test-resources.js'
+import { cleanupTimeout, workflowTestTimeout } from '../helpers/timeouts.js'
 
 const testExecution = createTestExecution()
 const runCli = (...args: Parameters<typeof executeCli>) => testExecution.run(() => executeCli(...args))
@@ -31,9 +33,8 @@ afterEach(async () => {
     vi.unstubAllEnvs()
     process.chdir(originalCwd)
   }
-  for (const directory of owned)
-    await rm(directory, { recursive: true, force: true })
-}, 60_000)
+  await releaseResources(owned.map(directory => () => rm(directory, { recursive: true, force: true })))
+}, cleanupTimeout)
 
 async function configure(cwd: string, products = ['alpha', 'beta'], fields = true, admin = false): Promise<void> {
   await writeFile(path.join(cwd, 'matrix.config.mjs'), `export default ${JSON.stringify({
@@ -155,7 +156,7 @@ function isolatedCli(cwd: string, args: string[], instrumentation = '') {
   return Object.defineProperty(running, 'child', { get: () => child }) as typeof running & { child: typeof child }
 }
 
-describe('shared project declaration contract', { timeout: 120_000 }, () => {
+describe('shared project declaration contract', { timeout: workflowTestTimeout }, () => {
   it('selects legacy aliases from the active product within the shared prepared fields', async () => {
     const cwd = await workspace()
     await writeFile(path.join(cwd, 'matrix.config.mjs'), `export default ${JSON.stringify({

@@ -5,13 +5,14 @@ import path from 'pathe'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { runCli as executeCli } from '../../src/cli/index.js'
 import { createTestExecution } from '../helpers/test-execution.js'
+import { cleanupTimeout, processTestTimeout } from '../helpers/timeouts.js'
 
 const executions = createTestExecution()
 const runCli = (args: string[]) => executions.run(() => executeCli(args))
 beforeEach(context => executions.begin(context.signal))
-afterEach(() => executions.cleanup(), 60_000)
+afterEach(() => executions.cleanup(), cleanupTimeout)
 
-describe('cli entry', { timeout: 30_000 }, () => {
+describe('cli entry', { timeout: processTestTimeout }, () => {
   it('prints help without loading a workspace configuration', async () => {
     const output: string[] = []
     const originalLog = console.log

@@ -5,6 +5,8 @@ import path from 'pathe'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { runCli as executeCli } from '../../src/cli/index.js'
 import { createTestExecution } from '../helpers/test-execution.js'
+import { releaseResources } from '../helpers/test-resources.js'
+import { cleanupTimeout, workflowTestTimeout } from '../helpers/timeouts.js'
 
 const testExecution = createTestExecution()
 const runCli = (...args: Parameters<typeof executeCli>) => testExecution.run(() => executeCli(...args))
@@ -22,11 +24,10 @@ afterEach(async () => {
   finally {
     process.chdir(originalCwd)
   }
-  for (const directory of owned)
-    await rm(directory, { recursive: true, force: true })
-}, 60_000)
+  await releaseResources(owned.map(directory => () => rm(directory, { recursive: true, force: true })))
+}, cleanupTimeout)
 
-describe('deferred preparation contracts', { timeout: 120_000 }, () => {
+describe('deferred preparation contracts', { timeout: workflowTestTimeout }, () => {
   it.each([
     { initialHost: false, sharedOwner: false },
     { initialHost: true, sharedOwner: false },

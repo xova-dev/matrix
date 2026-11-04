@@ -10,6 +10,8 @@ import { withExecutionLock } from '../../src/execution/lock.js'
 import { resolvePreparedTypeDeclaration } from '../../src/typegen/coordination.js'
 import { TypePreparationCancelled } from '../../src/typegen/prepare.js'
 import { resolveExistingPath } from '../../src/utils/path.js'
+import { releaseResources, testResources } from '../helpers/test-resources.js'
+import { fixtureReadyTimeout, processTestTimeout } from '../helpers/timeouts.js'
 
 const waiting = vi.hoisted(() => ({ notify: () => {} }))
 
@@ -459,14 +461,15 @@ describe('type preparation coordination', () => {
   })
 
   it('recovers a killed process owner and serializes competing successors', async ({ signal }) => {
-    const cwd = await mkdtemp(path.join(os.tmpdir(), 'matrix-dead-lock-'))
+    const resources = await testResources(signal, 'matrix-dead-lock-')
+    const cwd = resources.root
     const identity = await resolveExistingPath(cwd)
     const lock = path.join(os.tmpdir(), `matrix-types-${createHash('sha256').update(identity).digest('hex')}.lock`)
     const lockModule = new URL('../../src/execution/lock.ts', import.meta.url).href
     const controller = new AbortController()
     const successors: Promise<number>[] = []
-    signal.throwIfAborted()
-    const child = spawn(process.execPath, ['--experimental-transform-types', '--input-type=module', '-e', `
+    const { child, exited } = await resources.acquire(() => {
+      const child = spawn(process.execPath, ['--experimental-transform-types', '--input-type=module', '-e', `
       import { registerHooks } from 'node:module';
       registerHooks({ resolve(specifier, context, next) {
         try { return next(specifier, context); }
@@ -480,42 +483,40 @@ describe('type preparation coordination', () => {
         process.stdout.write('locked');
         await new Promise(() => { setInterval(() => {}, 1000); });
       });
-    `], { stdio: ['ignore', 'pipe', 'pipe'] })
-    const exited = once(child, 'close')
-    const cancel = () => {
-      child.kill('SIGKILL')
-    }
-    signal.addEventListener('abort', cancel, { once: true })
-    try {
-      await Promise.race([
-        once(child.stdout!, 'data'),
-        exited.then(() => { throw new Error('Lock owner exited before acquiring its lock') }),
-      ])
-      child.kill('SIGKILL')
-      await exited
-      let active = 0
-      let maximum = 0
-      successors.push(...[1, 2, 3].map(value => withExecutionLock(cwd, async () => {
-        active++
-        maximum = Math.max(maximum, active)
-        await setImmediate()
-        active--
-        return value
-      }, AbortSignal.any([signal, controller.signal, AbortSignal.timeout(30_000)]))))
-      expect(await Promise.all(successors)).toEqual([1, 2, 3])
-      expect(maximum).toBe(1)
-      // Normal release still permits a later invocation to acquire the lock.
-      await expect(withExecutionLock(cwd, async () => 'released')).resolves.toBe('released')
-    }
-    finally {
+      `], { stdio: ['ignore', 'pipe', 'pipe'] })
+      const exited = once(child, 'close')
+      void exited.catch(() => undefined)
+      return { child, exited }
+    }, async ({ child, exited }) => {
       controller.abort()
-      signal.removeEventListener('abort', cancel)
-      if (child.exitCode === null && child.signalCode === null)
-        child.kill('SIGKILL')
-      await exited
-      await Promise.allSettled(successors)
+      await releaseResources([
+        async () => {
+          if (child.exitCode === null && child.signalCode === null)
+            child.kill('SIGKILL')
+          await exited
+        },
+        async () => { await Promise.allSettled(successors) },
+      ])
       await rm(lock, { recursive: true, force: true })
-      await rm(cwd, { recursive: true, force: true })
-    }
-  }, 60_000)
+    })
+    await resources.wait(Promise.race([
+      once(child.stdout!, 'data'),
+      exited.then(() => { throw new Error('Lock owner exited before acquiring its lock') }),
+    ]))
+    child.kill('SIGKILL')
+    await exited
+    let active = 0
+    let maximum = 0
+    successors.push(...[1, 2, 3].map(value => withExecutionLock(cwd, async () => {
+      active++
+      maximum = Math.max(maximum, active)
+      await setImmediate()
+      active--
+      return value
+    }, AbortSignal.any([resources.signal, controller.signal, AbortSignal.timeout(fixtureReadyTimeout)]))))
+    expect(await Promise.all(successors)).toEqual([1, 2, 3])
+    expect(maximum).toBe(1)
+    // Normal release still permits a later invocation to acquire the lock.
+    await expect(withExecutionLock(cwd, async () => 'released')).resolves.toBe('released')
+  }, processTestTimeout)
 })

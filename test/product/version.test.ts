@@ -9,6 +9,8 @@ import { runExecutionPlan as executePlan } from '../../src/execution/exec.js'
 import { createExecutionPlan } from '../../src/execution/plan.js'
 import { createMatrixRuntime } from '../../src/runtime/snapshot.js'
 import { createTestExecution } from '../helpers/test-execution.js'
+import { releaseResources } from '../helpers/test-resources.js'
+import { cleanupTimeout, processTestTimeout } from '../helpers/timeouts.js'
 
 const directories: string[] = []
 const executions = createTestExecution()
@@ -23,9 +25,8 @@ afterEach(async () => {
   finally {
     vi.unstubAllEnvs()
   }
-  for (const directory of owned)
-    await rm(directory, { recursive: true, force: true })
-}, 60_000)
+  await releaseResources(owned.map(directory => () => rm(directory, { recursive: true, force: true })))
+}, cleanupTimeout)
 
 async function workspace(): Promise<string> {
   const cwd = await mkdtemp(path.join(os.tmpdir(), 'matrix-version-'))
@@ -120,7 +121,7 @@ describe('product release versions', () => {
     expect(plan(raw, cwd).tasks[0]!.version).toBe('2.0.0')
   })
 
-  it('uses independent product versions for child processes and artifacts of a shared project', async () => {
+  it('uses independent product versions for child processes and artifacts of a shared project', { timeout: processTestTimeout }, async () => {
     const cwd = await workspace()
     const packageContents = '{"name":"shared-shell","version":"1.0.0"}\n'
     await writeFile(path.join(cwd, 'package.json'), packageContents)

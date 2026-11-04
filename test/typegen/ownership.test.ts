@@ -8,6 +8,8 @@ import ts from 'typescript'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { runCli as executeCli } from '../../src/cli/index.js'
 import { createTestExecution } from '../helpers/test-execution.js'
+import { releaseResources } from '../helpers/test-resources.js'
+import { cleanupTimeout, workflowTestTimeout } from '../helpers/timeouts.js'
 
 const executions = createTestExecution()
 const runCli = (...args: Parameters<typeof executeCli>) => executions.run(() => executeCli(...args))
@@ -25,9 +27,8 @@ afterEach(async () => {
   finally {
     process.chdir(previousCwd)
   }
-  for (const directory of owned)
-    await rm(directory, { recursive: true, force: true })
-}, 60_000)
+  await releaseResources(owned.map(directory => () => rm(directory, { recursive: true, force: true })))
+}, cleanupTimeout)
 
 async function workspace(): Promise<string> {
   const cwd = await mkdtemp(path.join(os.tmpdir(), 'matrix-ownership-'))
@@ -41,7 +42,7 @@ async function workspace(): Promise<string> {
 
 // Shared-owner cases run multiple complete prepare/build invocations, including
 // native supervisor startup for every host on Windows.
-describe('prepared declaration ownership', { timeout: 60_000 }, () => {
+describe('prepared declaration ownership', { timeout: workflowTestTimeout }, () => {
   it.each(['same', 'ancestor', 'nested'])('excludes native %s roots from explicit and automatic collection without reading their host configs', async (location) => {
     const cwd = await workspace()
     const nativeRoot = location === 'same' ? 'app' : location === 'ancestor' ? '.' : 'app/native'

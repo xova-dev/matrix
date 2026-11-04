@@ -108,6 +108,37 @@ describe('test execution ownership', () => {
     await rejected
   })
 
+  it('releases every execution gate on timeout even when one stop callback fails', async () => {
+    const execution = createTestExecution()
+    const controller = new AbortController()
+    execution.begin(controller.signal)
+    const failure = new Error('stop callback failed')
+    const released: number[] = []
+    const running = [0, 1].map((index) => {
+      let release!: () => void
+      return execution.run(async () => {
+        await new Promise<void>((resolve) => {
+          release = resolve
+        })
+        released.push(index)
+      }, () => {
+        release()
+        if (index === 0)
+          throw failure
+      })
+    })
+    onTestFinished(() => execution.cleanup().catch((error) => {
+      if (error !== failure)
+        throw error
+    }))
+    const reason = new Error('test timeout')
+    const rejected = running.map(pending => expect(pending).rejects.toBe(reason))
+    controller.abort(reason)
+    await expect(execution.cleanup()).rejects.toBe(failure)
+    await Promise.all(rejected)
+    expect([...released].sort()).toEqual([0, 1])
+  })
+
   it('restores global state after failed cleanup without deleting the uncertain fixture', async () => {
     const root = await temporaryDirectory('matrix-execution-restoration-')
     const previousCwd = process.cwd()

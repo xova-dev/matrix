@@ -4,6 +4,7 @@ import { setTimeout as delay } from 'node:timers/promises'
 import path from 'pathe'
 import { onTestFinished } from 'vitest'
 import { settleAll } from '../../src/utils/errors.js'
+import { cleanupTimeout, fixtureReadyTimeout } from './timeouts.js'
 
 export { settleAll as releaseResources } from '../../src/utils/errors.js'
 
@@ -41,7 +42,7 @@ export async function testResources(testSignal: AbortSignal, prefix: string): Pr
     testSignal.removeEventListener('abort', cancel)
     await dispose()
     await rm(await directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
-  }, 60_000)
+  }, cleanupTimeout)
   if (testSignal.aborted)
     cancel()
   const root = await directory
@@ -70,7 +71,7 @@ export async function testResources(testSignal: AbortSignal, prefix: string): Pr
     signal: controller.signal,
     wait,
     dispose,
-    async poll<T>(check: () => T | Promise<T>, timeout = 15_000): Promise<T> {
+    async poll<T>(check: () => T | Promise<T>, timeout = fixtureReadyTimeout): Promise<T> {
       const deadline = Date.now() + timeout
       while (true) {
         controller.signal.throwIfAborted()

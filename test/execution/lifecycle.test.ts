@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { once } from 'node:events'
+import { writeFileSync } from 'node:fs'
 import { access, mkdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import net from 'node:net'
 import os from 'node:os'
@@ -10,13 +11,13 @@ import path from 'pathe'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { runCli as executeCli } from '../../src/cli/index.js'
 import { withCleanup } from '../../src/utils/errors.js'
-import { releaseRecordedProcesses } from '../helpers/process-fixture.js'
+import { processExists, releaseRecordedProcesses } from '../helpers/process-fixture.js'
 import { temporaryDirectory } from '../helpers/temporary-directory.js'
 import { createTestExecution } from '../helpers/test-execution.js'
-import { testResources } from '../helpers/test-resources.js'
+import { releaseResources, testResources } from '../helpers/test-resources.js'
+import { cleanupTimeout, fixtureReadyTimeout, workflowTestTimeout } from '../helpers/timeouts.js'
 
 const originalCwd = process.cwd()
-const originalExitCode = process.exitCode
 const execute = promisify(execFile)
 const cli = new URL('../../src/cli/index.ts', import.meta.url).href
 const plugin = fileURLToPath(new URL('../../src/unplugin/vite.ts', import.meta.url))
@@ -31,13 +32,12 @@ afterEach(async () => {
   }
   finally {
     process.chdir(originalCwd)
-    process.exitCode = originalExitCode
     vi.unstubAllEnvs()
   }
-}, 60_000)
+}, cleanupTimeout)
 
-async function workspace(): Promise<string> {
-  const cwd = await temporaryDirectory('matrix-context-lifecycle-', () => executions.cleanup())
+async function workspace(directory?: string): Promise<string> {
+  const cwd = directory ?? await temporaryDirectory('matrix-context-lifecycle-', () => executions.cleanup())
   await symlink(fileURLToPath(new URL('../../node_modules', import.meta.url)), path.join(cwd, 'node_modules'), 'junction')
   await writeFile(path.join(cwd, 'package.json'), '{"type":"module","version":"1.0.0"}')
   await writeFile(path.join(cwd, 'matrix.config.mjs'), `export default ${JSON.stringify({
@@ -107,14 +107,9 @@ function isolated(cwd: string, args: string[], observeContention = false) {
     const { runCli } = await import(${JSON.stringify(cli)});
     await runCli(${JSON.stringify(args)});
   `
-  let child: ReturnType<typeof execute> | undefined
-  const running = executions.run(() => {
-    child = execute(process.execPath, ['--experimental-transform-types', '--input-type=module', '-e', loader], { cwd, timeout: 90_000 })
-    return child
-  }, () => {
-    child?.child.kill('SIGTERM')
-  })
-  return Object.defineProperty(running, 'child', { get: () => child?.child }) as ReturnType<typeof execute>
+  // Callers acquire this subprocess through testResources before it can start;
+  // in-process CLI execution and isolated-process ownership stay separate.
+  return execute(process.execPath, ['--experimental-transform-types', '--input-type=module', '-e', loader], { cwd, timeout: 90_000 })
 }
 
 async function nativeWorkspace(config: object, directory?: string): Promise<string> {
@@ -127,7 +122,7 @@ async function nativeWorkspace(config: object, directory?: string): Promise<stri
 
 // Real host collection starts several owned processes per product/context.
 // Keep one bounded integration budget that also includes native Windows startup.
-describe('context preparation lifecycle', { timeout: 120_000 }, () => {
+describe('context preparation lifecycle', { timeout: workflowTestTimeout }, () => {
   it('keeps explicit native preparation contexts stable when preparation changes the package version', async () => {
     const cwd = await nativeWorkspace({
       projects: { app: { typegen: false, prepare: 'node prepare.mjs', targets: { build: 'node -e "0"' } } },
@@ -240,7 +235,7 @@ describe('context preparation lifecycle', { timeout: 120_000 }, () => {
     `)
     for (const product of ['alpha', 'beta', 'alpha'])
       await runCli(['build', product])
-  }, 60_000)
+  })
 
   it.skipIf(process.platform !== 'win32')('drains the Windows job after the CLI coordinator is killed', async (ctx) => {
     const resources = await testResources(ctx.signal, 'matrix-native-owner-death-')
@@ -273,10 +268,10 @@ describe('context preparation lifecycle', { timeout: 120_000 }, () => {
       await rm(path.join(os.tmpdir(), `matrix-types-${createHash('sha256').update(identity).digest('hex')}.lock`), { recursive: true, force: true })
     })
     await withCleanup(async () => {
-      await vi.waitFor(() => access(path.join(cwd, 'descendant.pid')), { timeout: 15_000 })
+      await resources.poll(() => access(path.join(cwd, 'descendant.pid')))
       const pid = Number(await readFile(path.join(cwd, 'descendant.pid'), 'utf8'))
       execution.child.kill('SIGKILL')
-      await vi.waitFor(() => expect(() => process.kill(pid, 0)).toThrow(), { timeout: 15_000 })
+      await vi.waitFor(() => expect(processExists(pid)).toBe(false), { timeout: fixtureReadyTimeout })
     }, () => resources.dispose())
   })
 
@@ -413,20 +408,21 @@ describe('context preparation lifecycle', { timeout: 120_000 }, () => {
     `)
     if (!cancelDuringCleanup)
       await writeFile(path.join(cwd, 'release-cleanup'), '')
-    const execution = runCli(['build', 'app'])
-    void execution.catch(() => undefined)
-    try {
-      if (cancelDuringCleanup) {
-        await vi.waitFor(() => access(path.join(cwd, 'cleanup-started')), { timeout: 5_000 })
-        process.emit('SIGINT')
-        await writeFile(path.join(cwd, 'release-cleanup'), '')
+    const execution = executions.run(() => executeCli(['build', 'app']), () => {
+      try {
+        writeFileSync(path.join(cwd, 'release-cleanup'), '')
       }
-      await execution
-    }
-    finally {
+      finally {
+        process.emit('SIGTERM')
+      }
+    })
+    void execution.catch(() => undefined)
+    if (cancelDuringCleanup) {
+      await vi.waitFor(() => access(path.join(cwd, 'cleanup-started')), { timeout: fixtureReadyTimeout })
+      process.emit('SIGINT')
       await writeFile(path.join(cwd, 'release-cleanup'), '')
-      await execution.catch(() => undefined)
     }
+    await execution
     expect(await readFile(path.join(cwd, 'descendant-stopped'), 'utf8')).toBe('yes')
   })
 
@@ -505,7 +501,7 @@ describe('context preparation lifecycle', { timeout: 120_000 }, () => {
     const execution = runCli(['prepare', 'alpha'])
     void execution.catch(() => undefined)
     if (outcome === 'cancel') {
-      await vi.waitFor(() => access(path.join(cwd, 'watcher-ready')), { timeout: 5_000 })
+      await vi.waitFor(() => access(path.join(cwd, 'watcher-ready')), { timeout: fixtureReadyTimeout })
       process.emit('SIGINT')
     }
     if (outcome === 'failure')
@@ -514,7 +510,7 @@ describe('context preparation lifecycle', { timeout: 120_000 }, () => {
       await execution
     if (process.platform === 'win32') {
       const pid = Number(await readFile(path.join(cwd, 'watcher.pid'), 'utf8'))
-      expect(() => process.kill(pid, 0)).toThrow()
+      expect(processExists(pid)).toBe(false)
     }
     else {
       const observed = JSON.parse(await readFile(path.join(cwd, 'watcher-stopped'), 'utf8'))
@@ -522,11 +518,12 @@ describe('context preparation lifecycle', { timeout: 120_000 }, () => {
     }
   })
 
-  it.skipIf(process.platform === 'win32')('refuses to reclaim a dead CLI lock while its target can still consume product inputs', async () => {
+  it.skipIf(process.platform === 'win32')('refuses to reclaim a dead CLI lock while its target can still consume product inputs', async (ctx) => {
+    const resources = await testResources(ctx.signal, 'matrix-dead-cli-')
     const cwd = await nativeWorkspace({
       projects: { web: { typegen: false, prepare: 'node setup.mjs', targets: { build: 'node build.mjs' } } },
       products: { alpha: { variants: { web: 'web' } }, beta: { variants: { web: 'web' } } },
-    })
+    }, resources.root)
     await writeFile(path.join(cwd, 'setup.mjs'), 'import { writeFileSync } from "node:fs"; writeFileSync("generated", process.env.MATRIX_PRODUCT_KEY)')
     await writeFile(path.join(cwd, 'build.mjs'), `
       import { existsSync, writeFileSync, readFileSync } from 'node:fs';
@@ -537,24 +534,41 @@ describe('context preparation lifecycle', { timeout: 120_000 }, () => {
         writeFileSync('observed', readFileSync('generated'));
       }
     `)
-    const owner = isolated(cwd, ['build', 'alpha'])
-    void owner.catch(() => undefined)
-    try {
-      await vi.waitFor(() => access(path.join(cwd, 'alpha.pid')), { timeout: 10_000 })
-      const exited = once(owner.child, 'exit')
-      owner.child.kill('SIGKILL')
-      await exited
-      process.kill(Number(await readFile(path.join(cwd, 'alpha.pid'), 'utf8')), 0)
-      await expect(isolated(cwd, ['build', 'beta'])).rejects.toThrow('Refusing to recover')
-      expect(await readFile(path.join(cwd, 'generated'), 'utf8')).toBe('alpha')
-    }
-    finally {
-      await writeFile(path.join(cwd, 'release-alpha'), '')
-      await owner.catch(() => undefined)
-      // This test owns both the terminated coordinator and its bounded child.
+    const { owner } = await resources.acquire(() => {
+      const owner = isolated(cwd, ['build', 'alpha'])
+      void owner.catch(() => undefined)
+      return { owner }
+    }, async ({ owner }) => {
+      // The dead coordinator may leave inherited pipes open in its target.
+      // Stop both independently before awaiting close or deleting their lock.
+      await releaseResources([
+        async () => {
+          owner.child.kill('SIGKILL')
+          await owner.catch(() => undefined)
+        },
+        () => releaseRecordedProcesses([path.join(cwd, 'alpha.pid')]),
+      ])
       const identity = await realpath(cwd)
       await rm(path.join(os.tmpdir(), `matrix-types-${createHash('sha256').update(identity).digest('hex')}.lock`), { recursive: true, force: true })
-    }
+    })
+    await resources.poll(() => access(path.join(cwd, 'alpha.pid')))
+    const exited = once(owner.child, 'exit')
+    owner.child.kill('SIGKILL')
+    await exited
+    expect(processExists(Number(await readFile(path.join(cwd, 'alpha.pid'), 'utf8')))).toBe(true)
+    const { successor } = await resources.acquire(() => {
+      const successor = isolated(cwd, ['build', 'beta'])
+      void successor.catch(() => undefined)
+      return { successor }
+    }, async ({ successor }) => {
+      successor.child.kill('SIGTERM')
+      await successor.catch(() => undefined)
+    })
+    await expect(successor).rejects.toThrow('Refusing to recover')
+    expect(await readFile(path.join(cwd, 'generated'), 'utf8')).toBe('alpha')
+    await writeFile(path.join(cwd, 'release-alpha'), '')
+    await owner.catch(() => undefined)
+    await resources.dispose()
     expect(await readFile(path.join(cwd, 'observed'), 'utf8')).toBe('alpha')
   })
 
@@ -589,8 +603,9 @@ describe('context preparation lifecycle', { timeout: 120_000 }, () => {
     expect(await readFile(output, 'utf8')).toBe(previous)
   })
 
-  it('holds ownership until the actual target finishes, across independent CLI processes', async () => {
-    const cwd = await workspace()
+  it('holds ownership until the actual target finishes, across independent CLI processes', async (ctx) => {
+    const resources = await testResources(ctx.signal, 'matrix-independent-cli-')
+    const cwd = await workspace(resources.root)
     await writeFile(path.join(cwd, 'build.mjs'), `
       import assert from 'node:assert/strict';
       import { existsSync, readFileSync, writeFileSync } from 'node:fs';
@@ -602,18 +617,26 @@ describe('context preparation lifecycle', { timeout: 120_000 }, () => {
       }
       assert.deepEqual(JSON.parse(readFileSync('generated.json')), context());
     `)
-    const first = isolated(cwd, ['build', 'alpha'])
-    let second: ReturnType<typeof isolated> | undefined
-    try {
-      await vi.waitFor(() => access(path.join(cwd, 'target-ready')), { timeout: 45_000 })
-      second = isolated(cwd, ['build', 'beta'], true)
-      await vi.waitFor(() => access(path.join(cwd, 'lock-contended')), { timeout: 10_000 })
-      expect(JSON.parse(await readFile(path.join(cwd, 'generated.json'), 'utf8')).MATRIX_PRODUCT_KEY).toBe('alpha')
-    }
-    finally {
-      await writeFile(path.join(cwd, 'release-target'), '')
-      await Promise.all([first, second])
-    }
+    const start = (product: string, observeContention = false) => resources.acquire(() => {
+      const child = isolated(cwd, ['build', product], observeContention)
+      void child.catch(() => undefined)
+      return { child }
+    }, async ({ child }) => {
+      await withCleanup(
+        () => writeFile(path.join(cwd, 'release-target'), ''),
+        async () => {
+          child.child.kill('SIGTERM')
+          await child.catch(() => undefined)
+        },
+      )
+    })
+    const { child: first } = await start('alpha')
+    await resources.poll(() => access(path.join(cwd, 'target-ready')), 45_000)
+    const { child: second } = await start('beta', true)
+    await resources.poll(() => access(path.join(cwd, 'lock-contended')))
+    expect(JSON.parse(await readFile(path.join(cwd, 'generated.json'), 'utf8')).MATRIX_PRODUCT_KEY).toBe('alpha')
+    await writeFile(path.join(cwd, 'release-target'), '')
+    await Promise.all([first, second])
     expect(JSON.parse(await readFile(path.join(cwd, 'generated.json'), 'utf8')).MATRIX_PRODUCT_KEY).toBe('beta')
   })
 

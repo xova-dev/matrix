@@ -63,11 +63,22 @@ Quality and compatibility jobs install the workspace, including example type/con
 
 Vitest retains its default worker concurrency and per-file isolation. Compare the same heavy files with `pnpm exec vitest run <files> --isolate`, then repeat with `--maxWorkers 2` or `--maxWorkers 1` in alternating order. Keep the pool, test cases and dependencies unchanged and run comparisons sequentially. Lower concurrency must show a repeatable benefit on the target runner before adoption; local macOS timings do not establish hosted performance.
 
-Real execution and preparation suites use a 60-second integration budget, including
-process-container startup and disposal. Windows PowerShell/.NET cold startup is
-part of that budget, not a five-second performance contract. Explicit readiness
-and cancellation deadlines remain separate behavioral assertions; the global
-Vitest timeout and worker concurrency are unchanged.
+Lifecycle tests declare runner budgets from `helpers/timeouts.ts`:
+
+| Scope                                              | Budget                        | Purpose                                                  |
+| -------------------------------------------------- | ----------------------------- | -------------------------------------------------------- |
+| Pure logic and OS-boundary simulations             | Vitest default                | Fast state transitions and error contracts               |
+| Real process integration                           | `processTestTimeout` (60 s)   | Container startup, execution and disposal                |
+| Host/product workflows and repeated native batches | `workflowTestTimeout` (120 s) | Multiple owned processes and context visits              |
+| Cleanup hooks                                      | `cleanupTimeout` (60 s)       | Join work before restoring state or deleting directories |
+| Fixture startup observation                        | `fixtureReadyTimeout` (30 s)  | Await a ready marker without assuming warm startup       |
+
+Windows PowerShell/.NET cold startup belongs to the integration budget.
+Product readiness deadlines, shutdown grace periods, deliberately induced test
+timeouts and fault-injection watchdogs remain explicit in their tests. They are
+behavioral inputs, not aliases of runner budgets. Mixed logic suites opt only
+their real execution cases into the process budget. Global Vitest timeout,
+worker concurrency and retries are unchanged.
 
 ### Package profiles
 
@@ -460,8 +471,8 @@ below additionally covers multi-product switching and coordinator termination:
 }
 ```
 
-Real-process integration suites use bounded per-test budgets of 30–120 seconds.
-Limit file parallelism on small VMs to avoid oversubscribing native host processes.
+Real-process integration suites use the process/workflow budgets defined above.
+Local VM parallelism may be bounded explicitly; hosted CI retains default concurrency.
 The key ownership contracts and representative regressions are:
 
 - `execution/session.test.ts`: join every cleanup batch, preserve operation,
@@ -469,9 +480,14 @@ The key ownership contracts and representative regressions are:
   workspace lock when cleanup succeeds even if the operation failed.
 - `execution/exec.test.ts`: retain nonzero command results when tree cleanup also
   fails; real process inspection failures must still drain all controlled groups.
+  A shared graceful-shutdown fixture retains both finite-command and multiple-service
+  cases, checking that reporting follows every cleanup. Descendant tests observe
+  startup and actual process state instead of waiting for a delayed side effect.
 - `helpers/test-execution.test.ts`: cancel in-process CLI calls, including late
   signal-handler registration. After executions settle, restore global state
   even if cleanup reports failure; do not delete uncertain fixture directories.
+  Stop callbacks release test gates even after timeout, and one callback failure
+  must not prevent other executions from draining.
 - `helpers/test-resources.test.ts`: register disposal before acquisition settles
   and join it before directory deletion. The parent owns an isolated runner's
   temporary parent directory before launch, so cancellation before any receipt
@@ -479,13 +495,24 @@ The key ownership contracts and representative regressions are:
   cancellation before/after receipt exercise this boundary. POSIX shutdown
   assertions reject live workers but allow exited zombies awaiting reaping by
   their new parent; Windows assertions require the PID to disappear.
+- `helpers/process-fixture.test.ts`: a stopped orphan and a reaped direct child
+  are different assertions. `expectProcessStopped` rejects live consumers and
+  inspection failures; `processExists` retains permission failures rather than
+  mistaking them for disappearance. Direct worker tests still await their result
+  and require the PID to disappear. PID fallback is limited to recorded fixtures.
 - CLI-driven plugin generation belongs to `typegen/prepare-types.test.ts`, with
   the execution owner and native host budget; plugin-only tests do not launch
   an unmanaged CLI. `typegen/nuxt-preparation.test.ts` also checks cancellation
   after collection while a POSIX container is still draining.
 
-Manual gates release on assertion failure. Explicit cleanup outside the finish
-hook is reserved for ordering assertions and per-iteration disposal.
+`createTestExecution` owns in-process CLI/host calls and their cancellation;
+`testResources` owns isolated subprocesses, pending acquisitions and temporary
+roots. An isolated CLI is registered only with its resource scope, not also with
+the in-process owner. Both reuse the same failure aggregation rules.
+Gate release belongs to the execution's stop callback. Directory cleanup awaits
+the owner; independent directories are all attempted even if one removal fails.
+Explicit disposal outside finish hooks is reserved for ordering assertions and
+per-iteration disposal.
 Deferred preparation checks the required product/variant/target contexts and
 their generated inputs, including active-target restoration, rather than fixed
 host-evaluation counts.

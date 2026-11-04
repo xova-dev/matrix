@@ -10,6 +10,7 @@ import { quoteWindowsArgument, startWindowsJob } from '../../src/execution/windo
 import { withCleanup } from '../../src/utils/errors.js'
 import { processExists as alive, releaseRecordedProcesses } from '../helpers/process-fixture.js'
 import { releaseResources, testResources } from '../helpers/test-resources.js'
+import { processTestTimeout, workflowTestTimeout } from '../helpers/timeouts.js'
 
 const systemRoot = process.env.SystemRoot ?? process.env.windir ?? ''
 const powershell = path.join(systemRoot, 'System32/WindowsPowerShell/v1.0/powershell.exe')
@@ -75,13 +76,13 @@ async function nativeOwner(resources: Awaited<ReturnType<typeof testResources>>,
   }
 }
 
-describe('native fixture cleanup failures', () => {
+describe('native fixture cleanup failures', { timeout: processTestTimeout }, () => {
   afterEach(() => {
     // A timed-out test function may never reach its own finally.
     vi.useRealTimers()
   })
 
-  it.for(['kill', 'timeout', 'assertion'])('recovers the recorded PID after %s failure', { timeout: 45_000 }, async (failure, ctx) => {
+  it.for(['kill', 'timeout', 'assertion'])('recovers the recorded PID after %s failure', async (failure, ctx) => {
     const resources = await testResources(ctx.signal, 'matrix-owner-failure-')
     const { root } = resources
     const pidFile = path.join(root, 'pid')
@@ -113,12 +114,12 @@ describe('native fixture cleanup failures', () => {
       expect(error).toBe(killError)
     else
       expect(error.message).toBe('Native owner operation did not settle')
-    expect(alive(pid)).toBe(false)
     await resources.wait(child.result)
+    expect(alive(pid)).toBe(false)
   })
 })
 
-describe.skipIf(process.platform !== 'win32')('native Windows job ownership', () => {
+describe.skipIf(process.platform !== 'win32')('native Windows job ownership', { timeout: processTestTimeout }, () => {
   it('runs shell commands with quoted arguments in a Unicode directory', async (ctx) => {
     const resources = await testResources(ctx.signal, 'matrix shell 中文 ')
     const { root } = resources
@@ -129,7 +130,7 @@ describe.skipIf(process.platform !== 'win32')('native Windows job ownership', ()
     const child = await resources.acquire(() => startProcess({ command: 'node "entry script.mjs" "a & b" && node "entry script.mjs" "second"' }, root, process.env, 'ignore'), child => child.dispose())
     expect((await bounded(child.result)).exitCode).toBe(0)
     expect(await readFile(path.join(root, 'observed'), 'utf8')).toBe('["a & b"]\n["second"]\n')
-  }, 45_000)
+  })
 
   it('owns a newly created process even if the supervisor dies before startup resumes', async (ctx) => {
     const resources = await testResources(ctx.signal, 'matrix 创建窗口 ')
@@ -158,7 +159,7 @@ describe.skipIf(process.platform !== 'win32')('native Windows job ownership', ()
     await resources.wait(bounded(owner))
     await vi.waitFor(() => expect(alive(pid!)).toBe(false), { timeout: 5_000 })
     await expect(access(ran)).rejects.toThrow()
-  }, 45_000)
+  })
 
   it('rejects a failed native launch and settles every concurrent disposal', async (ctx) => {
     const resources = await testResources(ctx.signal, 'matrix failed launch ')
@@ -173,7 +174,7 @@ describe.skipIf(process.platform !== 'win32')('native Windows job ownership', ()
     expect(await bounded(invalid.result.catch(error => error))).toBeInstanceOf(Error)
     const outcomes = await Promise.allSettled(Array.from({ length: 8 }, () => invalid.dispose()))
     expect(outcomes.every(outcome => outcome.status === 'rejected')).toBe(true)
-  }, 45_000)
+  })
 
   it('joins concurrent cancellation during startup without executing user code', async (ctx) => {
     const resources = await testResources(ctx.signal, 'matrix cancelled launch ')
@@ -188,9 +189,9 @@ describe.skipIf(process.platform !== 'win32')('native Windows job ownership', ()
     await Promise.all(concurrent)
     await expect(child.result).resolves.toEqual({ signal: 'SIGTERM' })
     await expect(access(ran)).rejects.toThrow()
-  }, 30_000)
+  })
 
-  it.for(['disconnect', 'crash', 'timeout'])('drains a live process tree after supervisor %s', { timeout: 45_000 }, async (failure, ctx) => {
+  it.for(['disconnect', 'crash', 'timeout'])('drains a live process tree after supervisor %s', async (failure, ctx) => {
     const cancellation = new AbortController()
     const resources = await testResources(AbortSignal.any([ctx.signal, cancellation.signal]), 'matrix disconnected owner ')
     const { root } = resources
@@ -234,29 +235,25 @@ describe.skipIf(process.platform !== 'win32')('native Windows job ownership', ()
       const child = await resources.acquire(() => startWindowsJob(process.execPath, command('-e', `
         require('node:fs').writeFileSync(${JSON.stringify(ready)},String(process.pid));
         setInterval(()=>{},1000);
-      `), root, process.env, 'ignore'), child => child.dispose())
+      `), root, process.env, 'ignore'), child => withCleanup(
+        () => child.dispose(),
+        () => releaseRecordedProcesses([ready]),
+      ))
       void child.result.catch(() => undefined)
       let pid: number | undefined
-      try {
-        await resources.poll(async () => {
-          pid = Number(await readFile(ready, 'utf8'))
-          expect(pid).toBeGreaterThan(0)
-        })
-        const first = child.dispose()
-        const concurrent = Array.from({ length: 8 }, () => child.dispose())
-        expect(concurrent.every(disposal => disposal === first)).toBe(true)
-        await Promise.all(concurrent)
-        await child.result
-        expect(alive(pid!)).toBe(false)
-        // Give pipe-close/error callbacks a turn before starting the next owner.
-        await delay(0)
-        await vi.waitFor(() => expect(ownerResources()).toBeLessThanOrEqual(initialResources), { timeout: 5_000 })
-      }
-      finally {
-        await child.dispose().catch(() => undefined)
-        if (pid && alive(pid))
-          process.kill(pid, 'SIGKILL')
-      }
+      await resources.poll(async () => {
+        pid = Number(await readFile(ready, 'utf8'))
+        expect(pid).toBeGreaterThan(0)
+      })
+      const first = child.dispose()
+      const concurrent = Array.from({ length: 8 }, () => child.dispose())
+      expect(concurrent.every(disposal => disposal === first)).toBe(true)
+      await Promise.all(concurrent)
+      await child.result
+      expect(alive(pid!)).toBe(false)
+      // Give pipe-close/error callbacks a turn before starting the next owner.
+      await delay(0)
+      await vi.waitFor(() => expect(ownerResources()).toBeLessThanOrEqual(initialResources), { timeout: 5_000 })
     }
-  }, 90_000)
+  }, workflowTestTimeout)
 })

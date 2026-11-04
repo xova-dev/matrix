@@ -8,9 +8,12 @@ import { loadMatrixConfig } from '../../src/config/index.js'
 import { assertMatrixConfig } from '../../src/config/schema.js'
 import { runExecutionPlan as executePlan } from '../../src/execution/exec.js'
 import { createExecutionPlan } from '../../src/execution/plan.js'
+import { expectProcessStopped } from '../helpers/process-fixture.js'
 import { temporaryDirectory } from '../helpers/temporary-directory.js'
 import { createTestExecution } from '../helpers/test-execution.js'
+import { cleanupTimeout, fixtureReadyTimeout, processTestTimeout } from '../helpers/timeouts.js'
 
+const originalCwd = process.cwd()
 const testExecution = createTestExecution()
 const runCli = (...args: Parameters<typeof executeCli>) => testExecution.run(() => executeCli(...args))
 
@@ -52,8 +55,9 @@ afterEach(async () => {
   }
   finally {
     vi.restoreAllMocks()
+    process.chdir(originalCwd)
   }
-}, 60_000)
+}, cleanupTimeout)
 
 async function execution(config: MatrixConfig, productNames = ['app']) {
   await writeFile(path.join(cwd, 'matrix.config.json'), JSON.stringify(config))
@@ -72,7 +76,7 @@ function preparedProject(prepare: string | string[]): MatrixConfig {
   }
 }
 
-describe('project preparation', { timeout: 60_000 }, () => {
+describe('project preparation', { timeout: processTestTimeout }, () => {
   it('aborts and drains in-flight type preparation when a service fails before launching its dependent', async () => {
     await writeFile(path.join(cwd, 'service.mjs'), [
       'import { existsSync } from "node:fs";',
@@ -92,7 +96,7 @@ describe('project preparation', { timeout: 60_000 }, () => {
     })
     let settled = false
     let cleanupFinished = false
-    const running = runExecutionPlan(plan, {
+    const running = testExecution.run(() => executePlan(plan, {
       preparation: {
         cwd,
         prepare: async (task, _run, signal, session) => {
@@ -108,26 +112,23 @@ describe('project preparation', { timeout: 60_000 }, () => {
           }, signal)
         },
       },
+    }), () => {
+      release()
+      process.emit('SIGTERM')
     })
     const outcome = running.then(value => ({ value }), error => ({ error })).finally(() => {
       settled = true
     })
-    try {
-      await vi.waitFor(() => expect(observedSignal?.aborted).toBe(true), { timeout: 30_000 })
-      expect(settled).toBe(false)
-      expect(cleanupFinished).toBe(false)
-      release()
-      const result = await outcome
-      expect(result).toHaveProperty('error')
-      expect('error' in result && result.error.message).toContain('app:service:test exited with code 7')
-      expect(cleanupFinished).toBe(true)
-      await expect(readFile(path.join(cwd, 'events.jsonl'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
-      expect(messages.filter(message => message.startsWith('Execution '))).toHaveLength(1)
-    }
-    finally {
-      release()
-      await outcome
-    }
+    await vi.waitFor(() => expect(observedSignal?.aborted).toBe(true), { timeout: fixtureReadyTimeout })
+    expect(settled).toBe(false)
+    expect(cleanupFinished).toBe(false)
+    release()
+    const result = await outcome
+    expect(result).toHaveProperty('error')
+    expect('error' in result && result.error.message).toContain('app:service:test exited with code 7')
+    expect(cleanupFinished).toBe(true)
+    await expect(readFile(path.join(cwd, 'events.jsonl'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(messages.filter(message => message.startsWith('Execution '))).toHaveLength(1)
   })
 
   it('prepares dependencies and each shared-project context, after skipped targets', async () => {
@@ -230,39 +231,25 @@ describe('project preparation', { timeout: 60_000 }, () => {
 
   it.each(['test', 'prepare'])('cancels a later preparation command during %s without continuing execution', async (command) => {
     await execution(preparedProject(['node record.mjs first', 'node record.mjs wait', 'node record.mjs never']))
-    const previousCwd = process.cwd()
-    const previousExitCode = process.exitCode
     process.chdir(cwd)
     const running = runCli([command, 'app', '-e', 'qa'])
-    try {
-      let pid = 0
-      await vi.waitFor(async () => {
-        pid = Number(await readFile(path.join(cwd, 'ready'), 'utf8'))
-        expect(pid).toBeGreaterThan(0)
-      }, { timeout: 30_000 })
-      process.emit('SIGTERM')
-      await running
-      expect(process.exitCode).toBe(143)
-      await vi.waitFor(() => expect(() => process.kill(pid, 0)).toThrow())
-      // Windows termination does not deliver POSIX cleanup callbacks.
-      expect((await events()).map(event => event.event)).toEqual(process.platform === 'win32' ? ['first'] : ['first', 'cleanup'])
-      await expect(readFile(path.join(cwd, '.matrix/types/matrix-runtime.d.ts'))).rejects.toMatchObject({ code: 'ENOENT' })
-      const summaries = messages.filter(message => message.startsWith('Execution '))
-      expect(summaries).toHaveLength(1)
-      expect(summaries[0]).toContain('Execution cancelled (SIGTERM)')
-      expect(summaries[0]).toContain(`prepare:app:first:${command === 'prepare' ? 'dev' : 'test'}: cancelled`)
-      expect(summaries[0]).not.toContain('Failure:')
-    }
-    finally {
-      process.emit('SIGTERM')
-      try {
-        await running
-      }
-      finally {
-        process.chdir(previousCwd)
-        process.exitCode = previousExitCode
-      }
-    }
+    let pid = 0
+    await vi.waitFor(async () => {
+      pid = Number(await readFile(path.join(cwd, 'ready'), 'utf8'))
+      expect(pid).toBeGreaterThan(0)
+    }, { timeout: fixtureReadyTimeout })
+    process.emit('SIGTERM')
+    await running
+    expect(process.exitCode).toBe(143)
+    await expectProcessStopped(pid)
+    // Windows termination does not deliver POSIX cleanup callbacks.
+    expect((await events()).map(event => event.event)).toEqual(process.platform === 'win32' ? ['first'] : ['first', 'cleanup'])
+    await expect(readFile(path.join(cwd, '.matrix/types/matrix-runtime.d.ts'))).rejects.toMatchObject({ code: 'ENOENT' })
+    const summaries = messages.filter(message => message.startsWith('Execution '))
+    expect(summaries).toHaveLength(1)
+    expect(summaries[0]).toContain('Execution cancelled (SIGTERM)')
+    expect(summaries[0]).toContain(`prepare:app:first:${command === 'prepare' ? 'dev' : 'test'}: cancelled`)
+    expect(summaries[0]).not.toContain('Failure:')
   })
 
   it('rejects empty commands and full target objects as project preparation', () => {

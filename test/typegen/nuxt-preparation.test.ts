@@ -1,13 +1,28 @@
+import { writeFileSync } from 'node:fs'
 import { access, mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'pathe'
-import { describe, expect, it, vi } from 'vitest'
-import { findTypeHost, resolveHostTypes, TypePreparationCancelled } from '../../src/typegen/prepare.js'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { resolveHostTypes as collectHostTypes, findTypeHost, TypePreparationCancelled } from '../../src/typegen/prepare.js'
 import { currentProcessEnv } from '../../src/utils/env.js'
-import { withCleanup } from '../../src/utils/errors.js'
+import { processExists } from '../helpers/process-fixture.js'
 import { temporaryDirectory } from '../helpers/temporary-directory.js'
+import { createTestExecution } from '../helpers/test-execution.js'
+import { cleanupTimeout, fixtureReadyTimeout, processTestTimeout } from '../helpers/timeouts.js'
+
+const executions = createTestExecution()
+beforeEach(ctx => executions.begin(ctx.signal))
+afterEach(() => executions.cleanup(), cleanupTimeout)
+
+function resolveHostTypes(...[cwd, env, request, signal, session]: Parameters<typeof collectHostTypes>) {
+  const controller = new AbortController()
+  return executions.run(
+    () => collectHostTypes(cwd, env, request, signal ? AbortSignal.any([signal, controller.signal]) : controller.signal, session),
+    () => controller.abort(),
+  )
+}
 
 async function fixture(settings: Record<string, unknown> = {}): Promise<string> {
-  const root = await temporaryDirectory('matrix-nuxt-lifecycle-')
+  const root = await temporaryDirectory('matrix-nuxt-lifecycle-', () => executions.cleanup())
   const write = async (file: string, value: unknown): Promise<void> => {
     const location = path.join(root, file)
     await mkdir(path.dirname(location), { recursive: true })
@@ -90,7 +105,7 @@ async function fixture(settings: Record<string, unknown> = {}): Promise<string> 
   return root
 }
 
-describe('nuxt type preparation lifecycle', () => {
+describe('nuxt type preparation lifecycle', { timeout: processTestTimeout }, () => {
   it.each(['serve', 'build'] as const)('awaits all final Nuxt hooks and closes once for %s collection', async (command) => {
     const root = await fixture({ stringExports: command === 'build' })
     expect(await resolveHostTypes(root, currentProcessEnv(), { host: (await findTypeHost(root))!, mode: 'test', command })).toBeNull()
@@ -113,11 +128,11 @@ describe('nuxt type preparation lifecycle', () => {
     const controller = new AbortController()
     const running = resolveHostTypes(root, currentProcessEnv(), { host: (await findTypeHost(root))!, mode: 'test' }, controller.signal)
     void running.catch(() => undefined)
-    await vi.waitFor(() => access(path.join(root, 'ready.pid')), { timeout: 3000 })
+    await vi.waitFor(() => access(path.join(root, 'ready.pid')), { timeout: fixtureReadyTimeout })
     const pid = Number(await readFile(path.join(root, 'ready.pid'), 'utf8'))
     controller.abort()
     await expect(running).rejects.toBeInstanceOf(TypePreparationCancelled)
-    expect(() => process.kill(pid, 0)).toThrow()
+    expect(processExists(pid)).toBe(false)
     const log = await readFile(path.join(root, 'lifecycle'), 'utf8')
     expect(log).toContain('close;')
     expect(log.includes('closed;')).toBe(!closeHang)
@@ -126,22 +141,22 @@ describe('nuxt type preparation lifecycle', () => {
   it.skipIf(process.platform === 'win32')('retains cancellation arriving after collection while the process container drains', async () => {
     const root = await fixture({ delayedExit: true })
     const controller = new AbortController()
-    const running = resolveHostTypes(root, currentProcessEnv(), { host: (await findTypeHost(root))!, mode: 'test' }, controller.signal)
+    const host = (await findTypeHost(root))!
+    const running = executions.run(
+      () => collectHostTypes(root, currentProcessEnv(), { host, mode: 'test' }, controller.signal),
+      () => {
+        controller.abort()
+        // The execution owner must release this test gate even if Vitest
+        // abandons the test body on timeout.
+        writeFileSync(path.join(root, 'release'), '')
+      },
+    )
     void running.catch(() => undefined)
-    await withCleanup(async () => {
-      await vi.waitFor(() => access(path.join(root, 'draining')), { timeout: 5_000 })
-      controller.abort()
-      await writeFile(path.join(root, 'release'), '')
-      await expect(running).rejects.toBeInstanceOf(TypePreparationCancelled)
-      const pid = Number(await readFile(path.join(root, 'ready.pid'), 'utf8'))
-      expect(() => process.kill(pid, 0)).toThrow()
-    }, async () => {
-      controller.abort()
-      await writeFile(path.join(root, 'release'), '')
-      await running.catch((error) => {
-        if (!(error instanceof TypePreparationCancelled))
-          throw error
-      })
-    })
-  }, 45_000)
+    await vi.waitFor(() => access(path.join(root, 'draining')), { timeout: fixtureReadyTimeout })
+    controller.abort()
+    await writeFile(path.join(root, 'release'), '')
+    await expect(running).rejects.toBeInstanceOf(TypePreparationCancelled)
+    const pid = Number(await readFile(path.join(root, 'ready.pid'), 'utf8'))
+    expect(processExists(pid)).toBe(false)
+  })
 })

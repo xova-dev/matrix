@@ -9,6 +9,7 @@ import { parseArgs } from '../../src/cli/args.js'
 import { runCli as executeCli } from '../../src/cli/index.js'
 import { resolveSelection, selectionCommand } from '../../src/cli/selection.js'
 import { createTestExecution } from '../helpers/test-execution.js'
+import { cleanupTimeout, processTestTimeout } from '../helpers/timeouts.js'
 
 const executions = createTestExecution()
 const runCli = (args: string[]) => executions.run(() => executeCli(args))
@@ -45,7 +46,6 @@ let previousCwd: string
 let stdinTTY: PropertyDescriptor | undefined
 let stdoutTTY: PropertyDescriptor | undefined
 let terminalOutput: string[]
-let previousExitCode: typeof process.exitCode
 
 function terminal(enabled: boolean): void {
   Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: enabled })
@@ -70,7 +70,6 @@ beforeEach(async (context) => {
   vi.stubEnv('CI', '')
   vi.stubEnv('TERM', 'xterm-256color')
   vi.stubEnv('ACCESSIBLE', 'false')
-  previousExitCode = process.exitCode
   terminalOutput = []
   vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
     terminalOutput.push(String(chunk))
@@ -101,12 +100,11 @@ afterEach(async () => {
       Reflect.deleteProperty(process.stdout, 'isTTY')
     vi.unstubAllEnvs()
     vi.restoreAllMocks()
-    process.exitCode = previousExitCode
   }
   await rm(cwd, { recursive: true, force: true })
-}, 60_000)
+}, cleanupTimeout)
 
-describe('cli selection and execution plans', { timeout: 30_000 }, () => {
+describe('cli selection and execution plans', { timeout: processTestTimeout }, () => {
   it('runs a complete command without prompts and resolves the same plan outside a TTY', async () => {
     const args = { command: 'build', product: 'app', variants: ['desktop'] }
     const direct = await resolveSelection(args)

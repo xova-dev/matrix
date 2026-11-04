@@ -11,11 +11,22 @@ import consola from 'consola'
 import path from 'pathe'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { runExecutionPlan as executePlan } from '../../src/execution/exec.js'
+import { expectProcessStopped, processExists } from '../helpers/process-fixture.js'
 import { temporaryDirectory as createTemporaryDirectory } from '../helpers/temporary-directory.js'
 import { createTestExecution } from '../helpers/test-execution.js'
+import { cleanupTimeout, fixtureReadyTimeout, processTestTimeout } from '../helpers/timeouts.js'
 
 const executions = createTestExecution()
-const runExecutionPlan = (...args: Parameters<typeof executePlan>) => executions.run(() => executePlan(...args))
+function runExecutionPlan(plan: ExecutionPlan, options?: Parameters<typeof executePlan>[1], beforeStop?: () => void) {
+  return executions.run(() => executePlan(plan, options), beforeStop && (() => {
+    try {
+      beforeStop()
+    }
+    finally {
+      process.emit('SIGTERM')
+    }
+  }))
+}
 const temporaryDirectory = (prefix: string) => createTemporaryDirectory(prefix, () => executions.cleanup())
 
 function task(id: string, command: string, overrides: Partial<ExecutionTask> = {}): ExecutionTask {
@@ -74,18 +85,8 @@ async function freePort(): Promise<number> {
   return port
 }
 
-async function waitForFile(file: string, timeout: number): Promise<void> {
-  const deadline = Date.now() + timeout
-  while (Date.now() < deadline) {
-    try {
-      await fs.stat(file)
-      return
-    }
-    catch {
-      await new Promise(resolve => setTimeout(resolve, 20))
-    }
-  }
-  throw new Error(`Timed out waiting for file: ${file}`)
+async function waitForFile(file: string): Promise<void> {
+  await vi.waitFor(() => fs.access(file), { timeout: fixtureReadyTimeout })
 }
 
 let messages: string[]
@@ -99,13 +100,16 @@ beforeEach((ctx) => {
 })
 
 afterEach(async () => {
+  vi.useRealTimers()
   try {
     await executions.cleanup()
   }
   finally {
     vi.restoreAllMocks()
+    syncBuiltinESMExports()
+    vi.unstubAllEnvs()
   }
-}, 60_000)
+}, cleanupTimeout)
 
 function summary(): string {
   const summaries = messages.filter(message => message.startsWith('Execution '))
@@ -119,7 +123,7 @@ function holdDirectoryCheck(cwd: string) {
   let release!: () => void
   const resumed = new Promise<void>(resolve => release = resolve)
   const originalStat = fs.stat
-  const stat = vi.spyOn(fs, 'stat').mockImplementation(async (...args: unknown[]) => {
+  vi.spyOn(fs, 'stat').mockImplementation(async (...args: unknown[]) => {
     if (args[0] === cwd) {
       checking()
       await resumed
@@ -130,16 +134,12 @@ function holdDirectoryCheck(cwd: string) {
   return {
     entered,
     release,
-    restore() {
-      stat.mockRestore()
-      syncBuiltinESMExports()
-    },
   }
 }
 
 // Real process containers include platform startup and disposal; use the same
 // integration budget as preparation, including cold Windows PowerShell/.NET.
-describe('runExecutionPlan', { timeout: 60_000 }, () => {
+describe('runExecutionPlan', { timeout: processTestTimeout }, () => {
   it('does not let an already completed service end another live service', async () => {
     const cwd = await temporaryDirectory('matrix-exec-service-completion-')
     const marker = path.join(cwd, 'finished')
@@ -252,28 +252,21 @@ describe('runExecutionPlan', { timeout: 60_000 }, () => {
     })
     const listeners = { SIGINT: process.listenerCount('SIGINT'), SIGTERM: process.listenerCount('SIGTERM') }
     const check = holdDirectoryCheck(cwd)
-    const execution = runExecutionPlan(plan([command]))
-    try {
-      await check.entered
-      process.emit(signal)
-      check.release()
-      const result = await execution
-      // On regression, wait for the real escaped child before checking its side effect.
-      await Promise.allSettled([...result.children.values()].map(child => child.result))
-      expect(existsSync(marker)).toBe(false)
-      expect(result.children.size).toBe(0)
-      expect(result.cancelled).toBe(signal)
-      expect(summary()).toContain(`Execution cancelled (${signal})`)
-      expect(summary()).toContain('app:target:test: cancelled')
-      expect(summary()).not.toContain('Failure:')
-      expect(process.listenerCount('SIGINT')).toBe(listeners.SIGINT)
-      expect(process.listenerCount('SIGTERM')).toBe(listeners.SIGTERM)
-    }
-    finally {
-      check.release()
-      check.restore()
-      await execution
-    }
+    const execution = runExecutionPlan(plan([command]), undefined, check.release)
+    await check.entered
+    process.emit(signal)
+    check.release()
+    const result = await execution
+    // On regression, wait for the real escaped child before checking its side effect.
+    await Promise.allSettled([...result.children.values()].map(child => child.result))
+    expect(existsSync(marker)).toBe(false)
+    expect(result.children.size).toBe(0)
+    expect(result.cancelled).toBe(signal)
+    expect(summary()).toContain(`Execution cancelled (${signal})`)
+    expect(summary()).toContain('app:target:test: cancelled')
+    expect(summary()).not.toContain('Failure:')
+    expect(process.listenerCount('SIGINT')).toBe(listeners.SIGINT)
+    expect(process.listenerCount('SIGTERM')).toBe(listeners.SIGTERM)
   })
 
   it('does not start a command when a service aborts execution during its cwd check', async () => {
@@ -295,7 +288,6 @@ describe('runExecutionPlan', { timeout: 60_000 }, () => {
     const listeners = { SIGINT: process.listenerCount('SIGINT'), SIGTERM: process.listenerCount('SIGTERM') }
     const check = holdDirectoryCheck(targetRoot)
     let targetSignal!: AbortSignal
-    let settled = false
     const execution = runExecutionPlan(plan([service, target]), {
       preparation: {
         cwd,
@@ -304,29 +296,20 @@ describe('runExecutionPlan', { timeout: 60_000 }, () => {
             targetSignal = signal
         },
       },
-    }).finally(() => settled = true)
+    }, check.release)
     void execution.catch(() => undefined)
-    try {
-      await check.entered
-      const aborted = new Promise<void>(resolve => targetSignal.addEventListener('abort', () => resolve(), { once: true }))
-      await waitForFile(ready, 2000)
-      await fs.writeFile(exit, '')
-      await aborted
-      check.release()
-      await expect(execution).rejects.toThrow('app:service:test exited with code 9')
-      expect(existsSync(marker)).toBe(false)
-      expect(messages).not.toContain('app:target:test [1/1]')
-      expect(summary()).toContain('app:service:test: failed')
-      expect(process.listenerCount('SIGINT')).toBe(listeners.SIGINT)
-      expect(process.listenerCount('SIGTERM')).toBe(listeners.SIGTERM)
-    }
-    finally {
-      if (!settled)
-        process.emit('SIGINT')
-      check.release()
-      check.restore()
-      await execution.catch(() => undefined)
-    }
+    await check.entered
+    const aborted = new Promise<void>(resolve => targetSignal.addEventListener('abort', () => resolve(), { once: true }))
+    await waitForFile(ready)
+    await fs.writeFile(exit, '')
+    await aborted
+    check.release()
+    await expect(execution).rejects.toThrow('app:service:test exited with code 9')
+    expect(existsSync(marker)).toBe(false)
+    expect(messages).not.toContain('app:target:test [1/1]')
+    expect(summary()).toContain('app:service:test: failed')
+    expect(process.listenerCount('SIGINT')).toBe(listeners.SIGINT)
+    expect(process.listenerCount('SIGTERM')).toBe(listeners.SIGTERM)
   })
 
   it('identifies artifact failures and does not complete a task whose artifact was not delivered', async () => {
@@ -383,44 +366,34 @@ describe('runExecutionPlan', { timeout: 60_000 }, () => {
       ? { ...plan([next]), preparations: [{ id: 'prepare:project', project: 'project', command: runningTask.command, cwd, env: runningTask.env, beforeTask: next.id }] }
       : plan(phase === 'service' ? [runningTask] : [runningTask, next])
     let completed = false
-    const execution = runExecutionPlan(executionPlan).then((result) => {
+    let pid: number | undefined
+    const execution = runExecutionPlan(executionPlan, undefined, () => {
+      vi.useRealTimers()
+      // A test failure can abandon fake time before the production grace
+      // deadline. Its owner still has to release this deliberately stubborn PID.
+      if (pid && processExists(pid))
+        process.kill(pid, 'SIGKILL')
+    }).then((result) => {
       completed = true
       return result
     })
     // Keep failures handled until the assertion below observes the execution.
     void execution.catch(() => undefined)
-    let pid: number | undefined
-    try {
-      await waitForFile(ready, 2000)
-      pid = Number(await fs.readFile(ready, 'utf8'))
-      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
-      process.emit('SIGINT')
-      await vi.advanceTimersByTimeAsync(29_999)
-      expect(completed).toBe(false)
-      expect(() => process.kill(pid!, 0)).not.toThrow()
-      await vi.advanceTimersByTimeAsync(1)
-      await vi.waitFor(() => expect(completed).toBe(true), { timeout: 1000 })
-      expect((await execution).cancelled).toBe('SIGINT')
-      expect(summary()).toContain('Execution cancelled (SIGINT)')
-      // The OS may reap an orphan just after the process group has stopped running.
-      await vi.waitFor(() => expect(() => process.kill(pid!, 0)).toThrow())
-      await expect(fs.stat(marker)).rejects.toMatchObject({ code: 'ENOENT' })
-      expect(process.listenerCount('SIGINT')).toBe(listeners)
-    }
-    finally {
-      vi.useRealTimers()
-      if (!completed)
-        process.emit('SIGINT')
-      if (pid) {
-        try {
-          process.kill(pid, 'SIGKILL')
-        }
-        catch {
-          // The executor normally reaps the fixture before this cleanup.
-        }
-      }
-      await execution
-    }
+    await waitForFile(ready)
+    pid = Number(await fs.readFile(ready, 'utf8'))
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    process.emit('SIGINT')
+    await vi.advanceTimersByTimeAsync(29_999)
+    expect(completed).toBe(false)
+    expect(processExists(pid!)).toBe(true)
+    await vi.advanceTimersByTimeAsync(1)
+    await vi.waitFor(() => expect(completed).toBe(true), { timeout: 1000 })
+    vi.useRealTimers()
+    expect((await execution).cancelled).toBe('SIGINT')
+    expect(summary()).toContain('Execution cancelled (SIGINT)')
+    await expectProcessStopped(pid!)
+    await expect(fs.stat(marker)).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(process.listenerCount('SIGINT')).toBe(listeners)
   })
 
   it('cancels execution, terminates the child, and never starts the next task on every platform', async () => {
@@ -432,27 +405,16 @@ describe('runExecutionPlan', { timeout: 60_000 }, () => {
       'setInterval(() => {}, 1000)',
     ].join(String.fromCharCode(10)), { env: { MATRIX_TEST_READY: ready } })
     const next = scriptedTask('app:next:test', 'require("node:fs").writeFileSync(process.env.MATRIX_TEST_MARKER, "started")', { env: { MATRIX_TEST_MARKER: nextMarker } })
-    let completed = false
-    const execution = runExecutionPlan(plan([running, next])).then((result) => {
-      completed = true
-      return result
-    })
-    try {
-      await waitForFile(ready, 2000)
-      const pid = Number(await fs.readFile(ready, 'utf8'))
-      process.emit('SIGINT')
-      expect((await execution).cancelled).toBe('SIGINT')
-      await vi.waitFor(() => expect(() => process.kill(pid, 0)).toThrow())
-      await expect(fs.stat(nextMarker)).rejects.toMatchObject({ code: 'ENOENT' })
-      expect(summary()).toContain('app:running:test: cancelled')
-      expect(summary()).toContain('app:next:test: not run')
-      expect(summary()).not.toContain('Failure:')
-    }
-    finally {
-      if (!completed)
-        process.emit('SIGINT')
-      await execution
-    }
+    const execution = runExecutionPlan(plan([running, next]))
+    await waitForFile(ready)
+    const pid = Number(await fs.readFile(ready, 'utf8'))
+    process.emit('SIGINT')
+    expect((await execution).cancelled).toBe('SIGINT')
+    await expectProcessStopped(pid)
+    await expect(fs.stat(nextMarker)).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(summary()).toContain('app:running:test: cancelled')
+    expect(summary()).toContain('app:next:test: not run')
+    expect(summary()).not.toContain('Failure:')
   })
 
   it.skipIf(process.platform === 'win32')('waits for all task groups to exit before reporting a process inspection failure', async () => {
@@ -463,175 +425,99 @@ describe('runExecutionPlan', { timeout: 60_000 }, () => {
       'setInterval(() => {}, 1000)',
       'require("node:fs").writeFileSync(process.env.MATRIX_TEST_READY, String(process.pid))',
     ].join(String.fromCharCode(10)), { continuous: true, env: { MATRIX_TEST_READY: file } }))
-    const originalPath = process.env.PATH
     const listeners = process.listenerCount('SIGINT')
-    let completed = false
-    const execution = runExecutionPlan(plan(tasks)).finally(() => {
-      completed = true
-    })
+    const execution = runExecutionPlan(plan(tasks))
     void execution.catch(() => undefined)
-    try {
-      await Promise.all(files.map(file => waitForFile(file, 2000)))
-      const pids = await Promise.all(files.map(async file => Number(await fs.readFile(file, 'utf8'))))
-      for (const pid of pids)
-        expect(pid).toBeGreaterThan(0)
-      process.env.PATH = cwd // No ps binary: exercise the real spawn failure boundary.
-      process.emit('SIGINT')
-      await expect(execution).rejects.toMatchObject({
-        errors: [expect.objectContaining({ message: 'Execution cancelled' }), expect.objectContaining({ code: 'ENOENT' }), expect.objectContaining({ code: 'ENOENT' })],
-      })
-      // No retry here: failure must not be reported before cleanup has finished.
-      for (const pid of pids)
-        expect(() => process.kill(pid, 0)).toThrow()
-      expect(process.listenerCount('SIGINT')).toBe(listeners)
-      expect(summary()).toContain('Execution failed (SIGINT)')
-      expect(summary()).toContain('cleanup [cleanup]')
-      expect(summary()).toContain('ENOENT')
-    }
-    finally {
-      if (originalPath === undefined)
-        delete process.env.PATH
-      else
-        process.env.PATH = originalPath
-      if (!completed)
-        process.emit('SIGINT')
-      await execution.catch(() => undefined)
-    }
-  }, 10_000)
+    await Promise.all(files.map(file => waitForFile(file)))
+    const pids = await Promise.all(files.map(async file => Number(await fs.readFile(file, 'utf8'))))
+    for (const pid of pids)
+      expect(pid).toBeGreaterThan(0)
+    vi.stubEnv('PATH', cwd) // No ps binary: exercise the real spawn failure boundary.
+    process.emit('SIGINT')
+    await expect(execution).rejects.toMatchObject({
+      errors: [expect.objectContaining({ message: 'Execution cancelled' }), expect.objectContaining({ code: 'ENOENT' }), expect.objectContaining({ code: 'ENOENT' })],
+    })
+    // No retry here: failure must not be reported before cleanup has finished.
+    for (const pid of pids)
+      expect(processExists(pid)).toBe(false)
+    expect(process.listenerCount('SIGINT')).toBe(listeners)
+    expect(summary()).toContain('Execution failed (SIGINT)')
+    expect(summary()).toContain('cleanup [cleanup]')
+    expect(summary()).toContain('ENOENT')
+  })
 
   it.skipIf(process.platform === 'win32')('preserves a nonzero command result when its process-tree cleanup also fails', async () => {
     const cwd = await temporaryDirectory('matrix-exec-double-failure-')
     const ready = path.join(cwd, 'ready')
     const proceed = path.join(cwd, 'proceed')
-    const originalPath = process.env.PATH
     const command = scriptedTask('app:failed:build', `
       const fs = require('node:fs');
       const child = require('node:child_process').spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
       fs.writeFileSync(process.env.MATRIX_TEST_READY, String(child.pid));
       setInterval(() => { if (fs.existsSync(process.env.MATRIX_TEST_PROCEED)) process.exit(7); }, 10);
     `, { env: { MATRIX_TEST_READY: ready, MATRIX_TEST_PROCEED: proceed } })
-    let completed = false
-    const execution = runExecutionPlan(plan([command])).finally(() => {
-      completed = true
-    })
+    const execution = runExecutionPlan(plan([command]))
     void execution.catch(() => undefined)
-    try {
-      await waitForFile(ready, 2000)
-      process.env.PATH = cwd
-      await fs.writeFile(proceed, '')
-      const error = await execution.catch(error => error)
-      expect(error.message).toContain('exited with code 7')
-      expect(error.message).toContain('ENOENT')
-      const pid = Number(await fs.readFile(ready, 'utf8'))
-      expect(() => process.kill(pid, 0)).toThrow()
-    }
-    finally {
-      if (originalPath === undefined)
-        delete process.env.PATH
-      else
-        process.env.PATH = originalPath
-      if (!completed)
-        process.emit('SIGINT')
-      await execution.catch(() => undefined)
-    }
-  }, 10_000)
+    await waitForFile(ready)
+    vi.stubEnv('PATH', cwd)
+    await fs.writeFile(proceed, '')
+    const error = await execution.catch(error => error)
+    expect(error.message).toContain('exited with code 7')
+    expect(error.message).toContain('ENOENT')
+    const pid = Number(await fs.readFile(ready, 'utf8'))
+    expect(processExists(pid)).toBe(false)
+  })
 
-  it.skipIf(process.platform === 'win32')('waits for a child graceful shutdown before returning after SIGINT (POSIX)', async () => {
+  it.skipIf(process.platform === 'win32').each([1, 2])('reports cancellation only after all %i children finish graceful shutdown', async (count) => {
     const cwd = await temporaryDirectory('matrix-exec-shutdown-')
-    const marker = path.join(cwd, 'cleanup-complete')
-    const ready = path.join(cwd, 'ready')
+    const markers = Array.from({ length: count }, (_, index) => path.join(cwd, `cleanup-${index}`))
     let reportedAfterCleanup = false
     vi.mocked(consola.info).mockImplementation((message) => {
       messages.push(String(message))
       if (String(message).startsWith('Execution '))
-        reportedAfterCleanup = existsSync(marker)
+        reportedAfterCleanup = markers.every(marker => existsSync(marker))
     })
-    const running = scriptedTask('app:running:test', [
+    const tasks = markers.map((marker, index) => scriptedTask(`app:running${index}:test`, [
       'const fs = require("node:fs")',
       'process.on("SIGTERM", () => setTimeout(() => { fs.writeFileSync(process.env.MATRIX_TEST_MARKER, "done"); process.exit(0) }, 100))',
       'fs.writeFileSync(process.env.MATRIX_TEST_READY, "ready")',
-      'setTimeout(() => {}, 5_000)',
-    ].join(String.fromCharCode(10)), {
-      env: { MATRIX_TEST_MARKER: marker, MATRIX_TEST_READY: ready },
-    })
-    const execution = runExecutionPlan(plan([running]))
-
-    void execution.catch(() => undefined)
-    try {
-      await waitForFile(ready, 2000)
-      process.emit('SIGINT')
-      await execution
-      await expect(fs.readFile(marker, 'utf8')).resolves.toBe('done')
-      expect(reportedAfterCleanup).toBe(true)
-      expect(summary()).toContain('app:running:test: cancelled')
-    }
-    finally {
-      process.emit('SIGINT')
-      await execution.catch(() => undefined)
-    }
-  })
-
-  it.skipIf(process.platform === 'win32')('waits for every running child to finish graceful shutdown (POSIX)', async () => {
-    const cwd = await temporaryDirectory('matrix-exec-multi-shutdown-')
-    const firstMarker = path.join(cwd, 'first-cleanup-complete')
-    const secondMarker = path.join(cwd, 'second-cleanup-complete')
-    const createRunningTask = (id: string, marker: string): ExecutionTask => scriptedTask(id, [
-      'const fs = require("node:fs")',
-      'process.on("SIGTERM", () => setTimeout(() => { fs.writeFileSync(process.env.MATRIX_TEST_MARKER, "done"); process.exit(0) }, 100))',
-      'fs.writeFileSync(process.env.MATRIX_TEST_READY, "ready")',
-      'setTimeout(() => {}, 5_000)',
-    ].join(String.fromCharCode(10)), {
-      continuous: true,
+      'setInterval(() => {}, 1000)',
+    ].join('\n'), {
+      continuous: count > 1,
       env: { MATRIX_TEST_MARKER: marker, MATRIX_TEST_READY: `${marker}.ready` },
-    })
-    const execution = runExecutionPlan(plan([
-      createRunningTask('app:first:test', firstMarker),
-      createRunningTask('app:second:test', secondMarker),
-    ]))
-
+    }))
+    const execution = runExecutionPlan(plan(tasks))
     void execution.catch(() => undefined)
-    try {
-      await Promise.all([firstMarker, secondMarker].map(marker => waitForFile(`${marker}.ready`, 2000)))
-      process.emit('SIGINT')
-      await execution
-      await expect(fs.readFile(firstMarker, 'utf8')).resolves.toBe('done')
-      await expect(fs.readFile(secondMarker, 'utf8')).resolves.toBe('done')
-    }
-    finally {
-      process.emit('SIGINT')
-      await execution.catch(() => undefined)
-    }
+    await Promise.all(markers.map(marker => waitForFile(`${marker}.ready`)))
+    process.emit('SIGINT')
+    expect((await execution).cancelled).toBe('SIGINT')
+    for (const marker of markers)
+      await expect(fs.readFile(marker, 'utf8')).resolves.toBe('done')
+    expect(reportedAfterCleanup).toBe(true)
+    for (const task of tasks)
+      expect(summary()).toContain(`${task.id}: ${task.continuous ? 'stopped' : 'cancelled'}`)
   })
 
   it('terminates descendants started through a shell command', async () => {
     const cwd = await temporaryDirectory('matrix-exec-descendants-')
-    const marker = path.join(cwd, 'descendant-survived')
-    const running = scriptedTask('app:running:test', [
-      'const { spawn } = require("node:child_process")',
-      'const fs = require("node:fs")',
-      'const descendant = spawn(process.execPath, ["-e", `setTimeout(() => require("node:fs").writeFileSync(process.env.MATRIX_TEST_MARKER, "survived"), 500)`], { stdio: "ignore", env: process.env })',
-      'fs.writeFileSync(process.env.MATRIX_TEST_DESCENDANT_PID, String(descendant.pid))',
-      'setTimeout(() => {}, 5_000)',
-    ].join(String.fromCharCode(10)), {
-      env: {
-        MATRIX_TEST_MARKER: marker,
-        MATRIX_TEST_DESCENDANT_PID: path.join(cwd, 'descendant.pid'),
-      },
-    })
+    const ready = path.join(cwd, 'descendant.pid')
+    const descendant = `
+      require('node:fs').writeFileSync(process.env.MATRIX_TEST_READY, String(process.pid));
+      setInterval(() => {}, 1000);
+    `
+    const running = scriptedTask('app:running:test', `
+      require('node:child_process').spawn(process.execPath, ['-e', ${JSON.stringify(descendant)}], { stdio: 'ignore', env: process.env });
+      setInterval(() => {}, 1000);
+    `, { env: { MATRIX_TEST_READY: ready } })
     const execution = runExecutionPlan(plan([running]))
-
     void execution.catch(() => undefined)
-    try {
-      await waitForFile(path.join(cwd, 'descendant.pid'), 2_000)
-      process.emit('SIGINT')
-      await execution
-      await new Promise(resolve => setTimeout(resolve, 700))
-      await expect(fs.stat(marker)).rejects.toMatchObject({ code: 'ENOENT' })
-    }
-    finally {
-      process.emit('SIGINT')
-      await execution.catch(() => undefined)
-    }
+    await waitForFile(ready)
+    const pid = Number(await fs.readFile(ready, 'utf8'))
+    expect(processExists(pid)).toBe(true)
+    process.emit('SIGINT')
+    await execution
+    // Check the actual consumer, rather than sleeping past a delayed side effect.
+    await expectProcessStopped(pid)
   })
 
   it('cleans stale output before execution and keeps the current archived output', async () => {
@@ -667,35 +553,21 @@ describe('runExecutionPlan', { timeout: 60_000 }, () => {
     const marker = path.join(cwd, 'env.json')
     const inheritedKey = 'MATRIX_TEST_HOST_INHERITED'
     const overriddenKey = 'MATRIX_TEST_HOST_OVERRIDDEN'
-    const previousInherited = process.env[inheritedKey]
-    const previousOverridden = process.env[overriddenKey]
-    process.env[inheritedKey] = 'host-value'
-    process.env[overriddenKey] = 'host-value'
-    try {
-      const task = scriptedTask('app:environment:test', [
-        'const fs = require("node:fs")',
-        `fs.writeFileSync(process.env.MATRIX_TEST_MARKER, JSON.stringify({ inherited: process.env.${inheritedKey}, overridden: process.env.${overriddenKey} }))`,
-      ].join(String.fromCharCode(10)), {
-        env: {
-          MATRIX_TEST_MARKER: marker,
-          [overriddenKey]: 'task-value',
-        },
-      })
+    vi.stubEnv(inheritedKey, 'host-value')
+    vi.stubEnv(overriddenKey, 'host-value')
+    const task = scriptedTask('app:environment:test', [
+      'const fs = require("node:fs")',
+      `fs.writeFileSync(process.env.MATRIX_TEST_MARKER, JSON.stringify({ inherited: process.env.${inheritedKey}, overridden: process.env.${overriddenKey} }))`,
+    ].join(String.fromCharCode(10)), {
+      env: {
+        MATRIX_TEST_MARKER: marker,
+        [overriddenKey]: 'task-value',
+      },
+    })
 
-      await runExecutionPlan(plan([task]))
+    await runExecutionPlan(plan([task]))
 
-      await expect(fs.readFile(marker, 'utf8')).resolves.toBe(JSON.stringify({ inherited: 'host-value', overridden: 'task-value' }))
-    }
-    finally {
-      if (previousInherited === undefined)
-        delete process.env[inheritedKey]
-      else
-        process.env[inheritedKey] = previousInherited
-      if (previousOverridden === undefined)
-        delete process.env[overriddenKey]
-      else
-        process.env[overriddenKey] = previousOverridden
-    }
+    await expect(fs.readFile(marker, 'utf8')).resolves.toBe(JSON.stringify({ inherited: 'host-value', overridden: 'task-value' }))
   })
 
   it('waits for completed dependencies before starting the dependent task', async () => {
@@ -743,11 +615,11 @@ describe('runExecutionPlan', { timeout: 60_000 }, () => {
       'const net = require("node:net")',
       'const server = net.createServer()',
       'server.listen(Number(process.env.MATRIX_TEST_PORT), "127.0.0.1")',
-      'setTimeout(() => server.close(() => process.exit(0)), 350)',
+      'const check = setInterval(() => { if (require("node:fs").existsSync(process.env.MATRIX_TEST_MARKER)) { clearInterval(check); server.close(() => process.exit(0)) } }, 10)',
     ].join(String.fromCharCode(10)), {
       continuous: true,
-      env: { MATRIX_TEST_PORT: port },
-      readyWhen: { type: 'port', host: '127.0.0.1', port, timeout: 2_000 },
+      env: { MATRIX_TEST_PORT: port, MATRIX_TEST_MARKER: marker },
+      readyWhen: { type: 'port', host: '127.0.0.1', port, timeout: fixtureReadyTimeout },
     })
     const dependent = scriptedTask('app:dependent:test', 'require("node:fs").writeFileSync(process.env.MATRIX_TEST_MARKER, "started")', {
       env: { MATRIX_TEST_MARKER: marker },
@@ -765,7 +637,7 @@ describe('runExecutionPlan', { timeout: 60_000 }, () => {
     const port = await freePort()
     const service = scriptedTask('app:service:test', 'setTimeout(() => process.exit(0), 150)', {
       continuous: true,
-      readyWhen: { type: 'port', host: '127.0.0.1', port, timeout: 2_000 },
+      readyWhen: { type: 'port', host: '127.0.0.1', port, timeout: fixtureReadyTimeout },
     })
     const dependent = scriptedTask('app:dependent:test', 'process.exit(0)', {
       dependsOn: [{ id: service.id, condition: 'ready' }],
