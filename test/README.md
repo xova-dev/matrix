@@ -476,7 +476,9 @@ The key ownership contracts and representative regressions are:
   and join it before directory deletion. The parent owns an isolated runner's
   temporary parent directory before launch, so cancellation before any receipt
   cannot lose directory ownership. Real timeout, assertion/cleanup failure and
-  cancellation before/after receipt exercise this boundary.
+  cancellation before/after receipt exercise this boundary. POSIX shutdown
+  assertions reject live workers but allow exited zombies awaiting reaping by
+  their new parent; Windows assertions require the PID to disappear.
 - CLI-driven plugin generation belongs to `typegen/prepare-types.test.ts`, with
   the execution owner and native host budget; plugin-only tests do not launch
   an unmanaged CLI. `typegen/nuxt-preparation.test.ts` also checks cancellation

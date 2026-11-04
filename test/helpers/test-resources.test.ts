@@ -1,10 +1,25 @@
 import { access, mkdir, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { setImmediate } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
+import { execa } from 'execa'
 import path from 'pathe'
 import { describe, expect, it } from 'vitest'
 import { startProcess } from '../../src/execution/process.js'
+import { processExists } from './process-fixture.js'
 import { releaseResources, testResources } from './test-resources.js'
+
+async function expectProcessStopped(pid: number): Promise<void> {
+  if (process.platform === 'win32') {
+    expect(processExists(pid)).toBe(false)
+    return
+  }
+  // Cancellation can orphan the worker. Disposal guarantees no live consumers,
+  // but reaping an exited orphan belongs to its new parent, not to this test.
+  const { stdout } = await execa('ps', ['-A', '-o', 'pid=,stat='])
+  const rows = stdout.trim().split('\n').map(line => line.trim().split(/\s+/))
+  const state = rows.find(([id]) => Number(id) === pid)?.[1]
+  expect(state === undefined || state.startsWith('Z'), `Fixture process ${pid} is still active (state: ${state})`).toBe(true)
+}
 
 describe('test resource ownership', () => {
   it('wakes an unanswered wait on timeout and joins disposal before directory cleanup', async () => {
@@ -177,7 +192,7 @@ describe('test resource ownership', () => {
       await expect(pending).rejects.toBe(cancellation.signal.reason)
       await resources.dispose()
       await expect(access(receipt.root)).rejects.toMatchObject({ code: 'ENOENT' })
-      expect(() => process.kill(receipt.pid, 0)).toThrow()
+      await expectProcessStopped(receipt.pid)
       return
     }
     const result = await resources.wait(child.result)
@@ -197,6 +212,6 @@ describe('test resource ownership', () => {
     }
     expect(await readFile(path.join(root, 'drained'), 'utf8')).toBe('yes')
     const receipt = JSON.parse(await readFile(path.join(root, 'receipt.json'), 'utf8'))
-    expect(() => process.kill(receipt.pid, 0)).toThrow()
+    await expectProcessStopped(receipt.pid)
   })
 })
